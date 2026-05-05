@@ -76,7 +76,7 @@ export const ROLE_PERMISSIONS = {
     canEditUsers: false,
     canExport: true,
     canChangeSettings: false,
-    routes: ["/", "/ventes", "/tresorerie", "/produits", "/acteurs", "/fiscalite", "/ecritures", "/assistant", "/profil", "/aide", "/parametres"],
+    routes: ["/", "/ventes", "/tresorerie", "/produits", "/acteurs", "/fiscalite", "/assistant", "/profil", "/aide", "/parametres"],
   },
   Consultant: {
     canViewAll: false,
@@ -90,7 +90,7 @@ export const ROLE_PERMISSIONS = {
     canEditUsers: false,
     canExport: true,
     canChangeSettings: false,
-    routes: ["/", "/fiscalite", "/ecritures", "/banque", "/profil", "/aide", "/parametres"],
+    routes: ["/", "/fiscalite", "/banque", "/profil", "/aide", "/parametres"],
   },
 };
 

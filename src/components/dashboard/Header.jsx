@@ -23,7 +23,6 @@ export function Header({ pathname }) {
     "/tresorerie": "nav.tresorerie",
     "/produits":   "nav.produits",
     "/acteurs":    "nav.acteurs",
-    "/ecritures":  "nav.fiscalite",
     "/fiscalite":  "nav.fiscalite",
     "/caisse":     "nav.caisse",
     "/banque":     "nav.banque",
