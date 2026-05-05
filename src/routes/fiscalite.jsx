@@ -26,7 +26,7 @@ export const Route = createFileRoute("/fiscalite")({
   component: FiscalitePage,
 });
 
-// Top 10 journaux grouped Débit/Crédit (KPI-25/27)
+// Top 10 journaux grouped Débit/Crédit (KPI-19)
 const journaux = ["Ventes", "Achats", "Banque", "Caisse", "OD", "Salaires", "TVA", "Immob.", "Clients", "Fournisseurs"];
 const journalData = journaux.map((j) => ({
   journal: j,
@@ -34,7 +34,7 @@ const journalData = journaux.map((j) => ({
   credit: Math.round(100000 + Math.random() * 500000),
 }));
 
-// TVA dual-line (KPI-26)
+// TVA dual-line (KPI-20)
 const tvaData = MONTHS.map((m) => ({
   month: m,
   collectee: Math.round(120000 + Math.random() * 80000),
@@ -43,7 +43,7 @@ const tvaData = MONTHS.map((m) => ({
 }));
 tvaData.forEach((d) => { d.soldeNet = d.collectee - d.deductible; });
 
-// Anomaly scatter (KPI-28) — Isolation Forest scores
+// Anomaly scatter (KPI-21) — Isolation Forest scores
 const anomalyData = Array.from({ length: 80 }, (_, i) => {
   const score = Math.random();
   return {
@@ -55,7 +55,7 @@ const anomalyData = Array.from({ length: 80 }, (_, i) => {
   };
 });
 
-// Waterfall mensuel débit/crédit (KPI-25)
+// Waterfall mensuel débit/crédit (KPI-19)
 const waterfallData = MONTHS.map((m) => {
   const debit = Math.round(200000 + Math.random() * 400000);
   const credit = Math.round(200000 + Math.random() * 400000);
@@ -118,8 +118,8 @@ function FiscalitePage() {
   </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Widget A: Grouped bar Débit vs Crédit top 10 journaux (KPI-25/27) */}
-        <ChartCard loading={chartsLoading} skeleton="bar" title="Soldes par journal — Débit vs Crédit (KPI-25/27)">
+        {/* Widget A: Grouped bar Débit vs Crédit top 10 journaux (KPI-19) */}
+        <ChartCard loading={chartsLoading} skeleton="bar" title="Soldes par journal — Débit vs Crédit (KPI-19)">
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={journalData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -144,8 +144,8 @@ function FiscalitePage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* Widget B: TVA collectée vs déductible (KPI-26) */}
-        <ChartCard loading={chartsLoading} skeleton="bar" title="TVA collectée vs déductible (KPI-26)">
+        {/* Widget B: TVA collectée vs déductible (KPI-20) */}
+        <ChartCard loading={chartsLoading} skeleton="bar" title="TVA collectée vs déductible (KPI-20)">
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={tvaData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -195,8 +195,8 @@ function FiscalitePage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* Widget C: Anomaly scatter (KPI-28) */}
-        <ChartCard loading={chartsLoading} skeleton="scatter" title="Détection anomalies comptables — Isolation Forest (KPI-28)">
+        {/* Widget C: Anomaly scatter (KPI-21) */}
+        <ChartCard loading={chartsLoading} skeleton="scatter" title="Détection anomalies comptables — Isolation Forest (KPI-21)">
           <ResponsiveContainer width="100%" height={chartH}>
             <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -242,8 +242,8 @@ function FiscalitePage() {
           </p>
         </ChartCard>
 
-        {/* Widget D: Waterfall mensuel débit/crédit (KPI-25) */}
-        <ChartCard loading={chartsLoading} skeleton="bar" title="Équilibre comptable mensuel — Waterfall (KPI-25)">
+        {/* Widget D: Waterfall mensuel débit/crédit (KPI-19) */}
+        <ChartCard loading={chartsLoading} skeleton="bar" title="Équilibre comptable mensuel — Waterfall (KPI-19)">
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={waterfallData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />

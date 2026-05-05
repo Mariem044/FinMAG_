@@ -164,7 +164,7 @@ function ActeursPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* RFM scatter */}
-        <ChartCard loading={chartsLoading} skeleton="scatter" key={`${segment}-${depot}`} title={`Matrice RFM clients${segment !== "Tous" ? ` — ${segment}` : ""} (KPI-22)`}>
+        <ChartCard loading={chartsLoading} skeleton="scatter" key={`${segment}-${depot}`} title={`Matrice RFM clients${segment !== "Tous" ? ` — ${segment}` : ""} (KPI-18)`}>
           <ResponsiveContainer width="100%" height={chartH}>
             <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -201,7 +201,7 @@ function ActeursPage() {
         </ChartCard>
 
         {/* Aging GRT */}
-        <ChartCard loading={chartsLoading} skeleton="bar" title="Vieillissement créances GRT — par client (KPI-22b)">
+        <ChartCard loading={chartsLoading} skeleton="bar" title="Vieillissement créances GRT — par client (KPI-17)">
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={agingGRT}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -222,7 +222,7 @@ function ActeursPage() {
         </ChartCard>
 
         {/* Livreurs */}
-        <ChartCard loading={chartsLoading} skeleton="bar" title={`Performance livreurs${depot !== "Tous" ? ` — ${depot}` : ""} (KPI-23)`}>
+        <ChartCard loading={chartsLoading} skeleton="bar" title={`Performance livreurs${depot !== "Tous" ? ` — ${depot}` : ""} (KPI-15)`}>
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={livreurs} layout="vertical">
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" horizontal={false} />
@@ -250,7 +250,7 @@ function ActeursPage() {
         </ChartCard>
 
         {/* Attrition + HHI */}
-        <ChartCard loading={chartsLoading} skeleton="scatter" title="Score attrition clients & Concentration fournisseur (KPI-24/20)">
+        <ChartCard loading={chartsLoading} skeleton="scatter" title="Score attrition clients & Concentration fournisseur (KPI-16/18)">
           <div className="flex gap-4 h-[280px]">
             <div className="flex flex-col items-center pt-2 flex-shrink-0">
               <GaugeSimple

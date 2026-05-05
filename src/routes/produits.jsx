@@ -141,7 +141,7 @@ function ProduitsPage() {
 </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ChartCard loading={chartsLoading} skeleton="bar" key={`${famille}-${statutArticle}-${horizonPrev}`} title={`Valeur stock par famille${famille !== "Toutes" ? ` — ${famille}` : ""} (KPI-13)`}>
+        <ChartCard loading={chartsLoading} skeleton="bar" key={`${famille}-${statutArticle}-${horizonPrev}`} title={`Valeur stock par famille${famille !== "Toutes" ? ` — ${famille}` : ""} (KPI-11)`}>
           <ResponsiveContainer width="100%" height={chartH}>
             <Treemap
               data={treemapData}
@@ -165,7 +165,7 @@ function ProduitsPage() {
           </div>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="table" title={`Alertes réapprovisionnement — horizon ${horizonPrev} (KPI-17/18)`}>
+        <ChartCard loading={chartsLoading} skeleton="table" title={`Alertes réapprovisionnement — horizon ${horizonPrev} (KPI-12)`}>
           <div className="overflow-auto max-h-[280px]">
             <table className="w-full text-[11px]">
               <thead className="sticky top-0 bg-background">
@@ -200,7 +200,7 @@ function ProduitsPage() {
           </div>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="gauge" title="Taux de rupture & tension stock (KPI-14/16)">
+        <ChartCard loading={chartsLoading} skeleton="gauge" title="Taux de rupture & tension stock (KPI-14)">
           <div className="flex items-start gap-4 h-[280px]">
             <div className="flex flex-col items-center justify-center flex-shrink-0 pt-4">
               <GaugeChart value={txRupture} target={3} label="Taux rupture" />
@@ -225,7 +225,8 @@ function ProduitsPage() {
           </div>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="scatter" title="Rotation stocks — DSI vs CA par article (KPI-15)">
+        <ChartCard loading={chartsLoading} skeleton="scatter" title="Rotation stocks — DSI vs CA par article (KPI-13)
+        ">
           <ResponsiveContainer width="100%" height={chartH}>
             <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />

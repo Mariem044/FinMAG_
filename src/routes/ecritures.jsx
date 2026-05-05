@@ -18,6 +18,7 @@ import {
   Legend,
   ResponsiveContainer,
   ReferenceLine,
+  ZAxis, 
 } from "recharts";
 import { ecritures, MONTHS, formatTND } from "@/data/mockData";
 

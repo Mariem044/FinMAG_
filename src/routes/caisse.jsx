@@ -148,7 +148,7 @@ function CaissePage() {
 </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ChartCard loading={chartsLoading} skeleton="bar" key={`${depot}-${activeIdx.join("")}`} title={`Solde de caisse${depot !== "Tous" ? ` — ${depot}` : " par caisse"} — Espèces vs Chèques (KPI-29)`}>
+        <ChartCard loading={chartsLoading} skeleton="bar" key={`${depot}-${activeIdx.join("")}`} title={`Solde de caisse${depot !== "Tous" ? ` — ${depot}` : " par caisse"} — Espèces vs Chèques (KPI-22)`}>
           {filteredCaisses.length > 0 ? (
             <>
               <MultiGauge caisses={filteredCaisses} />
@@ -165,7 +165,7 @@ function CaissePage() {
           )}
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="bar" title="Flux journaliers débit / crédit (KPI-30/31)">
+        <ChartCard loading={chartsLoading} skeleton="bar" title="Flux journaliers débit / crédit (KPI-23)">
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={filteredFlux}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -182,7 +182,7 @@ function CaissePage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="pie" title="Mouvements par nature (KPI-31)">
+        <ChartCard loading={chartsLoading} skeleton="pie" title="Mouvements par nature (KPI-24)">
           <div className="grid grid-cols-2 gap-2 h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -222,7 +222,7 @@ function CaissePage() {
           </div>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="line" title="Prévision solde caisse — Prophet 30j (KPI-32)">
+        <ChartCard loading={chartsLoading} skeleton="line" title="Prévision solde caisse — Prophet 30j ">
           <ResponsiveContainer width="100%" height={chartH}>
             <LineChart data={prophetData.filter((_, i) => i % 2 === 0)}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />

@@ -191,7 +191,7 @@ function BanquePage() {
 </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ChartCard loading={chartsLoading} skeleton="bar" key={`${banque}-${modeBanque}-${activeIdx.join("")}`} title={`Bordereaux${banque !== "Toutes" ? ` — ${banque}` : " par banque"}${modeBanque !== "Tous" ? ` — ${modeBanque}` : ""} (KPI-33)`}>
+        <ChartCard loading={chartsLoading} skeleton="bar" key={`${banque}-${modeBanque}-${activeIdx.join("")}`} title={`Bordereaux${banque !== "Toutes" ? ` — ${banque}` : " par banque"}${modeBanque !== "Tous" ? ` — ${modeBanque}` : ""} (KPI-25)`}>
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={banqueMode}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -207,7 +207,7 @@ function BanquePage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="line" title="Taux de rapprochement bancaire (KPI-34)">
+        <ChartCard loading={chartsLoading} skeleton="line" title="Taux de rapprochement bancaire (KPI-26)">
           <div className="flex gap-4 h-[280px]">
             <div className="flex flex-col items-center pt-4 flex-shrink-0">
               <GaugeRapprochement value={currentTaux} />
@@ -236,7 +236,7 @@ function BanquePage() {
           </div>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="bar" title="Agios & Float bancaire (KPI-35/36)">
+        <ChartCard loading={chartsLoading} skeleton="bar" title="Agios & Float bancaire (KPI-27)">
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={agiosData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -255,7 +255,7 @@ function BanquePage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="gantt" title={`Pipeline remises à venir 30j${modeBanque !== "Tous" ? ` — ${modeBanque}` : ""} (KPI-37)`}>
+        <ChartCard loading={chartsLoading} skeleton="gantt" title={`Pipeline remises à venir 30j${modeBanque !== "Tous" ? ` — ${modeBanque}` : ""} (KPI-28)`}>
           <div className="pt-2 overflow-auto max-h-[280px]">
             <GanttPipeline data={pipelineRemises} />
           </div>

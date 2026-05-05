@@ -106,7 +106,7 @@ function TresorerietPage() {
 
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ChartCard loading={chartsLoading} skeleton="pie" key={`${modePaiement}-${horizonPrev}-${activeIdx.join("")}`} title={`Encaissements par mode — MAG vs GRT${modePaiement !== "Tous" ? ` (${modePaiement})` : ""} (KPI-07)`}>
+        <ChartCard loading={chartsLoading} skeleton="pie" key={`${modePaiement}-${horizonPrev}-${activeIdx.join("")}`} title={`Encaissements par mode — MAG vs GRT${modePaiement !== "Tous" ? ` (${modePaiement})` : ""} (KPI-06)`}>
           <div className="grid grid-cols-2 gap-2 h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -130,7 +130,7 @@ function TresorerietPage() {
           </div>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="bar" title={`Flux trésorerie prévisionnel ${horizonPrev} (KPI-11)`}>
+        <ChartCard loading={chartsLoading} skeleton="bar" title={`Flux trésorerie prévisionnel ${horizonPrev} (KPI-07 / KPI-11)`}>
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={waterfallFlat}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -146,7 +146,7 @@ function TresorerietPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="bar" title="Vieillissement des créances — Aging (KPI-09)">
+        <ChartCard loading={chartsLoading} skeleton="bar" title="Vieillissement des créances — Aging (KPI-08)">
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={AGING}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -162,7 +162,7 @@ function TresorerietPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="table" title="Impayés fournisseurs & Délais (KPI-09c/08b)">
+        <ChartCard loading={chartsLoading} skeleton="table" title="Impayés fournisseurs & Délais (KPI-09/07)">
           <div className="overflow-auto max-h-[280px]">
             <table className="w-full text-[11px]">
               <thead className="sticky top-0 bg-background">
