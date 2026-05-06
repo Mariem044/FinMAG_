@@ -28,19 +28,19 @@ from typing import Callable, Dict, List, Tuple, Optional
 
 import pandas as pd
 
-from config import DW_ENGINE, CHUNK_SIZE
-from utils.logger import get_logger
-from utils.audit import (
+from etl.config import DW_ENGINE, CHUNK_SIZE
+from etl.utils.logger import get_logger
+from etl.utils.audit import (
     acquire_lock,
     start_run,
     end_run,
     table_timer,
     get_last_run_info,
 )
-import ddl
-import extract
-import transform
-import load
+from etl import ddl
+from etl import extract
+from etl import transform
+from etl import load
 
 logger = get_logger(__name__)
 

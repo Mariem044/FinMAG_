@@ -16,8 +16,8 @@ from typing import Optional
 import pandas as pd
 from sqlalchemy import text
 
-from config import MAG_ENGINE, GRT_ENGINE, DIM_DATE_START, DIM_DATE_END
-from utils.logger import get_logger
+from etl.config import MAG_ENGINE, GRT_ENGINE, DIM_DATE_START, DIM_DATE_END
+from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -567,7 +567,7 @@ def extract_static_dims() -> dict[str, pd.DataFrame]:
     Retourne les dimensions dont les valeurs sont connues statiquement
     (mode/état règlement, type ligne, sens écriture, type TVA, domaine, type doc).
     """
-    from config import (
+    from etl.config import (
         MODES_REGLEMENT, ETATS_REGLEMENT, ETATS_DOCREGL,
         TYPES_LIGNE, SENS_ECRITURE, TYPES_TVA, DOMAINES, TYPES_DOC,
     )

@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
-from config import DW_ENGINE
-from utils.logger import get_logger
+from etl.config import DW_ENGINE
+from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
 

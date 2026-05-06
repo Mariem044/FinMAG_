@@ -17,8 +17,8 @@ import logging
 from typing import Literal, Optional
 import pandas as pd
 from sqlalchemy import text
-from config import DW_ENGINE, CHUNK_SIZE
-from utils.logger import get_logger
+from etl.config import DW_ENGINE, CHUNK_SIZE
+from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
