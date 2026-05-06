@@ -32,7 +32,17 @@ def _read(engine, sql: str, params: Optional[dict] = None) -> pd.DataFrame:
 
 
 def _delta_filter(col: str, last_run: Optional[datetime]) -> tuple[str, dict]:
-    """Retourne clause WHERE et params pour filtre delta."""
+    """Retourne clause WHERE et params pour filtre delta.
+
+    Bug 16 fix: ``col`` is interpolated directly into SQL.  Only internal
+    callers pass this value, but we guard against obviously unsafe input.
+    SECURITY NOTE: never pass user-controlled data as ``col``.
+    """
+    # Allowlist: column name may contain letters, digits, underscores and one dot
+    # (for table-alias prefix like 'dl.cbModification').
+    import re as _re
+    if not _re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", col):
+        raise ValueError(f"Unsafe column name passed to _delta_filter: {col!r}")
     if last_run is None:
         return "", {}
     return f" AND {col} >= :last_run", {"last_run": last_run}
@@ -446,6 +456,9 @@ def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.D
     JOIN F_LigneBordereauRemise JOIN F_BordereauRemise.
     KPI-05, KPI-06, KPI-09, KPI-15.
     """
+    # Bug 15 fix: LEFT JOIN columns can be NULL when a règlement has no
+    # bordereau entry.  Use COALESCE on numeric KPI columns so aggregations
+    # do not silently corrupt results with NULLs.
     delta_clause, params = _delta_filter("rc.cbModification", last_run)
     sql = f"""
         SELECT
@@ -459,12 +472,12 @@ def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.D
             rc.BQ_Num,
             lb.LB_Ligne,
             lb.BR_Num,
-            lb.LB_MontantReg,
+            COALESCE(lb.LB_MontantReg,       0) AS LB_MontantReg,
             lb.LB_EcheanceReg,
-            lb.LB_NbJour,
-            lb.LB_Agios,
+            COALESCE(lb.LB_NbJour,           0) AS LB_NbJour,
+            COALESCE(lb.LB_Agios,            0) AS LB_Agios,
             br.BQ_ABREGE,
-            br.BR_TotalReglement,
+            COALESCE(br.BR_TotalReglement,   0) AS BR_TotalReglement,
             br.BR_Rapproch
         FROM F_ReglementClient rc
         LEFT JOIN F_LigneBordereauRemise lb ON lb.RT_Num = rc.RT_Num
@@ -520,6 +533,9 @@ def extract_fait_mvtcaisse(last_run: Optional[datetime] = None) -> pd.DataFrame:
     Attention : F_Caisse GRT utilise CA_Numero (pas CA_No).
     KPI-22 Solde caisse, KPI-23 Entrées/Sorties, KPI-24 Taux clôture.
     """
+    # Bug 14 fix: alias CA_Numero AS CA_No so both MAG (F_CAISSE.CA_No) and
+    # GRT (F_Caisse.CA_Numero) sides share the same column name before hashing.
+    # This ensures hash keys match when joining caisse records in DIM_CAISSE.
     delta_clause, params = _delta_filter("mc.cbModification", last_run)
     sql = f"""
         SELECT
@@ -529,7 +545,7 @@ def extract_fait_mvtcaisse(last_run: Optional[datetime] = None) -> pd.DataFrame:
             mc.MC_Debit,
             mc.MC_Credit,
             mc.MC_Cloture,
-            c.CA_Numero,
+            c.CA_Numero  AS CA_No,
             c.CA_Type,
             c.CA_Solde,
             c.CA_SoldeEspece,

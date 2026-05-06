@@ -19,15 +19,22 @@ load_dotenv(_ENV_PATH)
 
 # ── Connexions ───────────────────────────────────────────────────────────────
 def _make_engine(conn_str: str, pool_size: int = 5) -> Engine:
-    """Crée un engine SQLAlchemy Core avec pool configurable."""
+    """Crée un engine SQLAlchemy Core avec pool configurable.
+
+    Bug 20 fix: ``fast_executemany`` is a pyodbc connection-level setting and
+    must be passed inside ``connect_args``, not as a top-level keyword to
+    ``create_engine`` (where SQLAlchemy silently ignores unknown kwargs).
+    """
     engine = create_engine(
         conn_str,
         poolclass=QueuePool,
         pool_size=pool_size,
         max_overflow=10,
         pool_pre_ping=True,
-        fast_executemany=True,           # pyodbc optimisation bulk insert
-        connect_args={"timeout": 30},
+        connect_args={
+            "timeout": 30,
+            "fast_executemany": True,   # pyodbc bulk-insert optimisation
+        },
     )
     # Désactiver autocommit — contrôle explicite des transactions
     @event.listens_for(engine, "connect")

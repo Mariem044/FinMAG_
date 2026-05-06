@@ -46,35 +46,35 @@ CREATE TABLE DIM_DOMAINE (
     id_domaine       INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     code_domaine     SMALLINT NOT NULL UNIQUE,
     -- 0=Vente 1=Achat 2=Stock 3=Interne
-    libelle_domaine  INT NOT NULL        -- hash libellé
+    libelle_domaine  NVARCHAR(100) NOT NULL   -- human-readable label (Bug 17)
 )"""),
 
     ("DIM_TYPE_DOC", """
 CREATE TABLE DIM_TYPE_DOC (
     id_type_doc      INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     code_type_doc    SMALLINT NOT NULL UNIQUE,
-    libelle_type_doc INT NOT NULL        -- hash libellé
+    libelle_type_doc NVARCHAR(100) NOT NULL   -- human-readable label (Bug 17)
 )"""),
 
     ("DIM_MODE_REGLEMENT", """
 CREATE TABLE DIM_MODE_REGLEMENT (
     id_mode_reg      INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     code_mode_reg    SMALLINT NOT NULL UNIQUE,
-    libelle_mode_reg INT NOT NULL        -- hash libellé
+    libelle_mode_reg NVARCHAR(100) NOT NULL   -- human-readable label (Bug 17)
 )"""),
 
     ("DIM_ETAT_REGLEMENT", """
 CREATE TABLE DIM_ETAT_REGLEMENT (
     id_etat_reg      INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     code_etat_reg    SMALLINT NOT NULL UNIQUE,
-    libelle_etat_reg INT NOT NULL
+    libelle_etat_reg NVARCHAR(100) NOT NULL   -- human-readable label (Bug 17)
 )"""),
 
     ("DIM_ETAT_DOCREGL", """
 CREATE TABLE DIM_ETAT_DOCREGL (
     id_etat_docregl      INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     code_etat_docregl    SMALLINT NOT NULL UNIQUE,
-    libelle_etat_docregl INT NOT NULL
+    libelle_etat_docregl NVARCHAR(100) NOT NULL   -- human-readable label (Bug 17)
 )"""),
 
     ("DIM_TYPE_LIGNE", """
@@ -82,28 +82,28 @@ CREATE TABLE DIM_TYPE_LIGNE (
     id_type_ligne      INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     code_type_ligne    SMALLINT NOT NULL UNIQUE,
     -- 1=EcritureC 2=RegTaxe 3=MvtCaisse 4=ArtStock
-    libelle_type_ligne INT NOT NULL
+    libelle_type_ligne NVARCHAR(100) NOT NULL   -- human-readable label (Bug 17)
 )"""),
 
     ("DIM_SENS_ECRITURE", """
 CREATE TABLE DIM_SENS_ECRITURE (
     id_sens            INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     code_sens          SMALLINT NOT NULL UNIQUE,   -- 0=Débit 1=Crédit
-    libelle_sens       INT NOT NULL
+    libelle_sens       NVARCHAR(100) NOT NULL   -- human-readable label (Bug 17)
 )"""),
 
     ("DIM_TYPE_TVA", """
 CREATE TABLE DIM_TYPE_TVA (
     id_type_tva        INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     code_type_tva      SMALLINT NOT NULL UNIQUE,   -- 1=Collectée 2=Déductible
-    libelle_type_tva   INT NOT NULL
+    libelle_type_tva   NVARCHAR(100) NOT NULL   -- human-readable label (Bug 17)
 )"""),
 
     ("DIM_TYPE_MVT_CAISSE", """
 CREATE TABLE DIM_TYPE_MVT_CAISSE (
     id_type_mvt        INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     code_type_mvt      SMALLINT NOT NULL UNIQUE,
-    libelle_type_mvt   INT NOT NULL
+    libelle_type_mvt   NVARCHAR(100) NOT NULL   -- human-readable label (Bug 17)
 )"""),
 
     ("DIM_BANQUE", """
@@ -123,7 +123,7 @@ CREATE TABLE DIM_SEGMENT (
     id_segment         INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     cb_indice          SMALLINT NOT NULL UNIQUE,   -- 1..5
     prix_ttc_flag      SMALLINT NOT NULL DEFAULT 0,
-    libelle_segment    INT NOT NULL,               -- hash libellé
+    libelle_segment    NVARCHAR(100) NOT NULL,      -- human-readable label (Bug 17)
     row_hash           BINARY(32) NULL
 )"""),
 
@@ -443,14 +443,18 @@ def _drop_all_tables() -> None:
     reversed_tables = [name for name, _ in reversed(ALL_DDL)]
     logger.warning("DDL : DROP ALL TABLES (rebuild complet)")
     with DW_ENGINE.begin() as conn:
-        # Désactiver les FK constraints avant drop
+        # Bug 18 fix: only NOCHECK if the table actually exists so the loop
+        # does not silently fail and leave state inconsistent before DROP.
         for table_name in reversed_tables:
             try:
                 conn.execute(
-                    text(f"ALTER TABLE [{table_name}] NOCHECK CONSTRAINT ALL")
+                    text(
+                        f"IF OBJECT_ID(N'[{table_name}]', N'U') IS NOT NULL "
+                        f"ALTER TABLE [{table_name}] NOCHECK CONSTRAINT ALL"
+                    )
                 )
             except Exception:
-                pass  # table inexistante
+                pass  # swallow any remaining edge-case errors
 
         for table_name in reversed_tables:
             try:
