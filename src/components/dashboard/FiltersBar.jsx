@@ -46,6 +46,7 @@ const FILTER_LABELS = {
   segment: "Segment",
   famille: "Famille",
   modePaiement: "Mode paiement",
+  source: "Source",
   horizonPrev: "Horizon",
   statutArticle: "Statut",
   banque: "Banque",
@@ -99,6 +100,7 @@ export function FiltersBar() {
   const { t, langue } = useParametres();
   const isMobile   = useIsMobile();
   const extraDefs  = DOMAIN_EXTRA[path] || [];
+  const showSource = path === "/ventes" || path === "/tresorerie";
   const [expanded, setExpanded] = useState(false);
 
   const activeFilters = [
@@ -121,6 +123,10 @@ export function FiltersBar() {
     filters.modePaiement !== FILTER_DEFAULTS.modePaiement && {
       key: "modePaiement", label: "Mode paiement", value: filters.modePaiement,
       reset: () => filters.setModePaiement(FILTER_DEFAULTS.modePaiement),
+    },
+    showSource && filters.source !== FILTER_DEFAULTS.source && {
+      key: "source", label: "Source", value: filters.source,
+      reset: () => filters.setSource(FILTER_DEFAULTS.source),
     },
     filters.horizonPrev !== FILTER_DEFAULTS.horizonPrev && {
       key: "horizonPrev", label: "Horizon", value: filters.horizonPrev,
@@ -160,7 +166,9 @@ export function FiltersBar() {
       {!extraDefs.some((d) => d.storeKey === "segment") && (
         <SelectFilter id="filter-segment" label={t("filters.segment")} value={filters.segment} onChange={filters.setSegment} options={SEGMENTS} icon={Users} />
       )}
-      <SelectFilter id="filter-source" label={t("filters.source")} value="MAG_2020 + GRT_MAG" onChange={() => {}} options={SOURCES} icon={Database} />
+      {showSource && (
+        <SelectFilter id="filter-source" label={t("filters.source")} value={filters.source} onChange={filters.setSource} options={SOURCES} icon={Database} />
+      )}
       {extraDefs.map((def) => (
         <SelectFilter
           key={def.storeKey}

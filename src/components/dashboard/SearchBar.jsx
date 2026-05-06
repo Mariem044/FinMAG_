@@ -20,15 +20,15 @@ const PAGES = [
   { label: "Fiscalité & Comptabilité",       description: "Écritures, TVA, anomalies",            to: "/fiscalite",  icon: Receipt,         keywords: ["fiscalite","comptabilite","ecriture","tva","journal"] },
   { label: "Gestion de Caisse",              description: "Soldes, flux journaliers, prévisions",  to: "/caisse",     icon: Banknote,        keywords: ["caisse","especes","solde","flux"] },
   { label: "Rapprochement Bancaire",         description: "Bordereaux, agios, remises en banque",  to: "/banque",     icon: Landmark,        keywords: ["banque","rapprochement","bordereau","agio","remise"] },
-  { label: "Paramètres",                     description: "Langue, devise, notifications",         to: "/parametres", icon: Settings,        keywords: ["parametres","settings","langue","devise"] },
+  { label: "Paramètres",                     description: "Langue et devise",                       to: "/parametres", icon: Settings,        keywords: ["parametres","settings","langue","devise"] },
   { label: "Centre d'Aide",                  description: "FAQ, support, contact",                 to: "/aide",       icon: HelpCircle,      keywords: ["aide","help","faq","support"] },
 ];
 
 const KPIS = [
   { label: "Taux de recouvrement",        description: "KPI-07 — Encaissements clients",     to: "/tresorerie", icon: Wallet,   keywords: ["recouvrement","taux","encaissement"] },
-  { label: "Score d'attrition clients",   description: "KPI-24 — Modèle Random Forest",      to: "/acteurs",    icon: Users,    keywords: ["attrition","score","client","risque"] },
-  { label: "Détection anomalies",         description: "KPI-28 — Isolation Forest",           to: "/fiscalite",  icon: Receipt,  keywords: ["anomalie","detection","isolation"] },
-  { label: "Prévision trésorerie",        description: "KPI-11 — Modèle Prophet 30/60/90j",  to: "/tresorerie", icon: Wallet,   keywords: ["prevision","prophet","tresorerie"] },
+  { label: "Score d'attrition clients",   description: "KPI-24 — Score de risque client",     to: "/acteurs",    icon: Users,    keywords: ["attrition","score","client","risque"] },
+  { label: "Détection anomalies",         description: "KPI-28 — Scores d'anomalie",          to: "/fiscalite",  icon: Receipt,  keywords: ["anomalie","detection","isolation"] },
+  { label: "Prévision trésorerie",        description: "KPI-11 — Projection 30/60/90j",       to: "/tresorerie", icon: Wallet,   keywords: ["prevision","projection","tresorerie"] },
   { label: "DSI — Rotation stocks",       description: "KPI-15 — Days Sales of Inventory",   to: "/produits",   icon: Boxes,    keywords: ["dsi","rotation","stock","inventory"] },
   { label: "Matrice RFM",                 description: "KPI-22 — Segmentation clients",      to: "/acteurs",    icon: Users,    keywords: ["rfm","recence","frequence","montant"] },
   { label: "Solde de caisse",             description: "KPI-29 — Toutes caisses",             to: "/caisse",     icon: Banknote, keywords: ["solde","caisse","especes"] },

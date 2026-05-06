@@ -7,9 +7,6 @@ export const useParametres = create()(
     (set, get) => ({
       langue: "Français",
       devise: "TND - Dinar Tunisien",
-      notifImpayes: true,
-      notifRapports: true,
-      notifSystem: false,
 
       setLangue: (langue) => {
         set({ langue });
@@ -18,9 +15,6 @@ export const useParametres = create()(
         document.documentElement.setAttribute("dir", code === "ar" ? "rtl" : "ltr");
       },
       setDevise: (devise) => set({ devise }),
-      setNotifImpayes: (v) => set({ notifImpayes: v }),
-      setNotifRapports: (v) => set({ notifRapports: v }),
-      setNotifSystem: (v) => set({ notifSystem: v }),
 
       t: (key) => {
         const code = langCodeMap[get().langue] ?? "fr";

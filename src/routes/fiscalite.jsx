@@ -43,7 +43,7 @@ const tvaData = MONTHS.map((m) => ({
 }));
 tvaData.forEach((d) => { d.soldeNet = d.collectee - d.deductible; });
 
-// Anomaly scatter (KPI-21) — Isolation Forest scores
+// Anomaly scatter (KPI-21) — local anomaly scores
 const anomalyData = Array.from({ length: 80 }, (_, i) => {
   const score = Math.random();
   return {
@@ -111,7 +111,7 @@ function FiscalitePage() {
       <>
         <KPICard label="Écritures comptables" value="663 138" subtitle="32 journaux — 5 exercices" icon={FileText} />
         <KPICard label="TVA collectée YTD" value="1.8 MDT" subtitle="vs 0.4 MDT déductible" icon={Receipt} />
-        <KPICard label="Anomalies détectées" value={String(nbAnomalies)} subtitle="Isolation Forest — mois" trend={-2} icon={AlertCircle} />
+        <KPICard label="Anomalies détectées" value={String(nbAnomalies)} subtitle="Score local — mois" trend={-2} icon={AlertCircle} />
         <KPICard label="Équilibre débit/crédit" value="98.4%" subtitle="écarts < 0.01 DT" icon={CheckCircle} />
       </>
     )}
@@ -196,7 +196,7 @@ function FiscalitePage() {
         </ChartCard>
 
         {/* Widget C: Anomaly scatter (KPI-21) */}
-        <ChartCard loading={chartsLoading} skeleton="scatter" title="Détection anomalies comptables — Isolation Forest (KPI-21)">
+        <ChartCard loading={chartsLoading} skeleton="scatter" title="Détection anomalies comptables — score local (KPI-21)">
           <ResponsiveContainer width="100%" height={chartH}>
             <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />

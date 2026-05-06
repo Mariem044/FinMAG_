@@ -156,7 +156,7 @@ function ActeursPage() {
     <>
       <KPICard label="Clients actifs" value={nbActifs.toLocaleString("fr-TN")} subtitle={segment !== "Tous" ? segment : "Tous segments"} icon={Users} />
       <KPICard label="Fournisseurs" value="981" subtitle="3 619 articles couverts" icon={Building2} />
-      <KPICard label="Clients à risque attrition" value={`${attritionPct}%`} subtitle="Score > 0.5 (RF model)" icon={AlertTriangle} />
+      <KPICard label="Clients à risque attrition" value={`${attritionPct}%`} subtitle="Score local > 0.5" icon={AlertTriangle} />
       <KPICard label="Livreurs actifs" value={String(livreurs.length)} subtitle={depot !== "Tous" ? depot : "Tous dépôts"} icon={Truck} />
     </>
   )}

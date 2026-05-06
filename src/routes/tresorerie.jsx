@@ -42,7 +42,7 @@ const AGING = [
 ];
 
 function TresorerietPage() {
-  const { modePaiement, horizonPrev, getActiveMonthIndexes, segment, depot } = useFilters();
+  const { modePaiement, horizonPrev, getActiveMonthIndexes, segment, depot, source } = useFilters();
   const activeIdx = getActiveMonthIndexes();
   const chartH = useChartHeight();
   const kpiLoading    = useSimulatedLoading(500);
@@ -50,11 +50,17 @@ function TresorerietPage() {
 
   // Filter encaissements by mode
   const encaissementsMode = useMemo(() => {
-    if (modePaiement === "Tous") return BASE_ENCAISSEMENTS;
-    return BASE_ENCAISSEMENTS.filter((e) => e.mode === modePaiement);
-  }, [modePaiement]);
+    const rows = modePaiement === "Tous"
+      ? BASE_ENCAISSEMENTS
+      : BASE_ENCAISSEMENTS.filter((e) => e.mode === modePaiement);
+    return rows.map((row) => ({
+      ...row,
+      mag: source === "GRT_MAG" ? 0 : row.mag,
+      grt: source === "MAG_2020" ? 0 : row.grt,
+    }));
+  }, [modePaiement, source]);
 
-  const donutData = encaissementsMode.map((d) => ({ name: d.mode, value: d.mag }));
+  const donutData = encaissementsMode.map((d) => ({ name: d.mode, value: d.mag + d.grt }));
 
   // Filter waterfall by month selection AND horizon
   const horizonMonths = horizonPrev === "30j" ? 3 : horizonPrev === "60j" ? 6 : 9;
@@ -106,7 +112,7 @@ function TresorerietPage() {
 
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ChartCard loading={chartsLoading} skeleton="pie" key={`${modePaiement}-${horizonPrev}-${activeIdx.join("")}`} title={`Encaissements par mode — MAG vs GRT${modePaiement !== "Tous" ? ` (${modePaiement})` : ""} (KPI-06)`}>
+        <ChartCard loading={chartsLoading} skeleton="pie" key={`${modePaiement}-${horizonPrev}-${source}-${activeIdx.join("")}`} title={`Encaissements par mode — ${source}${modePaiement !== "Tous" ? ` (${modePaiement})` : ""} (KPI-06)`}>
           <div className="grid grid-cols-2 gap-2 h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>

@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Zap,
 } from "lucide-react";
+import { caByMonth, articles, clients, impayes, ecritures, formatTND } from "@/data/mockData";
 
 export const Route = createFileRoute("/assistant")({
   component: AssistantIAPage,
@@ -57,13 +58,37 @@ const SUGGESTIONS = [
   },
 ];
 
-const MOCK_RESPONSES = {
-  default: [
-    "D'après les données de **MAG Distribution**, voici mon analyse :\n\n**Points clés identifiés :**\n- Le CA total YTD s'établit à **12,4 MDT** avec une progression de +8,2% vs N-1\n- Les familles Biscuits et Boissons représentent **42%** du CA consolidé\n- 127 articles sont actuellement en rupture de stock (4,6% du catalogue actif)\n\n**Recommandations :**\n1. Renforcer le réapprovisionnement sur les 89 articles en alerte critique\n2. Relancer les 23% de clients identifiés à risque d'attrition\n3. Optimiser le délai moyen de règlement client (23j vs 20j contractuel)\n\nSouhaitez-vous une analyse plus détaillée sur un domaine spécifique ?",
-    "Voici une synthèse de la situation financière consolidée :\n\n**Trésorerie :** Encaissements clients YTD à **8,2 MDT** (+6,1%)\n**Créances :** 1,3 MDT d'impayés dont 340K DT au-delà de 90 jours\n**Taux de recouvrement :** 87% — en amélioration de +2pts\n\nLes flux prévisionnels sur 30/60/90 jours indiquent une position favorable avec un solde net positif projeté à **2,3 MDT** à 90 jours.\n\nVoulez-vous que je détaille les clients les plus exposés ?",
-    "Analyse des **anomalies comptables** détectées par le modèle Isolation Forest :\n\n⚠️ **12 écritures anormales** identifiées ce mois (score > 0.8)\n- 4 dans le journal Ventes\n- 5 dans le journal Achats  \n- 3 dans le journal Banque\n\nL'équilibre Débit/Crédit global est maintenu à **98,4%** avec des écarts inférieurs à 0,01 DT.\n\nJe vous recommande de vérifier en priorité les écritures OD du 15 et 22 du mois.",
-  ],
-};
+function generateAssistantResponse(content) {
+  const q = content.toLowerCase();
+  const totalCA = caByMonth.reduce((sum, month) => sum + month.ca, 0);
+  const stockCritique = articles.filter((a) => a.qteVendue < 500);
+  const clientsExposes = clients.filter((c) => c.soldeImpaye > 50000);
+  const impayesCritiques = impayes.filter((i) => i.anciennete > 90);
+  const anomalies = ecritures.filter((e) => Math.abs(e.solde) > 30000);
+
+  if (q.includes("stock") || q.includes("rupture") || q.includes("article")) {
+    const topArticle = [...articles].sort((a, b) => b.qteVendue - a.qteVendue)[0];
+    return `Analyse **stocks** depuis les données locales :\n\n- **${stockCritique.length} articles** sont sous le seuil d'alerte simulé\n- Article le plus vendu : **${topArticle?.designation}**\n- Valeur catalogue estimée : **${formatTND(articles.reduce((s, a) => s + a.ca, 0))}**\n\nPriorité : vérifier les articles avec ventes faibles et CA élevé avant réapprovisionnement.`;
+  }
+
+  if (q.includes("client") || q.includes("attrition") || q.includes("risque")) {
+    return `Analyse **clients** depuis les données locales :\n\n- **${clients.length} clients** suivis\n- **${clientsExposes.length} clients** ont un solde impayé supérieur à 50 000\n- Exposition impayée totale : **${formatTND(clients.reduce((s, c) => s + c.soldeImpaye, 0))}**\n\nPriorité : contacter les clients exposés avant les prochaines échéances.`;
+  }
+
+  if (q.includes("trésorerie") || q.includes("tresorerie") || q.includes("impay")) {
+    return `Synthèse **trésorerie** depuis les données locales :\n\n- **${impayes.length} créances** en suivi\n- **${impayesCritiques.length} créances** dépassent 90 jours\n- Montant impayé total : **${formatTND(impayes.reduce((s, i) => s + i.montantImpaye, 0))}**\n\nPriorité : traiter les dossiers de plus de 90 jours et les montants les plus élevés.`;
+  }
+
+  if (q.includes("fiscal") || q.includes("compta") || q.includes("anomal")) {
+    return `Analyse **fiscalité & comptabilité** depuis les données locales :\n\n- **${ecritures.length} écritures** disponibles dans le tableau\n- **${anomalies.length} écritures** ont un solde absolu supérieur à 30 000\n- Journaux couverts : Ventes, Achats, Banque, Caisse\n\nPriorité : filtrer le tableau des écritures et exporter le CSV pour contrôle.`;
+  }
+
+  if (q.includes("banque") || q.includes("rapprochement")) {
+    return "Synthèse **banque** depuis les données locales :\n\n- Les bordereaux, agios et écarts affichés sont recalculés selon les filtres Banque et Mode\n- Le taux de rapprochement est une moyenne locale de la période sélectionnée\n\nPriorité : utiliser les filtres banque/mode pour isoler les remises non rapprochées.";
+  }
+
+  return `Synthèse **MAG Distribution** depuis les données locales :\n\n- CA total estimé : **${formatTND(totalCA)}**\n- Articles sous alerte stock : **${stockCritique.length}**\n- Clients avec solde impayé élevé : **${clientsExposes.length}**\n- Écritures à contrôler : **${anomalies.length}**\n\nVous pouvez me demander un détail sur ventes, stocks, clients, trésorerie, fiscalité ou banque.`;
+}
 
 function TypingIndicator() {
   return (
@@ -158,13 +183,12 @@ function AssistantIAPage() {
       id: 1,
       role: "assistant",
       content:
-        "Bonjour ! Je suis votre assistant IA pour **MAG Distribution**. Je peux analyser vos données financières, identifier des tendances, détecter des anomalies et vous fournir des insights actionnables.\n\nQue souhaitez-vous explorer aujourd'hui ?",
+        "Bonjour ! Je suis votre assistant données pour **MAG Distribution**. Je peux résumer les données locales du tableau de bord, identifier des points à surveiller et préparer des pistes d'analyse.\n\nQue souhaitez-vous explorer aujourd'hui ?",
       time: new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" }),
     },
   ]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [responseIndex, setResponseIndex] = useState(0);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -189,14 +213,12 @@ function AssistantIAPage() {
 
     const delay = 1200 + Math.random() * 800;
     setTimeout(() => {
-      const responses = MOCK_RESPONSES.default;
       const aiMsg = {
         id: Date.now() + 1,
         role: "assistant",
-        content: responses[responseIndex % responses.length],
+        content: generateAssistantResponse(content),
         time: new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" }),
       };
-      setResponseIndex((i) => i + 1);
       setIsTyping(false);
       setMessages((prev) => [...prev, aiMsg]);
     }, delay);
@@ -231,10 +253,10 @@ function AssistantIAPage() {
             <Sparkles size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="text-[18px] font-bold text-foreground leading-none">Assistant IA</h1>
+            <h1 className="text-[18px] font-bold text-foreground leading-none">Assistant données</h1>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-[11px] text-text-dim">Connecté aux données MAG Distribution</span>
+              <span className="text-[11px] text-text-dim">Basé sur les données locales MAG Distribution</span>
             </div>
           </div>
         </div>

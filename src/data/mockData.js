@@ -192,11 +192,23 @@ export const achatsByMonth = MONTHS.map((m) => ({
   month: m,
   achats: Math.round(300000 + Math.random() * 400000),
 }));
-export const formatTND = (v) =>
-  new Intl.NumberFormat("fr-TN", {
+function getSelectedCurrency() {
+  try {
+    const stored = JSON.parse(localStorage.getItem("finmag-parametres") || "{}");
+    const devise = stored?.state?.devise || "TND - Dinar Tunisien";
+    if (devise.startsWith("EUR")) return { code: "EUR", rate: 0.3 };
+    if (devise.startsWith("USD")) return { code: "USD", rate: 0.33 };
+  } catch {}
+  return { code: "TND", rate: 1 };
+}
+
+export const formatTND = (v) => {
+  const { code, rate } = getSelectedCurrency();
+  return new Intl.NumberFormat("fr-TN", {
     style: "decimal",
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
-  }).format(v) + " TND";
+  }).format(v * rate) + ` ${code}`;
+};
 export const formatNumber = (v) => new Intl.NumberFormat("fr-TN").format(v);
 export const formatPercent = (v) => v.toFixed(1) + "%";

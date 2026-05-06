@@ -109,7 +109,7 @@ function CaissePage() {
   const lastFlux = filteredFlux[filteredFlux.length - 1];
   const netJournalier = lastFlux ? lastFlux.net : 0;
 
-  // Prophet forecast for solde caisse
+  // Local projection for solde caisse
   const prophetData = useMemo(() => {
     const base = totalEspeces + totalCheques;
     return Array.from({ length: 40 }, (_, i) => {
@@ -142,7 +142,7 @@ function CaissePage() {
       <KPICard label="Solde espèces total" value={`${(totalEspeces / 1000).toFixed(0)} K DT`} subtitle={depot !== "Tous" ? depot : "toutes caisses"} icon={Banknote} />
       <KPICard label="Solde chèques" value={`${(totalCheques / 1000).toFixed(0)} K DT`} subtitle={`${filteredCaisses.length} caisse(s) filtrée(s)`} icon={Wallet} />
       <KPICard label="Flux net journalier" value={`${netJournalier > 0 ? "+" : ""}${(netJournalier / 1000).toFixed(0)} K DT`} subtitle="Crédit - Débit (hier)" trend={netJournalier > 0 ? 5.2 : -3.1} icon={TrendingUp} />
-      <KPICard label="Prévision solde J+15" value={`${(previsionJ15 / 1000).toFixed(0)} K DT`} subtitle="Modèle Prophet (80% conf.)" icon={Activity} />
+      <KPICard label="Prévision solde J+15" value={`${(previsionJ15 / 1000).toFixed(0)} K DT`} subtitle="Projection locale (80% conf.)" icon={Activity} />
     </>
   )}
 </div>
@@ -222,7 +222,7 @@ function CaissePage() {
           </div>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="line" title="Prévision solde caisse — Prophet 30j ">
+        <ChartCard loading={chartsLoading} skeleton="line" title="Prévision solde caisse — projection 30j ">
           <ResponsiveContainer width="100%" height={chartH}>
             <LineChart data={prophetData.filter((_, i) => i % 2 === 0)}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />

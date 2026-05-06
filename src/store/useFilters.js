@@ -11,6 +11,7 @@ export const FILTER_DEFAULTS = {
   banque: "Toutes",
   modeBanque: "Tous",
   modePaiement: "Tous",
+  source: "MAG_2020 + GRT_MAG",
   horizonPrev: "30j",
   statutArticle: "Tous",
 };
@@ -28,6 +29,7 @@ export const useFilters = create((set, get) => ({
   setBanque: (banque) => set({ banque }),
   setModeBanque: (modeBanque) => set({ modeBanque }),
   setModePaiement: (modePaiement) => set({ modePaiement }),
+  setSource: (source) => set({ source }),
   setHorizonPrev: (horizonPrev) => set({ horizonPrev }),
   setStatutArticle: (statutArticle) => set({ statutArticle }),
   resetAll: () => set({ ...FILTER_DEFAULTS }),

@@ -10,18 +10,12 @@ function ParametresPage() {
   const {
     langue, setLangue,
     devise, setDevise,
-    notifImpayes, setNotifImpayes,
-    notifRapports, setNotifRapports,
-    notifSystem, setNotifSystem,
     t,
   } = useParametres();
 
   const [draft, setDraft] = useState({
     langue,
     devise,
-    notifImpayes,
-    notifRapports,
-    notifSystem,
   });
 
   const [saved, setSaved] = useState(false);
@@ -29,15 +23,12 @@ function ParametresPage() {
   function handleSave() {
     setLangue(draft.langue);
     setDevise(draft.devise);
-    setNotifImpayes(draft.notifImpayes);
-    setNotifRapports(draft.notifRapports);
-    setNotifSystem(draft.notifSystem);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
 
   function handleCancel() {
-    setDraft({ langue, devise, notifImpayes, notifRapports, notifSystem });
+    setDraft({ langue, devise });
   }
 
   return (
@@ -76,52 +67,6 @@ function ParametresPage() {
                 </select>
               </div>
             </div>
-          </section>
-
-          <hr className="border-border" />
-
-          {/* Notifications */}
-          <section>
-            <h2 className="text-lg font-semibold text-foreground mb-4">{t("params.notifs")}</h2>
-            <div className="space-y-3">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={draft.notifImpayes}
-                  onChange={(e) => setDraft({ ...draft, notifImpayes: e.target.checked })}
-                  className="rounded"
-                />
-                <span className="text-sm text-foreground">{t("params.notifImpayes")}</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={draft.notifRapports}
-                  onChange={(e) => setDraft({ ...draft, notifRapports: e.target.checked })}
-                  className="rounded"
-                />
-                <span className="text-sm text-foreground">{t("params.notifRapports")}</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={draft.notifSystem}
-                  onChange={(e) => setDraft({ ...draft, notifSystem: e.target.checked })}
-                  className="rounded"
-                />
-                <span className="text-sm text-foreground">{t("params.notifSystem")}</span>
-              </label>
-            </div>
-          </section>
-
-          <hr className="border-border" />
-
-          {/* Sécurité */}
-          <section>
-            <h2 className="text-lg font-semibold text-foreground mb-4">{t("params.securite")}</h2>
-            <button className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors">
-              {t("params.changePassword")}
-            </button>
           </section>
 
           {/* Actions */}

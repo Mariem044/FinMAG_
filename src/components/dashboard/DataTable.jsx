@@ -16,8 +16,21 @@ import {
   ChevronLeft,
   ChevronRight as ChevRight,
   Search,
+  Download,
 } from "lucide-react";
-export function DataTable({ data, columns, expandable, renderSubRow }) {
+
+function csvEscape(value) {
+  const text = value == null ? "" : String(value);
+  return /[",\n\r;]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function getExportValue(row, column) {
+  if (typeof column.accessorFn === "function") return column.accessorFn(row);
+  if (column.accessorKey) return row[column.accessorKey];
+  return "";
+}
+
+export function DataTable({ data, columns, expandable, renderSubRow, exportFilename = "export.csv" }) {
   const [sorting, setSorting] = useState([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [expanded, setExpanded] = useState({});
@@ -59,6 +72,23 @@ export function DataTable({ data, columns, expandable, renderSubRow }) {
   const totalRows = table.getFilteredRowModel().rows.length;
   const from = pageIndex * pageSize + 1;
   const to = Math.min((pageIndex + 1) * pageSize, totalRows);
+  const exportCsv = () => {
+    const exportColumns = columns.filter((c) => c.accessorKey || c.accessorFn);
+    const headers = exportColumns.map((c) =>
+      typeof c.header === "string" ? c.header : c.accessorKey || c.id || "",
+    );
+    const rows = table.getFilteredRowModel().rows.map((row) =>
+      exportColumns.map((column) => csvEscape(getExportValue(row.original, column))).join(";"),
+    );
+    const csv = [headers.map(csvEscape).join(";"), ...rows].join("\n");
+    const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = exportFilename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
   return _jsxs("div", {
     className: "bg-card border border-border rounded-xl overflow-hidden",
     children: [
@@ -80,6 +110,13 @@ export function DataTable({ data, columns, expandable, renderSubRow }) {
                   "\r\n              bg-secondary border border-border rounded-lg pl-8 pr-3 py-1.5\r\n              text-[13px] text-secondary-foreground outline-none\r\n              focus:border-primary hover:border-primary/50 w-56 transition-colors\r\n            ",
               }),
             ],
+          }),
+          _jsxs("button", {
+            onClick: exportCsv,
+            disabled: totalRows === 0,
+            className:
+              "inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40",
+            children: [_jsx(Download, { size: 13 }), "Exporter CSV"],
           }),
           _jsx("p", {
             className: "text-[12px] text-muted-foreground",

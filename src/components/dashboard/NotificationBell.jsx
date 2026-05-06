@@ -208,7 +208,7 @@ export function NotificationBell() {
           {/* Footer */}
           <div className="px-4 py-3 border-t border-border/60 flex items-center justify-between">
             <span className="text-[10px] text-text-dim">
-              Données MAG Distribution temps réel
+              Alertes calculées depuis les données locales
             </span>
             <a
               href="/produits"
