@@ -1,0 +1,583 @@
+"""
+extract.py — SIAD MAG Distribution ETL
+Extraction depuis MAG_2020 (Sage Gestion Commerciale) et GRT_MAG (Sage Trésorerie).
+
+Règles :
+- pandas.read_sql() + SQLAlchemy engine uniquement
+- Jamais SELECT * — colonnes projetées explicitement
+- Delta : filtre cbModification >= last_run_date quand disponible
+- Gestion NULL stricte — aucune substitution silencieuse
+"""
+from __future__ import annotations
+
+from datetime import date, datetime
+from typing import Optional
+
+import pandas as pd
+from sqlalchemy import text
+
+from config import MAG_ENGINE, GRT_ENGINE, DIM_DATE_START, DIM_DATE_END
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+# ─── Helpers ────────────────────────────────────────────────────────────────
+
+def _read(engine, sql: str, params: Optional[dict] = None) -> pd.DataFrame:
+    """Wrapper pandas.read_sql avec gestion d'erreur et log."""
+    with engine.connect() as conn:
+        df = pd.read_sql(text(sql), conn, params=params or {})
+    logger.debug(f"Extrait {len(df)} lignes — {sql[:60].strip()}…")
+    return df
+
+
+def _delta_filter(col: str, last_run: Optional[datetime]) -> tuple[str, dict]:
+    """Retourne clause WHERE et params pour filtre delta."""
+    if last_run is None:
+        return "", {}
+    return f" AND {col} >= :last_run", {"last_run": last_run}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# DEPUIS MAG_2020
+# ════════════════════════════════════════════════════════════════════════════
+
+def extract_exercices_fiscaux() -> list[tuple[date, date]]:
+    """
+    Lit P_DOSSIER pour récupérer les 5 exercices fiscaux Sage.
+    Retourne liste de (debut, fin) par exercice.
+    """
+    sql = """
+        SELECT
+            D_DebutExo01, D_FinExo01,
+            D_DebutExo02, D_FinExo02,
+            D_DebutExo03, D_FinExo03,
+            D_DebutExo04, D_FinExo04,
+            D_DebutExo05, D_FinExo05
+        FROM P_DOSSIER
+    """
+    try:
+        df = _read(MAG_ENGINE, sql)
+        exos = []
+        for i in range(1, 6):
+            debut = df.iloc[0].get(f"D_DebutExo0{i}")
+            fin   = df.iloc[0].get(f"D_FinExo0{i}")
+            if pd.notna(debut) and pd.notna(fin):
+                exos.append((pd.Timestamp(debut).date(), pd.Timestamp(fin).date()))
+        logger.info(f"Exercices fiscaux lus : {len(exos)}")
+        return exos
+    except Exception as exc:
+        logger.warning(f"Impossible de lire P_DOSSIER : {exc} — exercice=NULL")
+        return []
+
+
+def extract_dim_segment() -> pd.DataFrame:
+    """DIM_SEGMENT — Source : P_CATTARIF."""
+    sql = """
+        SELECT
+            cbIndice,
+            CT_PrixTTC
+        FROM P_CATTARIF
+        WHERE cbIndice BETWEEN 1 AND 5
+    """
+    return _read(MAG_ENGINE, sql)
+
+
+def extract_dim_collaborateur(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """DIM_COLLABORATEUR — Source : F_COLLABORATEUR."""
+    delta_clause, params = _delta_filter("cbModification", last_run)
+    sql = f"""
+        SELECT
+            CO_No,
+            CO_Fonction,
+            CO_Sommeil
+        FROM F_COLLABORATEUR
+        WHERE 1=1 {delta_clause}
+    """
+    return _read(MAG_ENGINE, sql, params)
+
+
+def extract_dim_famille() -> pd.DataFrame:
+    """
+    DIM_FAMILLE — Source : F_FAMILLE JOIN F_CATALOGUE.
+    Construit les 3 niveaux hiérarchiques via pivot sur CL_Niveau.
+    """
+    sql = """
+        SELECT
+            f.FA_CodeFamille,
+            c.CL_Code,
+            c.CL_Niveau
+        FROM F_FAMILLE f
+        LEFT JOIN F_CATALOGUE c ON c.FA_CodeFamille = f.FA_CodeFamille
+        WHERE c.CL_Niveau IN (0, 1, 2)
+    """
+    return _read(MAG_ENGINE, sql)
+
+
+def extract_dim_fournisseur(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """DIM_FOURNISSEUR — Source : F_COMPTET WHERE CT_Type = 1."""
+    delta_clause, params = _delta_filter("cbModification", last_run)
+    sql = f"""
+        SELECT
+            CT_Num,
+            CT_Sommeil,
+            CT_Encours,
+            CT_SvCA
+        FROM F_COMPTET
+        WHERE CT_Type = 1 {delta_clause}
+    """
+    return _read(MAG_ENGINE, sql, params)
+
+
+def extract_dim_article(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """DIM_ARTICLE — Source : F_ARTICLE LEFT JOIN F_ARTFOURNISS (fournisseur principal)."""
+    delta_clause, params = _delta_filter("a.cbModification", last_run)
+    sql = f"""
+        SELECT
+            a.AR_Ref,
+            a.FA_CodeFamille,
+            af.CT_Num   AS CT_Num_fourn,
+            a.AR_Sommeil,
+            a.AR_PrixAch,
+            a.AR_SuiviStock
+        FROM F_ARTICLE a
+        LEFT JOIN F_ARTFOURNISS af
+            ON af.AR_Ref = a.AR_Ref
+           AND af.AF_Principal = 1
+        WHERE 1=1 {delta_clause}
+    """
+    return _read(MAG_ENGINE, sql, params)
+
+
+def extract_dim_client_mag(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """DIM_CLIENT (partie MAG) — Source : F_COMPTET WHERE CT_Type = 0."""
+    delta_clause, params = _delta_filter("cbModification", last_run)
+    sql = f"""
+        SELECT
+            CT_Num,
+            CT_Sommeil,
+            N_CatTarif,
+            CO_No,
+            CT_Encours,
+            CT_SvCA
+        FROM F_COMPTET
+        WHERE CT_Type = 0 {delta_clause}
+    """
+    return _read(MAG_ENGINE, sql, params)
+
+
+def extract_dim_depot(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """DIM_DEPOT — Source : F_DEPOT."""
+    delta_clause, params = _delta_filter("cbModification", last_run)
+    sql = f"""
+        SELECT
+            DE_No,
+            DE_Principal
+        FROM F_DEPOT
+        WHERE 1=1 {delta_clause}
+    """
+    return _read(MAG_ENGINE, sql, params)
+
+
+def extract_dim_journal(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """DIM_JOURNAL — Source : F_JOURNAUX."""
+    delta_clause, params = _delta_filter("cbModification", last_run)
+    sql = f"""
+        SELECT
+            JO_Num,
+            JO_Type
+        FROM F_JOURNAUX
+        WHERE 1=1 {delta_clause}
+    """
+    return _read(MAG_ENGINE, sql, params)
+
+
+def extract_dim_banque_mag() -> pd.DataFrame:
+    """DIM_BANQUE (partie MAG) — Source : F_EBANQUE."""
+    sql = """
+        SELECT
+            EB_Abrege,
+            EB_Banque
+        FROM F_EBANQUE
+    """
+    return _read(MAG_ENGINE, sql)
+
+
+def extract_dim_caisse_mag() -> pd.DataFrame:
+    """
+    DIM_CAISSE (partie MAG) — Source : F_CAISSE.
+    Attention : clé CA_No dans MAG (pas CA_Numero).
+    """
+    sql = """
+        SELECT
+            CA_No,
+            CA_Type,
+            JO_Num
+        FROM F_CAISSE
+    """
+    return _read(MAG_ENGINE, sql)
+
+
+def extract_fait_lignes_vente(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """
+    FAIT_LIGNES_VENTE — Source : F_DOCLIGNE JOIN F_DOCENTETE.
+    KPI-01 CA, KPI-02 Marge brute, KPI-03 Escompte,
+    KPI-04 Top articles, KPI-16 Concentration achat, KPI-18 RFM.
+    """
+    delta_clause, params = _delta_filter("dl.cbModification", last_run)
+    sql = f"""
+        SELECT
+            dl.DO_Domaine,
+            dl.DO_Type,
+            dl.CT_Num,
+            dl.DO_Piece,
+            dl.DO_Date,
+            dl.AR_Ref,
+            dl.DE_No,
+            dl.DL_Qte,
+            dl.DL_PrixUnitaire,
+            dl.DL_Taxe1,
+            dl.DL_MontantHT,
+            dl.DL_MontantTTC,
+            de.DO_TxEscompte,
+            de.DO_TotalHT,
+            de.DO_TotalHTNet,
+            de.DO_TotalTTC,
+            de.DO_NetAPayer,
+            de.DO_MontantRegle
+        FROM F_DOCLIGNE dl
+        INNER JOIN F_DOCENTETE de
+            ON  de.DO_Domaine = dl.DO_Domaine
+            AND de.DO_Type    = dl.DO_Type
+            AND de.DO_Piece   = dl.DO_Piece
+        WHERE 1=1 {delta_clause}
+    """
+    return _read(MAG_ENGINE, sql, params)
+
+
+def extract_fait_ecriturec(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """
+    FAIT_ECRITURES type_ligne=1 — Source : F_ECRITUREC JOIN F_JOURNAUX.
+    KPI-19 Solde comptable, KPI-21 Balance.
+    Détermine type_tva : JO_Type=1 → collectée, JO_Type=0 → déductible.
+    """
+    delta_clause, params = _delta_filter("ec.cbModification", last_run)
+    sql = f"""
+        SELECT
+            ec.JO_Num,
+            ec.EC_No,
+            ec.EC_Date,
+            ec.CG_Num,
+            ec.CT_Num,
+            ec.EC_Sens,
+            ec.EC_Montant,
+            j.JO_Type
+        FROM F_ECRITUREC ec
+        INNER JOIN F_JOURNAUX j ON j.JO_Num = ec.JO_Num
+        WHERE 1=1 {delta_clause}
+    """
+    return _read(MAG_ENGINE, sql, params)
+
+
+def extract_fait_regtaxe(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """
+    FAIT_ECRITURES type_ligne=2 — Source : F_REGTAXE JOIN F_ECRITUREC.
+    KPI-20 TVA collectée/déductible.
+    """
+    delta_clause, params = _delta_filter("rt.cbModification", last_run)
+    sql = f"""
+        SELECT
+            rt.EC_No,
+            rt.TA_Taux01,
+            rt.RT_Base01,
+            rt.RT_Montant01,
+            ec.JO_Num,
+            ec.EC_Date,
+            ec.CT_Num,
+            j.JO_Type
+        FROM F_REGTAXE rt
+        INNER JOIN F_ECRITUREC ec ON ec.EC_No = rt.EC_No
+        INNER JOIN F_JOURNAUX  j  ON j.JO_Num = ec.JO_Num
+        WHERE 1=1 {delta_clause}
+    """
+    return _read(MAG_ENGINE, sql, params)
+
+
+def extract_fait_artstock() -> pd.DataFrame:
+    """
+    FAIT_ECRITURES type_ligne=4 — Source : F_ARTSTOCK.
+    Snapshot à la date d'extraction — toujours full reload.
+    KPI-11 Couverture stock, KPI-12 Ruptures, KPI-13 DSI, KPI-14 Tension.
+    """
+    sql = """
+        SELECT
+            AR_Ref,
+            DE_No,
+            AS_MontSto,
+            AS_QteSto,
+            AS_QteMini,
+            AS_QteRes
+        FROM F_ARTSTOCK
+    """
+    return _read(MAG_ENGINE, sql)
+
+
+def extract_reglementt() -> pd.DataFrame:
+    """
+    F_REGLEMENTT — délais contractuels.
+    Utilisé pour calculer ecart_delai KPI-07 / KPI-09.
+    """
+    sql = """
+        SELECT
+            CT_Num,
+            N_Reglement,
+            RT_NbJour
+        FROM F_REGLEMENTT
+    """
+    return _read(MAG_ENGINE, sql)
+
+
+def extract_creglement(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """F_CREGLEMENT — KPI-06 Solde créances."""
+    delta_clause, params = _delta_filter("cbModification", last_run)
+    sql = f"""
+        SELECT
+            RG_No,
+            CT_NumPayeur,
+            RG_Date,
+            RG_Montant
+        FROM F_CREGLEMENT
+        WHERE 1=1 {delta_clause}
+    """
+    return _read(MAG_ENGINE, sql, params)
+
+
+def extract_reglech(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """F_REGLECH — KPI-10 Taux de recouvrement (RC_Montant / DR_Montant)."""
+    delta_clause, params = _delta_filter("cbModification", last_run)
+    sql = f"""
+        SELECT
+            RG_No,
+            DR_No,
+            RC_Montant
+        FROM F_REGLECH
+        WHERE 1=1 {delta_clause}
+    """
+    return _read(MAG_ENGINE, sql, params)
+
+
+def extract_docregl_mag(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """
+    F_DOCREGL (MAG) — KPI-08 Impayés avec buckets ancienneté.
+    Filtre sur DR_Regle=0 pour les impayés actifs.
+    """
+    delta_clause, params = _delta_filter("cbModification", last_run)
+    sql = f"""
+        SELECT
+            DR_No,
+            DO_Type,
+            DO_Piece,
+            DR_Date,
+            DR_Montant,
+            DR_Regle,
+            N_Reglement
+        FROM F_DOCREGL
+        WHERE 1=1 {delta_clause}
+    """
+    return _read(MAG_ENGINE, sql, params)
+
+
+def extract_docentete_dates() -> pd.DataFrame:
+    """
+    F_DOCENTETE — dates pour calcul delai_reel_jours FAIT_REGLEMENTS.
+    Projection minimale : clé + date uniquement.
+    """
+    sql = """
+        SELECT
+            DO_Domaine,
+            DO_Type,
+            DO_Piece,
+            DO_Date
+        FROM F_DOCENTETE
+    """
+    return _read(MAG_ENGINE, sql)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# DEPUIS GRT_MAG
+# ════════════════════════════════════════════════════════════════════════════
+
+def extract_dim_client_grt() -> pd.DataFrame:
+    """
+    DIM_CLIENT enrichissement GRT — Source : F_COMPTET (GRT).
+    Attention : colonne CT_NUM en MAJUSCULES dans GRT.
+    """
+    sql = """
+        SELECT
+            CT_NUM                  AS CT_Num,
+            CT_SoldeActuel,
+            CT_Engagement,
+            CT_ChiffreAffaire,
+            CT_EchusUnMois,
+            CT_EchusDeuxMois,
+            CT_EchustTroisMois,
+            CT_EchusPlusTroisMois,
+            CT_MoyenneDelaiPayement,
+            CT_MoyenneDelaiImpaye
+        FROM F_COMPTET
+    """
+    return _read(GRT_ENGINE, sql)
+
+
+def extract_dim_banque_grt() -> pd.DataFrame:
+    """DIM_BANQUE enrichissement GRT — Source : F_EBANQUE (GRT)."""
+    sql = """
+        SELECT
+            EB_Abrege,
+            EB_Banque
+        FROM F_EBANQUE
+    """
+    return _read(GRT_ENGINE, sql)
+
+
+def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """
+    FAIT_REGLEMENTS clients — GRT : F_ReglementClient
+    JOIN F_LigneBordereauRemise JOIN F_BordereauRemise.
+    KPI-05, KPI-06, KPI-09, KPI-15.
+    """
+    delta_clause, params = _delta_filter("rc.cbModification", last_run)
+    sql = f"""
+        SELECT
+            rc.RT_Num,
+            rc.CT_Num,
+            rc.DO_Type,
+            rc.RT_Date,
+            rc.RT_Mode,
+            rc.RT_Montant,
+            rc.RT_Etat,
+            rc.BQ_Num,
+            lb.LB_Ligne,
+            lb.BR_Num,
+            lb.LB_MontantReg,
+            lb.LB_EcheanceReg,
+            lb.LB_NbJour,
+            lb.LB_Agios,
+            br.BQ_ABREGE,
+            br.BR_TotalReglement,
+            br.BR_Rapproch
+        FROM F_ReglementClient rc
+        LEFT JOIN F_LigneBordereauRemise lb ON lb.RT_Num = rc.RT_Num
+        LEFT JOIN F_BordereauRemise      br ON br.BR_Num = lb.BR_Num
+        WHERE 1=1 {delta_clause}
+    """
+    return _read(GRT_ENGINE, sql, params)
+
+
+def extract_fait_reglements_fournisseurs(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """
+    FAIT_REGLEMENTS fournisseurs — GRT : F_ReglementFournisseur.
+    KPI-07 Délai moyen fournisseur.
+    """
+    delta_clause, params = _delta_filter("cbModification", last_run)
+    sql = f"""
+        SELECT
+            RT_Num,
+            CT_Num,
+            DO_Type,
+            RT_Date,
+            RT_Mode,
+            RT_Montant,
+            RT_Etat,
+            BQ_Num
+        FROM F_ReglementFournisseur
+        WHERE 1=1 {delta_clause}
+    """
+    return _read(GRT_ENGINE, sql, params)
+
+
+def extract_docregl_grt(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """
+    F_DOCREGL (GRT) — état règlement, mode règlement.
+    KPI-08 Impayés côté GRT.
+    """
+    delta_clause, params = _delta_filter("cbModification", last_run)
+    sql = f"""
+        SELECT
+            DO_Piece,
+            DR_Montant,
+            DR_EtatRegle   AS DR_Regle,
+            DR_ModeReg
+        FROM F_DOCREGL
+        WHERE 1=1 {delta_clause}
+    """
+    return _read(GRT_ENGINE, sql, params)
+
+
+def extract_fait_mvtcaisse(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """
+    FAIT_ECRITURES type_ligne=3 — GRT : F_MvtCaisse JOIN F_Caisse.
+    Attention : F_Caisse GRT utilise CA_Numero (pas CA_No).
+    KPI-22 Solde caisse, KPI-23 Entrées/Sorties, KPI-24 Taux clôture.
+    """
+    delta_clause, params = _delta_filter("mc.cbModification", last_run)
+    sql = f"""
+        SELECT
+            mc.MC_Numero,
+            mc.MC_Date,
+            mc.MC_TypeMvt,
+            mc.MC_Debit,
+            mc.MC_Credit,
+            mc.MC_Cloture,
+            c.CA_Numero,
+            c.CA_Type,
+            c.CA_Solde,
+            c.CA_SoldeEspece,
+            c.CA_SoldeCheque,
+            c.CA_NumJournal  AS JO_Num
+        FROM F_MvtCaisse mc
+        INNER JOIN F_Caisse c ON c.CA_Numero = mc.CA_Numero
+        WHERE 1=1 {delta_clause}
+    """
+    return _read(GRT_ENGINE, sql, params)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# DIMENSIONS CODÉES EN DUR (pas de source SQL)
+# ════════════════════════════════════════════════════════════════════════════
+
+def extract_static_dims() -> dict[str, pd.DataFrame]:
+    """
+    Retourne les dimensions dont les valeurs sont connues statiquement
+    (mode/état règlement, type ligne, sens écriture, type TVA, domaine, type doc).
+    """
+    from config import (
+        MODES_REGLEMENT, ETATS_REGLEMENT, ETATS_DOCREGL,
+        TYPES_LIGNE, SENS_ECRITURE, TYPES_TVA, DOMAINES, TYPES_DOC,
+    )
+
+    def _df(d: dict, code_col: str, lib_col: str) -> pd.DataFrame:
+        return pd.DataFrame(
+            [(k, v) for k, v in d.items()], columns=[code_col, lib_col]
+        )
+
+    return {
+        "DIM_MODE_REGLEMENT":  _df(MODES_REGLEMENT,  "code_mode_reg",     "libelle_mode_reg"),
+        "DIM_ETAT_REGLEMENT":  _df(ETATS_REGLEMENT,  "code_etat_reg",     "libelle_etat_reg"),
+        "DIM_ETAT_DOCREGL":    _df(ETATS_DOCREGL,    "code_etat_docregl", "libelle_etat_docregl"),
+        "DIM_TYPE_LIGNE":      _df(TYPES_LIGNE,       "code_type_ligne",   "libelle_type_ligne"),
+        "DIM_SENS_ECRITURE":   _df(SENS_ECRITURE,     "code_sens",         "libelle_sens"),
+        "DIM_TYPE_TVA":        _df(TYPES_TVA,         "code_type_tva",     "libelle_type_tva"),
+        "DIM_DOMAINE":         _df(DOMAINES,          "code_domaine",      "libelle_domaine"),
+        "DIM_TYPE_DOC":        _df(TYPES_DOC,         "code_type_doc",     "libelle_type_doc"),
+    }
+
+
+def extract_dim_type_mvt_caisse(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """DIM_TYPE_MVT_CAISSE — valeurs distinctes de F_MvtCaisse.MC_TypeMvt."""
+    sql = """
+        SELECT DISTINCT MC_TypeMvt AS code_type_mvt
+        FROM F_MvtCaisse
+        WHERE MC_TypeMvt IS NOT NULL
+    """
+    return _read(GRT_ENGINE, sql)
