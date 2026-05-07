@@ -204,11 +204,13 @@ function getSelectedCurrency() {
 
 export const formatTND = (v) => {
   const { code, rate } = getSelectedCurrency();
-  return new Intl.NumberFormat("fr-TN", {
-    style: "decimal",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(v * rate) + ` ${code}`;
+  return (
+    new Intl.NumberFormat("fr-TN", {
+      style: "decimal",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(v * rate) + ` ${code}`
+  );
 };
 export const formatNumber = (v) => new Intl.NumberFormat("fr-TN").format(v);
 export const formatPercent = (v) => v.toFixed(1) + "%";

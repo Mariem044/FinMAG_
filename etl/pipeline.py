@@ -26,6 +26,7 @@ Bug 10 – audit.py bare imports fixed (from etl.config / etl.utils.logger).
 
 from __future__ import annotations
 
+import hashlib
 from etl.config import SEGMENTS, DIM_DATE_START, DIM_DATE_END
 import sys
 from datetime import datetime, date
@@ -40,6 +41,7 @@ from etl.utils.audit import (
     acquire_lock,
     start_run,
     end_run,
+    release_lock,
     table_timer,
     get_last_run_info,
 )
@@ -160,6 +162,19 @@ def _hash_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     return df
 
 
+def _source_hash(*values) -> bytes:
+    parts = ["<NULL>" if pd.isna(v) else str(v).strip() for v in values]
+    return hashlib.sha256("|".join(parts).encode("utf-8")).digest()
+
+
+def _ensure_columns(df: pd.DataFrame, defaults: Dict) -> pd.DataFrame:
+    df = df.copy()
+    for col, default in defaults.items():
+        if col not in df.columns:
+            df[col] = default
+    return df
+
+
 def _lookup_code(lookups: Dict, table_name: str, value):
     if pd.isna(value):
         return None
@@ -227,6 +242,103 @@ def _resolve_banque_id(row: pd.Series, lookups: Dict):
             if resolved is not None:
                 return resolved
     return None
+
+
+def _assemble_fait_reglements(
+    last_run: Optional[datetime],
+    lookups: Dict,
+) -> pd.DataFrame:
+    defaults = {
+        "DO_Piece": None,
+        "LB_Ligne": None,
+        "LB_NbJour": 0,
+        "LB_Agios": 0,
+        "BR_Rapproch": 0,
+        "BQ_ABREGE": None,
+    }
+
+    clients = _ensure_columns(
+        extract.extract_fait_reglements_clients(last_run),
+        defaults,
+    )
+    clients["_acteur"] = "CLIENT"
+
+    fournisseurs = _ensure_columns(
+        extract.extract_fait_reglements_fournisseurs(last_run),
+        defaults,
+    )
+    fournisseurs["_acteur"] = "FOURNISSEUR"
+
+    doc_dates = (
+        extract.extract_docentete_dates()[["DO_Type", "DO_Piece", "DO_Date"]]
+        .drop_duplicates(subset=["DO_Type", "DO_Piece"], keep="last")
+    )
+    docregl = (
+        extract.extract_docregl_grt(last_run)
+        .drop_duplicates(subset=["DO_Piece"], keep="last")
+    )
+
+    df = (
+        pd.concat([clients, fournisseurs], ignore_index=True, sort=False)
+        .merge(doc_dates, on=["DO_Type", "DO_Piece"], how="left")
+        .merge(docregl, on="DO_Piece", how="left")
+        .assign(RT_NbJour=lambda d: d["LB_NbJour"])
+    )
+
+    df = transform.add_fact_reglements_bucket(
+        transform.add_fact_reglements_calcs(df)
+    )
+
+    return df.assign(
+        id_date=lambda d: d["RT_Date"].apply(
+            lambda dt: lookups.get("DIM_DATE", {}).get(
+                pd.Timestamp(dt).date() if pd.notna(dt) else None
+            )
+        ),
+        id_client=lambda d: d.apply(
+            lambda row: (
+                lookups.get("DIM_CLIENT", {}).get(transform.hash_key(row.get("CT_Num")))
+                if row.get("_acteur") == "CLIENT"
+                else None
+            ),
+            axis=1,
+        ),
+        id_fournisseur=lambda d: d.apply(
+            lambda row: (
+                lookups.get("DIM_FOURNISSEUR", {}).get(
+                    transform.hash_key(row.get("CT_Num"))
+                )
+                if row.get("_acteur") == "FOURNISSEUR"
+                else None
+            ),
+            axis=1,
+        ),
+        id_banque=lambda d: d.apply(
+            lambda row: _resolve_banque_id(row, lookups),
+            axis=1,
+        ),
+        id_mode_reg=lambda d: d["RT_Mode"].map(
+            lookups.get("DIM_MODE_REGLEMENT", {})
+        ),
+        id_etat_reg=lambda d: d["RT_Etat"].map(
+            lookups.get("DIM_ETAT_REGLEMENT", {})
+        ),
+        id_etat_docregl=lambda d: d["DR_Regle"].map(
+            lookups.get("DIM_ETAT_DOCREGL", {})
+        ),
+        RT_Rapproche=lambda d: d["BR_Rapproch"].fillna(0).astype("Int16"),
+        source_hash=lambda d: d.apply(
+            lambda row: _source_hash(
+                "REGLEMENT",
+                row.get("_acteur"),
+                row.get("RT_Num"),
+                row.get("LB_Ligne"),
+                row.get("DO_Piece"),
+            ),
+            axis=1,
+        ),
+        date_extraction=date.today(),
+    )
 
 
 def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
@@ -300,6 +412,10 @@ def _assemble_fait_ecritures(
                     1 if v == 1 else 2 if v == 0 else None,
                 )
             ),
+            source_hash=lambda d: d.apply(
+                lambda row: _source_hash("ECRITUREC", row.get("EC_No")),
+                axis=1,
+            ),
             date_extraction=today,
         )
     )
@@ -324,6 +440,10 @@ def _assemble_fait_ecritures(
                     1 if v == 1 else 2 if v == 0 else None,
                 )
             ),
+            source_hash=lambda d: d.apply(
+                lambda row: _source_hash("REGTAXE", row.get("EC_No")),
+                axis=1,
+            ),
             date_extraction=today,
         )
     )
@@ -340,6 +460,10 @@ def _assemble_fait_ecritures(
             ),
             id_type_mvt=lambda d: d["MC_TypeMvt"].apply(
                 lambda v: _lookup_code(lookups, "DIM_TYPE_MVT_CAISSE", v)
+            ),
+            source_hash=lambda d: d.apply(
+                lambda row: _source_hash("MVTCaisse", row.get("MC_Numero")),
+                axis=1,
             ),
             date_extraction=today,
         )
@@ -358,6 +482,15 @@ def _assemble_fait_ecritures(
             ),
             id_depot=lambda d: d["DE_No"].apply(
                 lambda v: lookups.get("DIM_DEPOT", {}).get(v)
+            ),
+            source_hash=lambda d: d.apply(
+                lambda row: _source_hash(
+                    "ARTSTOCK",
+                    row.get("AR_Ref"),
+                    row.get("DE_No"),
+                    today,
+                ),
+                axis=1,
             ),
             date_extraction=today,
         )
@@ -635,65 +768,30 @@ STEPS: List[Step] = [
                 id_depot=df["DE_No"].apply(
                     lambda v: lookups.get("DIM_DEPOT", {}).get(v)
                 ),
+                source_hash=df.apply(
+                    lambda row: _source_hash(
+                        "DOCLIGNE",
+                        row.get("DO_Domaine"),
+                        row.get("DO_Type"),
+                        row.get("DO_Piece"),
+                        row.get("DL_Ligne"),
+                        row.get("AR_Ref"),
+                    ),
+                    axis=1,
+                ),
                 date_extraction=date.today(),
             )
         ),
         lambda df, tbl, mode: load.load_fact(df, tbl, mode),
     ),
 
-    # BUG 1, 6 FIX — FAIT_REGLEMENTS
+    # FAIT_REGLEMENTS: client and supplier regulations
     (
         "FAIT_REGLEMENTS",
-        lambda **kw: extract.extract_fait_reglements_clients(kw.get("last_run")),
-
-        lambda df, lookups: (
-            # BUG 1 FIX: use locally defined _add_fact_reglements_bucket
-            # BUG 6 FIX: join on DO_Piece (document key), not RT_Num (règlement key)
-            _add_fact_reglements_bucket(
-                transform.add_fact_reglements_calcs(
-                    df.merge(
-                        extract.extract_docentete_dates()[["DO_Type", "DO_Piece", "DO_Date"]],
-                        on=["DO_Type", "DO_Piece"],
-                        how="left",
-                    )
-                    .merge(
-                        extract.extract_docregl_grt(lookups.get("_last_run")),
-                        on="DO_Piece",
-                        how="left",
-                    )
-                    .assign(RT_NbJour=lambda d: d["LB_NbJour"])
-                )
-            )
-            .assign(
-                id_date=lambda d: d["RT_Date"].apply(
-                    lambda dt: lookups.get("DIM_DATE", {}).get(
-                        pd.Timestamp(dt).date() if pd.notna(dt) else None
-                    )
-                ),
-                id_client=lambda d: d["CT_Num"].apply(
-                    lambda v: lookups.get("DIM_CLIENT", {}).get(transform.hash_key(v))
-                ),
-                id_banque=lambda d: d.apply(
-                    lambda row: _resolve_banque_id(row, lookups),
-                    axis=1,
-                ),
-                id_mode_reg=lambda d: d["RT_Mode"].map(
-                    lookups.get("DIM_MODE_REGLEMENT", {})
-                ),
-                id_etat_reg=lambda d: d["RT_Etat"].map(
-                    lookups.get("DIM_ETAT_REGLEMENT", {})
-                ),
-                id_etat_docregl=lambda d: d["DR_Regle"].map(
-                    lookups.get("DIM_ETAT_DOCREGL", {})
-                ),
-                RT_Rapproche=lambda d: (
-                    d["BR_Rapproch"].fillna(0).astype("Int16")
-                    if "BR_Rapproch" in d.columns else 0
-                ),
-                date_extraction=date.today(),
-            )
+        lambda **kw: pd.DataFrame(),
+        lambda df, lookups: _assemble_fait_reglements(
+            lookups.get("_last_run"), lookups
         ),
-
         lambda df, tbl, mode: load.load_fact(df, tbl, mode),
     ),
 
@@ -722,8 +820,10 @@ def run_pipeline() -> None:
     logger.info(f"Mode détecté : {mode.upper()}")
 
     ddl.create_all_tables(drop_existing=False)
+    ddl.apply_schema_migrations()
 
     run_id = start_run(mode)
+    run_finished = False
 
     # BUG 7 FIX — store _last_run once; never let step loop overwrite it
     lookups: Dict[str, Dict] = {"_last_run": last_run_date}
@@ -775,13 +875,18 @@ def run_pipeline() -> None:
         _compute_dsi_jours()
 
         end_run(run_id, "SUCCESS")
+        run_finished = True
 
     except Exception as exc:
         logger.exception("ETL pipeline failed")
         end_run(run_id, "ERROR", error_msg=str(exc))
+        run_finished = True
         raise
 
     finally:
+        if not run_finished:
+            release_lock(run_id)
+
         # BUG 9 FIX — always re-enable FK constraints after a full load,
         # whether the pipeline succeeded or failed
         if fk_disabled:

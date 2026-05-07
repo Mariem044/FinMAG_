@@ -18,9 +18,11 @@ import {
   ReferenceLine,
   Cell,
 } from "recharts";
-import { clients, CHART_COLORS } from "@/data/mockData";
+import { clients as mockClients, CHART_COLORS } from "@/data/mockData";
 import { useFilters } from "@/store/useFilters";
 import { useMemo } from "react";
+import { api } from "@/lib/api";
+import { useApiResource } from "@/hooks/useApiResource";
 
 export const Route = createFileRoute("/acteurs")({
   component: ActeursPage,
@@ -50,7 +52,7 @@ const hhiData = [
 // to prevent re-randomising on every render.
 
 // RFM: cover ALL clients (not just 8) so filtering always yields data
-const RFM_SEED = clients.map((c, i) => ({
+const RFM_SEED = mockClients.map((c, i) => ({
   code: c.code,
   frequence: 1 + ((i * 7 + 13) % 50),
   recence: 1 + ((i * 11 + 7) % 180),
@@ -60,7 +62,7 @@ const RFM_SEED = clients.map((c, i) => ({
 }));
 
 // Aging: cover ALL 30 clients so filters can still surface rows
-const AGING_SEED = clients.map((c, i) => ({
+const AGING_SEED = mockClients.map((c, i) => ({
   clientCode: c.code,
   client: c.nom.replace("Client ", "C"),
   "0-30j": (i * 17 + 3) % 80000,
@@ -78,7 +80,7 @@ const LIVREURS_SEED = Array.from({ length: 12 }, (_, i) => ({
 }));
 
 // Attrition scores: stable, deterministic per client
-const ATTRITION_SEED = clients.map((c, i) => ({
+const ATTRITION_SEED = mockClients.map((c, i) => ({
   ...c,
   attritionScore: parseFloat((((i * 37 + 11) % 100) / 100).toFixed(2)),
 }));
@@ -123,7 +125,40 @@ function EmptyState({ message = "Aucune donnée pour ce filtre" }) {
 
 function ActeursPage() {
   const { segment, depot } = useFilters();
+  const { data: clients } = useApiResource(api.acteurs.clients, mockClients);
   const chartH = useChartHeight();
+  const rfmSeed = useMemo(
+    () =>
+      clients.map((c, i) => ({
+        code: c.code,
+        frequence: c.nbCommandes || 1 + ((i * 7 + 13) % 50),
+        recence: 1 + ((i * 11 + 7) % 180),
+        montant: c.caTotal,
+        segment: segmentKeys[i % segmentKeys.length],
+        name: c.nom,
+      })),
+    [clients],
+  );
+  const agingSeed = useMemo(
+    () =>
+      clients.map((c, i) => ({
+        clientCode: c.code,
+        client: c.nom.replace("Client ", "C"),
+        "0-30j": (i * 17 + 3) % 80000,
+        "31-60j": (i * 11 + 5) % 40000,
+        "61-90j": (i * 13 + 7) % 25000,
+        ">90j": c.soldeImpaye || (i * 19 + 11) % 60000,
+      })),
+    [clients],
+  );
+  const attritionSeed = useMemo(
+    () =>
+      clients.map((c, i) => ({
+        ...c,
+        attritionScore: parseFloat((((i * 37 + 11) % 100) / 100).toFixed(2)),
+      })),
+    [clients],
+  );
 
   // ── Filtered clients ────────────────────────────────────────────────────────
   const filteredClients = useMemo(() => {
@@ -146,26 +181,27 @@ function ActeursPage() {
 
   // ── RFM scatter ─────────────────────────────────────────────────────────────
   const rfmData = useMemo(
-    () => RFM_SEED.filter((d) => filteredCodes.has(d.code)),
-    [filteredCodes],
+    () => rfmSeed.filter((d) => filteredCodes.has(d.code)),
+    [filteredCodes, rfmSeed],
   );
 
   // ── Aging (top 8 by >90j, from the filtered set) ───────────────────────────
   const agingGRT = useMemo(
     () =>
-      AGING_SEED.filter((d) => filteredCodes.has(d.clientCode))
+      agingSeed
+        .filter((d) => filteredCodes.has(d.clientCode))
         .sort((a, b) => b[">90j"] - a[">90j"])
         .slice(0, 8), // limit to 8 for readability
-    [filteredCodes],
+    [filteredCodes, agingSeed],
   );
 
   // ── Livreurs filtered by depot ──────────────────────────────────────────────
   const livreurs = useMemo(() => {
     if (depot === "Tous") return [...LIVREURS_SEED].sort((a, b) => b.ca - a.ca);
     const fragment = depot.replace("Dépôt ", "").toLowerCase();
-    const filtered = LIVREURS_SEED.filter((l) =>
-      l.region.toLowerCase().includes(fragment),
-    ).sort((a, b) => b.ca - a.ca);
+    const filtered = LIVREURS_SEED.filter((l) => l.region.toLowerCase().includes(fragment)).sort(
+      (a, b) => b.ca - a.ca,
+    );
     // Always show at least a couple of rows even if region doesn't match perfectly
     return filtered.length > 0 ? filtered : [...LIVREURS_SEED].sort((a, b) => b.ca - a.ca);
   }, [depot]);
@@ -173,10 +209,11 @@ function ActeursPage() {
   // ── Attrition ───────────────────────────────────────────────────────────────
   const atRiskClients = useMemo(
     () =>
-      ATTRITION_SEED.filter((c) => filteredCodes.has(c.code) && c.attritionScore > 0.5)
+      attritionSeed
+        .filter((c) => filteredCodes.has(c.code) && c.attritionScore > 0.5)
         .sort((a, b) => b.attritionScore - a.attritionScore)
         .slice(0, 8),
-    [filteredCodes],
+    [filteredCodes, attritionSeed],
   );
 
   // ── KPIs ────────────────────────────────────────────────────────────────────
@@ -285,11 +322,7 @@ function ActeursPage() {
             <ResponsiveContainer width="100%" height={chartH}>
               <BarChart data={agingGRT}>
                 <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="client"
-                  tick={{ fill: "#666", fontSize: 11 }}
-                  axisLine={false}
-                />
+                <XAxis dataKey="client" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
                 <YAxis
                   tick={{ fill: "#666", fontSize: 11 }}
                   axisLine={false}

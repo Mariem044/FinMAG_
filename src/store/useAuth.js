@@ -69,14 +69,37 @@ export const ROLE_PERMISSIONS = {
     canEditUsers: false,
     canExport: true,
     canChangeSettings: false,
-    routes: ["/", "/ventes", "/tresorerie", "/produits", "/acteurs", "/caisse", "/banque", "/assistant", "/profil", "/aide", "/parametres"],
+    routes: [
+      "/",
+      "/ventes",
+      "/tresorerie",
+      "/produits",
+      "/acteurs",
+      "/caisse",
+      "/banque",
+      "/assistant",
+      "/profil",
+      "/aide",
+      "/parametres",
+    ],
   },
   Analyste: {
     canViewAll: false,
     canEditUsers: false,
     canExport: true,
     canChangeSettings: false,
-    routes: ["/", "/ventes", "/tresorerie", "/produits", "/acteurs", "/fiscalite", "/assistant", "/profil", "/aide", "/parametres"],
+    routes: [
+      "/",
+      "/ventes",
+      "/tresorerie",
+      "/produits",
+      "/acteurs",
+      "/fiscalite",
+      "/assistant",
+      "/profil",
+      "/aide",
+      "/parametres",
+    ],
   },
   Consultant: {
     canViewAll: false,
@@ -128,9 +151,7 @@ export const useAuth = create()(
         // Simulate network delay
         await new Promise((r) => setTimeout(r, 800));
 
-        const found = MOCK_USERS.find(
-          (u) => u.email.toLowerCase() === email.toLowerCase().trim()
-        );
+        const found = MOCK_USERS.find((u) => u.email.toLowerCase() === email.toLowerCase().trim());
 
         if (!found) {
           set({ isLoading: false, loginError: "Adresse email introuvable." });
@@ -138,7 +159,10 @@ export const useAuth = create()(
         }
 
         if (!found.actif) {
-          set({ isLoading: false, loginError: "Ce compte est désactivé. Contactez l'administrateur." });
+          set({
+            isLoading: false,
+            loginError: "Ce compte est désactivé. Contactez l'administrateur.",
+          });
           return false;
         }
 
@@ -221,6 +245,6 @@ export const useAuth = create()(
         sessionToken: state.sessionToken,
         isAuthenticated: state.isAuthenticated,
       }),
-    }
-  )
+    },
+  ),
 );

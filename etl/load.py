@@ -14,6 +14,7 @@ Bug 8  – ``load_dimension`` now accepts an explicit ``key_col`` parameter;
           the broken automatic inference is removed.
 """
 import logging
+import hashlib
 from typing import Literal, Optional
 import pandas as pd
 from sqlalchemy import text
@@ -58,6 +59,12 @@ def _prepare_for_load(df: pd.DataFrame, table: str) -> pd.DataFrame:
 
     target_cols, identity_cols = _target_columns(table)
     writable_cols = [c for c in target_cols if c not in identity_cols]
+
+    if "row_hash" in writable_cols and "row_hash" not in df.columns:
+        hash_cols = [c for c in writable_cols if c != "row_hash" and c in df.columns]
+        df = df.copy()
+        df["row_hash"] = df[hash_cols].apply(_sha256_row, axis=1)
+
     kept_cols = [c for c in writable_cols if c in df.columns]
     dropped_cols = [c for c in df.columns if c not in kept_cols]
 
@@ -70,6 +77,16 @@ def _prepare_for_load(df: pd.DataFrame, table: str) -> pd.DataFrame:
         raise ValueError(f"No writable DW columns remain for {table} after schema alignment")
 
     return df.loc[:, kept_cols].copy()
+
+
+def _sha256_row(row: pd.Series) -> bytes:
+    parts = []
+    for value in row.tolist():
+        if pd.isna(value):
+            parts.append("<NULL>")
+        else:
+            parts.append(str(value))
+    return hashlib.sha256("|".join(parts).encode("utf-8")).digest()
 
 
 def _bulk_insert(df: pd.DataFrame, table: str) -> None:
@@ -104,6 +121,12 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
     df = _prepare_for_load(df, table)
     if key_col not in df.columns:
         raise ValueError(f"MERGE key column '{key_col}' is missing from {table} load")
+    before_dedupe = len(df)
+    df = df.drop_duplicates(subset=[key_col], keep="last")
+    if len(df) != before_dedupe:
+        logger.warning(
+            f"[LOAD] {table} - dropped {before_dedupe - len(df)} duplicate {key_col} rows"
+        )
 
     # Bug 7 fix: use a plain permanent staging table name (no # prefix).
     temp_name = f"_etl_tmp_{table}"
@@ -178,7 +201,12 @@ def load_dimension(
         _merge_upsert(df, table, key_col)
 
 
-def load_fact(df: pd.DataFrame, table: str, mode: Mode) -> None:
+def load_fact(
+    df: pd.DataFrame,
+    table: str,
+    mode: Mode,
+    key_col: Optional[str] = "source_hash",
+) -> None:
     """Load a fact table.
 
     - full  : disable FK, TRUNCATE, bulk insert, re‑enable FK.
@@ -192,7 +220,13 @@ def load_fact(df: pd.DataFrame, table: str, mode: Mode) -> None:
         with DW_ENGINE.begin() as conn:
             conn.execute(text(f"ALTER TABLE [{table}] WITH CHECK CHECK CONSTRAINT ALL"))
     else:
-        _bulk_insert(df, table)
+        if key_col and key_col in df.columns:
+            _merge_upsert(df, table, key_col)
+        else:
+            logger.warning(
+                f"[LOAD] {table} - no {key_col} column, falling back to append-only fact load"
+            )
+            _bulk_insert(df, table)
 
 
 if __name__ == "__main__":

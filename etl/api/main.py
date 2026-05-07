@@ -1,63 +1,193 @@
 # api/main.py
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
-import pandas as pd
 
 from etl.config import DW_ENGINE
 
 app = FastAPI(title="FinMAG API")
 
+DEFAULT_ALLOWED_ORIGINS = [
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("API_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+] or DEFAULT_ALLOWED_ORIGINS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080"],
+    allow_origins=allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+MONTHS = ["Jan", "Fev", "Mar", "Avr", "Mai", "Jun", "Jul", "Aou", "Sep", "Oct", "Nov", "Dec"]
+
+
+def _rows(sql, params=None):
+    with DW_ENGINE.connect() as conn:
+        return conn.execute(text(sql), params or {}).fetchall()
+
+
+def _row(sql, params=None):
+    with DW_ENGINE.connect() as conn:
+        return conn.execute(text(sql), params or {}).fetchone()
+
+
+def _num(value, default=0.0):
+    return float(value) if value is not None else default
+
+
+def _int(value, default=0):
+    return int(value) if value is not None else default
+
+
+@app.get("/api/health")
+def health():
+    return {"ok": True}
+
+
 @app.get("/api/dashboard/kpis")
 def get_dashboard_kpis():
     sql = """
+        WITH latest AS (
+            SELECT COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year
+            FROM FAIT_LIGNES_VENTE f
+            LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
+        )
         SELECT
-            SUM(DL_MontantHT)                              AS ca_total,
-            COUNT(DISTINCT DO_Piece_hash)                  AS nb_commandes,
-            COUNT(DISTINCT id_client)                      AS nb_clients_actifs
-        FROM FAIT_LIGNES_VENTE
-        WHERE YEAR(date_extraction) = YEAR(GETDATE())
+            SUM(f.DL_MontantHT) AS ca_total,
+            COUNT(DISTINCT f.DO_Piece_hash) AS nb_commandes,
+            COUNT(DISTINCT f.id_client) AS nb_clients_actifs,
+            SUM(f.DL_MontantHT - (f.DL_Qte * COALESCE(a.AR_PrixAch, 0))) AS marge_brute
+        FROM FAIT_LIGNES_VENTE f
+        LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
+        LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
+        CROSS JOIN latest
+        WHERE d.annee = latest.latest_year
     """
-    with DW_ENGINE.connect() as conn:
-        row = conn.execute(text(sql)).fetchone()
+    row = _row(sql)
+    ca_total = _num(row.ca_total)
+    marge_brute = _num(row.marge_brute)
     return {
-        "ca_total":        float(row.ca_total or 0),
-        "nb_commandes":    int(row.nb_commandes or 0),
-        "nb_clients_actifs": int(row.nb_clients_actifs or 0),
+        "ca_total": ca_total,
+        "nb_commandes": _int(row.nb_commandes),
+        "nb_clients_actifs": _int(row.nb_clients_actifs),
+        "taux_recouvrement": get_tresorerie_summary()["taux_recouvrement"],
+        "marge_brute_pct": (marge_brute / ca_total * 100) if ca_total else 0,
     }
+
 
 @app.get("/api/ventes/ca-by-month")
 def get_ca_by_month():
     sql = """
-        SELECT
-            d.mois AS month_num,
-            SUM(f.DL_MontantHT) AS ca,
-            SUM(f.DL_MontantHT) * 1.05 AS objectif   -- replace with real targets
-        FROM FAIT_LIGNES_VENTE f
-        JOIN DIM_DATE d ON d.id_date = f.id_date
-        WHERE d.annee = YEAR(GETDATE())
-        GROUP BY d.mois
-        ORDER BY d.mois
+        WITH latest AS (
+            SELECT COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year
+            FROM FAIT_LIGNES_VENTE f
+            LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
+        ),
+        monthly AS (
+            SELECT d.annee, d.mois, SUM(f.DL_MontantHT) AS ca
+            FROM FAIT_LIGNES_VENTE f
+            JOIN DIM_DATE d ON d.id_date = f.id_date
+            CROSS JOIN latest
+            WHERE d.annee IN (latest.latest_year, latest.latest_year - 1)
+            GROUP BY d.annee, d.mois
+        )
+        SELECT cur.mois AS month_num,
+               cur.ca,
+               cur.ca * 1.05 AS objectif,
+               COALESCE(prev.ca, 0) AS caN1
+        FROM monthly cur
+        CROSS JOIN latest
+        LEFT JOIN monthly prev
+          ON prev.annee = latest.latest_year - 1
+         AND prev.mois = cur.mois
+        WHERE cur.annee = latest.latest_year
+        ORDER BY cur.mois
     """
-    with DW_ENGINE.connect() as conn:
-        rows = conn.execute(text(sql)).fetchall()
-    months = ["Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"]
     return [
-        {"month": months[r.month_num - 1], "ca": float(r.ca), "objectif": float(r.objectif)}
-        for r in rows
+        {
+            "month": MONTHS[r.month_num - 1],
+            "ca": _num(r.ca),
+            "objectif": _num(r.objectif),
+            "caN1": _num(r.caN1),
+        }
+        for r in _rows(sql)
     ]
+
+
+@app.get("/api/ventes/top-familles")
+def get_top_familles():
+    sql = """
+        SELECT TOP 8
+            COALESCE(CONVERT(VARCHAR(30), a.id_famille), 'Sans famille') AS name,
+            SUM(f.DL_MontantHT) AS ca
+        FROM FAIT_LIGNES_VENTE f
+        LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
+        GROUP BY a.id_famille
+        ORDER BY ca DESC
+    """
+    return [{"name": f"Famille {r.name}", "ca": _num(r.ca)} for r in _rows(sql)]
+
+
+@app.get("/api/ventes/ca-by-region")
+def get_ca_by_region():
+    sql = """
+        SELECT TOP 12
+            COALESCE(CONVERT(VARCHAR(30), d.DE_No), 'Sans depot') AS name,
+            SUM(f.DL_MontantHT) AS ca,
+            COUNT(DISTINCT f.id_client) AS clients,
+            COUNT(DISTINCT f.DO_Piece_hash) AS commandes
+        FROM FAIT_LIGNES_VENTE f
+        LEFT JOIN DIM_DEPOT d ON d.id_depot = f.id_depot
+        GROUP BY d.DE_No
+        ORDER BY ca DESC
+    """
+    return [
+        {
+            "name": f"Depot {r.name}",
+            "ca": _num(r.ca),
+            "clients": _int(r.clients),
+            "commandes": _int(r.commandes),
+        }
+        for r in _rows(sql)
+    ]
+
+
+@app.get("/api/tresorerie/summary")
+def get_tresorerie_summary():
+    sql = """
+        SELECT
+            SUM(CASE WHEN DR_Regle = 1 THEN RT_Montant ELSE 0 END) AS encaissements,
+            SUM(CASE WHEN DR_Regle = 0 THEN RT_Montant ELSE 0 END) AS impayes,
+            AVG(CAST(delai_reel_jours AS FLOAT)) AS delai_moyen
+        FROM FAIT_REGLEMENTS
+    """
+    row = _row(sql)
+    encaissements = _num(row.encaissements)
+    impayes = _num(row.impayes)
+    total = encaissements + impayes
+    return {
+        "encaissements": encaissements,
+        "impayes": impayes,
+        "delai_moyen": round(_num(row.delai_moyen)),
+        "taux_recouvrement": (encaissements / total * 100) if total else 0,
+    }
+
 
 @app.get("/api/tresorerie/impayes")
 def get_impayes():
     sql = """
-        SELECT
+        SELECT TOP 30
             c.CT_Num_code,
             SUM(r.RT_Montant) AS montant_impaye,
             MAX(r.delai_reel_jours) AS anciennete
@@ -68,12 +198,73 @@ def get_impayes():
         HAVING SUM(r.RT_Montant) > 0
         ORDER BY montant_impaye DESC
     """
-    with DW_ENGINE.connect() as conn:
-        rows = conn.execute(text(sql)).fetchall()
     return [
-        {"code": str(r.CT_Num_code), "montant": float(r.montant_impaye), "anciennete": int(r.anciennete or 0)}
-        for r in rows
+        {
+            "client": f"Client {r.CT_Num_code}",
+            "code": str(r.CT_Num_code),
+            "montant": _num(r.montant_impaye),
+            "montantImpaye": _num(r.montant_impaye),
+            "anciennete": _int(r.anciennete),
+            "region": "DW",
+            "representant": "",
+            "dateEcheance": "",
+            "statut": "Critique" if _int(r.anciennete) > 90 else "Urgent" if _int(r.anciennete) > 60 else "Attention",
+        }
+        for r in _rows(sql)
     ]
+
+
+@app.get("/api/tresorerie/encaissements-by-mode")
+def get_encaissements_by_mode():
+    sql = """
+        SELECT
+            COALESCE(m.libelle_mode_reg, CONCAT('Mode ', r.DR_ModeReg)) AS mode,
+            SUM(CASE WHEN r.id_client IS NOT NULL THEN r.RT_Montant ELSE 0 END) AS mag,
+            SUM(CASE WHEN r.id_fournisseur IS NOT NULL THEN r.RT_Montant ELSE 0 END) AS grt,
+            AVG(CASE WHEN r.RT_Rapproche = 1 THEN 100.0 ELSE 0.0 END) AS rapprochement
+        FROM FAIT_REGLEMENTS r
+        LEFT JOIN DIM_MODE_REGLEMENT m ON m.id_mode_reg = r.id_mode_reg
+        WHERE r.DR_Regle = 1
+        GROUP BY m.libelle_mode_reg, r.DR_ModeReg
+        ORDER BY mag + grt DESC
+    """
+    return [
+        {
+            "mode": r.mode,
+            "mag": _num(r.mag),
+            "grt": _num(r.grt),
+            "rapprochement": round(_num(r.rapprochement)),
+        }
+        for r in _rows(sql)
+    ]
+
+
+@app.get("/api/tresorerie/aging")
+def get_aging():
+    sql = """
+        SELECT TOP 8
+            COALESCE(CONVERT(VARCHAR(30), c.CT_Num_code), 'Client') AS client,
+            SUM(CASE WHEN r.bucket_impaye = 0 THEN r.RT_Montant ELSE 0 END) AS b0,
+            SUM(CASE WHEN r.bucket_impaye = 1 THEN r.RT_Montant ELSE 0 END) AS b1,
+            SUM(CASE WHEN r.bucket_impaye = 2 THEN r.RT_Montant ELSE 0 END) AS b2,
+            SUM(CASE WHEN r.bucket_impaye = 3 THEN r.RT_Montant ELSE 0 END) AS b3
+        FROM FAIT_REGLEMENTS r
+        LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
+        WHERE r.DR_Regle = 0
+        GROUP BY c.CT_Num_code
+        ORDER BY b3 DESC
+    """
+    return [
+        {
+            "client": f"Client {r.client}",
+            "0-30j": _num(r.b0),
+            "31-60j": _num(r.b1),
+            "61-90j": _num(r.b2),
+            ">90j": _num(r.b3),
+        }
+        for r in _rows(sql)
+    ]
+
 
 @app.get("/api/produits/stock-alerts")
 def get_stock_alerts():
@@ -85,11 +276,164 @@ def get_stock_alerts():
             f.en_rupture,
             f.ratio_tension
         FROM FAIT_ECRITURES f
+        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = f.id_type_ligne
         JOIN DIM_ARTICLE a ON a.id_article = f.id_article
-        WHERE f.type_ligne = 4
+        WHERE tl.code_type_ligne = 4
           AND f.en_rupture = 1
         ORDER BY f.ratio_tension DESC
     """
-    with DW_ENGINE.connect() as conn:
-        rows = conn.execute(text(sql)).fetchall()
-    return [dict(r._mapping) for r in rows]
+    alerts = []
+    for r in _rows(sql):
+        stock = _num(r.AS_QteSto)
+        seuil = _num(r.AS_QteMini)
+        ratio = _num(r.ratio_tension)
+        alerts.append({
+            "article": f"ART-{r.AR_Ref_code}",
+            "designation": f"Article {r.AR_Ref_code}",
+            "stockActuel": stock,
+            "seuil": seuil,
+            "dateRupture": "",
+            "famille": "DW",
+            "fournisseur": "",
+            "priorite": "CRITIQUE" if stock <= seuil else "URGENT" if ratio >= 0.8 else "ATTENTION",
+            "ratioTension": ratio,
+        })
+    return alerts
+
+
+@app.get("/api/produits/articles")
+def get_articles():
+    sql = """
+        SELECT TOP 100
+            a.AR_Ref_code,
+            a.id_famille,
+            a.AR_PrixAch,
+            COALESCE(SUM(v.DL_Qte), 0) AS qte_vendue,
+            COALESCE(SUM(v.DL_MontantHT), 0) AS ca,
+            MAX(e.AS_QteSto) AS stock,
+            MAX(e.dsi_jours) AS dsi_jours
+        FROM DIM_ARTICLE a
+        LEFT JOIN FAIT_LIGNES_VENTE v ON v.id_article = a.id_article
+        LEFT JOIN FAIT_ECRITURES e ON e.id_article = a.id_article
+        LEFT JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne AND tl.code_type_ligne = 4
+        GROUP BY a.AR_Ref_code, a.id_famille, a.AR_PrixAch
+        ORDER BY ca DESC
+    """
+    return [
+        {
+            "code": f"ART-{r.AR_Ref_code}",
+            "designation": f"Article {r.AR_Ref_code}",
+            "famille": f"Famille {r.id_famille or 'N/A'}",
+            "qteVendue": _num(r.qte_vendue),
+            "ca": _num(r.ca),
+            "prixMoyen": _num(r.AR_PrixAch),
+            "marge": 0,
+            "stock": _num(r.stock),
+            "dsi": _num(r.dsi_jours),
+        }
+        for r in _rows(sql)
+    ]
+
+
+@app.get("/api/acteurs/clients")
+def get_clients():
+    sql = """
+        SELECT TOP 100
+            c.CT_Num_code,
+            COALESCE(s.libelle_segment, 'Sans segment') AS segment,
+            SUM(v.DL_MontantHT) AS ca_total,
+            COUNT(DISTINCT v.DO_Piece_hash) AS nb_commandes,
+            MAX(d.date_valeur) AS derniere_commande,
+            c.CT_SoldeActuel AS solde_impaye,
+            c.CT_Sommeil AS sommeil
+        FROM DIM_CLIENT c
+        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+        LEFT JOIN FAIT_LIGNES_VENTE v ON v.id_client = c.id_client
+        LEFT JOIN DIM_DATE d ON d.id_date = v.id_date
+        GROUP BY c.CT_Num_code, s.libelle_segment, c.CT_SoldeActuel, c.CT_Sommeil
+        ORDER BY ca_total DESC
+    """
+    return [
+        {
+            "code": str(r.CT_Num_code),
+            "nom": f"Client {r.CT_Num_code}",
+            "region": "DW",
+            "caTotal": _num(r.ca_total),
+            "nbCommandes": _int(r.nb_commandes),
+            "derniereCommande": str(r.derniere_commande or ""),
+            "soldeImpaye": _num(r.solde_impaye),
+            "segment": r.segment,
+            "actif": _int(r.sommeil) == 0,
+            "nouveau": False,
+        }
+        for r in _rows(sql)
+    ]
+
+
+@app.get("/api/banque/rapprochement")
+def get_banque_rapprochement():
+    sql = """
+        SELECT
+            d.mois AS month_num,
+            AVG(CASE WHEN r.RT_Rapproche = 1 THEN 100.0 ELSE 0.0 END) AS taux,
+            SUM(CASE WHEN r.RT_Rapproche = 0 THEN 1 ELSE 0 END) AS non_rapproches
+        FROM FAIT_REGLEMENTS r
+        LEFT JOIN DIM_DATE d ON d.id_date = r.id_date
+        WHERE d.mois IS NOT NULL
+        GROUP BY d.mois
+        ORDER BY d.mois
+    """
+    return [
+        {"month": MONTHS[r.month_num - 1], "taux": round(_num(r.taux)), "nonRapproches": _int(r.non_rapproches)}
+        for r in _rows(sql)
+    ]
+
+
+@app.get("/api/caisse/caisses")
+def get_caisses():
+    sql = """
+        SELECT TOP 20
+            c.CA_Numero_code,
+            MAX(e.CA_SoldeEspece) AS especes,
+            MAX(e.CA_SoldeCheque) AS cheques
+        FROM DIM_CAISSE c
+        LEFT JOIN FAIT_ECRITURES e ON e.id_caisse = c.id_caisse
+        GROUP BY c.CA_Numero_code
+        ORDER BY c.CA_Numero_code
+    """
+    return [
+        {
+            "id": f"CA-{r.CA_Numero_code}",
+            "nom": f"Caisse {r.CA_Numero_code}",
+            "especes": _num(r.especes),
+            "cheques": _num(r.cheques),
+            "seuilMin": 20000,
+            "depot": "DW",
+        }
+        for r in _rows(sql)
+    ]
+
+
+@app.get("/api/caisse/flux-daily")
+def get_caisse_flux_daily():
+    sql = """
+        SELECT TOP 30
+            d.date_valeur,
+            SUM(e.MC_Credit) AS credit,
+            SUM(e.MC_Debit) AS debit
+        FROM FAIT_ECRITURES e
+        LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
+        WHERE e.MC_Credit IS NOT NULL OR e.MC_Debit IS NOT NULL
+        GROUP BY d.date_valeur
+        ORDER BY d.date_valeur DESC
+    """
+    rows = list(reversed(_rows(sql)))
+    cumul = 0
+    data = []
+    for i, r in enumerate(rows):
+        credit = _num(r.credit)
+        debit = _num(r.debit)
+        net = credit - debit
+        cumul += net
+        data.append({"day": f"J-{len(rows) - i}", "credit": credit, "debit": -debit, "net": net, "cumul": cumul})
+    return data

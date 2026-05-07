@@ -266,6 +266,7 @@ CREATE TABLE FAIT_LIGNES_VENTE (
     DO_MontantRegle    NUMERIC(18,4) NULL,
     -- Clé naturelle hashée pour RFM KPI-18
     DO_Piece_hash      INT NULL,                   -- CRC32(DO_Piece)
+    source_hash        BINARY(32) NULL,            -- idempotent ETL key
     -- Chargement
     date_extraction    DATE NOT NULL
 )"""),
@@ -304,6 +305,7 @@ CREATE TABLE FAIT_REGLEMENTS (
     DR_ModeReg         SMALLINT NULL,
     -- Rapprochement bancaire KPI-15
     RT_Rapproche       SMALLINT NOT NULL DEFAULT 0,
+    source_hash        BINARY(32) NULL,            -- idempotent ETL key
     -- Discriminant client/fournisseur (contrainte mutuellement exclusive)
     -- CHECK garantit qu'exactement l'un des deux est renseigné
     date_extraction    DATE NOT NULL,
@@ -366,6 +368,7 @@ CREATE TABLE FAIT_ECRITURES (
     CA_SoldeCheque     NUMERIC(18,4) NULL,
     -- Référence source
     EC_No              INT NULL,
+    source_hash        BINARY(32) NULL,            -- idempotent ETL key
     date_extraction    DATE NOT NULL
 )"""),
 ]
@@ -437,6 +440,35 @@ def create_all_tables(drop_existing: bool = False) -> None:
                 raise
 
     logger.info("=== DDL : schéma DW créé avec succès ===")
+
+
+def _apply_schema_migrations(conn) -> None:
+    """Apply additive migrations needed by newer ETL code."""
+    for table_name in ("FAIT_LIGNES_VENTE", "FAIT_REGLEMENTS", "FAIT_ECRITURES"):
+        conn.execute(
+            text(
+                f"IF COL_LENGTH('{table_name}', 'source_hash') IS NULL "
+                f"ALTER TABLE [{table_name}] ADD source_hash BINARY(32) NULL"
+            )
+        )
+        conn.execute(
+            text(
+                "IF NOT EXISTS ("
+                "SELECT 1 FROM sys.indexes "
+                f"WHERE name = 'UX_{table_name}_source_hash' "
+                f"AND object_id = OBJECT_ID('{table_name}')"
+                ") "
+                f"CREATE UNIQUE INDEX [UX_{table_name}_source_hash] "
+                f"ON [{table_name}]([source_hash]) "
+                "WHERE [source_hash] IS NOT NULL"
+            )
+        )
+
+
+def apply_schema_migrations() -> None:
+    """Run additive schema migrations on an existing DW."""
+    with DW_ENGINE.begin() as conn:
+        _apply_schema_migrations(conn)
 
 
 def _drop_all_tables() -> None:

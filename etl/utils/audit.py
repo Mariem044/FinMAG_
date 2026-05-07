@@ -19,6 +19,23 @@ from etl.utils.logger import get_logger
 logger = get_logger(__name__)
 
 _TABLE = "ETL_AUDIT"
+_STALE_RUNNING_HOURS = 24
+
+
+def _abort_stale_runs(conn) -> None:
+    """Abort RUNNING audit rows old enough to be considered abandoned."""
+    conn.execute(
+        text(
+            f"UPDATE {_TABLE} "
+            "SET status = 'ABORTED', "
+            "error_msg = COALESCE(error_msg, 'Aborted automatically: stale RUNNING run'), "
+            "duration_seconds = DATEDIFF(SECOND, run_date, GETUTCDATE()) "
+            "WHERE status = 'RUNNING' "
+            "AND table_name = 'PIPELINE' "
+            "AND run_date < DATEADD(HOUR, -:hours, GETUTCDATE())"
+        ),
+        {"hours": _STALE_RUNNING_HOURS},
+    )
 
 
 def acquire_lock() -> bool:
@@ -29,11 +46,13 @@ def acquire_lock() -> bool:
     DDL creation, so the pipeline is allowed to continue.
     """
     try:
-        with DW_ENGINE.connect() as conn:
+        with DW_ENGINE.begin() as conn:
+            _abort_stale_runs(conn)
             result = conn.execute(
                 text(
                     f"SELECT COUNT(*) FROM {_TABLE} "
-                    "WHERE status = 'RUNNING'"
+                    "WHERE status = 'RUNNING' "
+                    "AND table_name = 'PIPELINE'"
                 )
             ).scalar()
 
@@ -93,17 +112,35 @@ def get_last_run_info() -> tuple[Optional[datetime], str]:
 
 
 def start_run(mode: str) -> int:
-    """Insert the main RUNNING row into ETL_AUDIT and return run_id."""
+    """Atomically insert the main RUNNING row into ETL_AUDIT and return run_id."""
     with DW_ENGINE.begin() as conn:
         result = conn.execute(
             text(
+                "DECLARE @lock_result INT; "
+                f"EXEC @lock_result = sp_getapplock "
+                f"@Resource = '{_TABLE}_PIPELINE_LOCK', "
+                "@LockMode = 'Exclusive', "
+                "@LockOwner = 'Transaction', "
+                "@LockTimeout = 0; "
+                "IF @lock_result < 0 "
+                "THROW 51001, 'Could not acquire ETL application lock', 1; "
+                f"UPDATE {_TABLE} "
+                "SET status = 'ABORTED', "
+                "error_msg = COALESCE(error_msg, 'Aborted automatically: stale RUNNING run'), "
+                "duration_seconds = DATEDIFF(SECOND, run_date, GETUTCDATE()) "
+                "WHERE status = 'RUNNING' "
+                "AND table_name = 'PIPELINE' "
+                "AND run_date < DATEADD(HOUR, -:hours, GETUTCDATE()); "
+                f"IF EXISTS (SELECT 1 FROM {_TABLE} WITH (UPDLOCK, HOLDLOCK) "
+                "WHERE status = 'RUNNING' AND table_name = 'PIPELINE') "
+                "THROW 51000, 'Another ETL run is already RUNNING', 1; "
                 f"INSERT INTO {_TABLE} "
                 "(run_date, mode, table_name, rows_inserted, rows_updated, "
                 " duration_seconds, status, error_msg) "
                 "OUTPUT INSERTED.run_id "
-                "VALUES (:dt, :mode, 'PIPELINE', 0, 0, 0, 'RUNNING', NULL)"
+                "VALUES (GETUTCDATE(), :mode, 'PIPELINE', 0, 0, 0, 'RUNNING', NULL)"
             ),
-            {"dt": datetime.utcnow(), "mode": mode},
+            {"hours": _STALE_RUNNING_HOURS, "mode": mode},
         )
         run_id = result.scalar()
 

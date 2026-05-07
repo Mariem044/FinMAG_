@@ -26,23 +26,44 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import {
-  caByMonth,
-  topFamilles,
-  caByRegion,
+  caByMonth as mockCaByMonth,
+  topFamilles as mockTopFamilles,
+  caByRegion as mockCaByRegion,
   CHART_COLORS,
   formatTND,
   formatPercent,
 } from "@/data/mockData";
+import { api } from "@/lib/api";
+import { useApiResource } from "@/hooks/useApiResource";
 
 export const Route = createFileRoute("/")({
   component: OverviewPage,
 });
 
 function OverviewPage() {
+  const { data: kpis, loading: kpisApiLoading } = useApiResource(api.dashboard.kpis, {
+    ca_total: mockCaByMonth.reduce((s, m) => s + m.ca, 0),
+    nb_commandes: 2847,
+    nb_clients_actifs: 312,
+    taux_recouvrement: 78.5,
+    marge_brute_pct: 24.3,
+  });
+  const { data: caByMonth, loading: caLoading } = useApiResource(
+    api.dashboard.caByMonth,
+    mockCaByMonth,
+  );
+  const { data: topFamilles, loading: famillesLoading } = useApiResource(
+    api.dashboard.topFamilles,
+    mockTopFamilles,
+  );
+  const { data: caByRegion, loading: regionLoading } = useApiResource(
+    api.dashboard.caByRegion,
+    mockCaByRegion,
+  );
   const totalCA = caByMonth.reduce((s, m) => s + m.ca, 0);
   const chartH = useChartHeight();
-  const kpiLoading = useSimulatedLoading(500);
-  const chartsLoading = useSimulatedLoading(900);
+  const kpiLoading = useSimulatedLoading(500) || kpisApiLoading;
+  const chartsLoading = useSimulatedLoading(900) || caLoading || famillesLoading || regionLoading;
 
   return (
     <div className="space-y-6">
@@ -59,26 +80,31 @@ function OverviewPage() {
           <>
             <KPICard
               label="Chiffre d'Affaires Total"
-              value={formatTND(totalCA)}
+              value={formatTND(kpis.ca_total || totalCA)}
               trend={8.2}
               icon={DollarSign}
             />
             <KPICard
               label="Nombre de Commandes"
-              value="2 847"
+              value={kpis.nb_commandes.toLocaleString("fr-TN")}
               trend={5.1}
               icon={ShoppingCart}
             />
-            <KPICard label="Clients Actifs" value="312" trend={3.4} icon={Users} />
+            <KPICard
+              label="Clients Actifs"
+              value={kpis.nb_clients_actifs.toLocaleString("fr-TN")}
+              trend={3.4}
+              icon={Users}
+            />
             <KPICard
               label="Taux de Recouvrement"
-              value={formatPercent(78.5)}
+              value={formatPercent(kpis.taux_recouvrement)}
               trend={-2.1}
               icon={Percent}
             />
             <KPICard
               label="Marge Brute"
-              value={formatPercent(24.3)}
+              value={formatPercent(kpis.marge_brute_pct)}
               trend={1.8}
               icon={TrendingUp}
             />

@@ -1,16 +1,31 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useChartHeight, ChartCard, useSimulatedLoading, KPICardSkeleton } from "@/components/dashboard/ChartCard";
+import {
+  useChartHeight,
+  ChartCard,
+  useSimulatedLoading,
+  KPICardSkeleton,
+} from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
 import { Boxes, AlertTriangle, Clock, Bell } from "lucide-react";
 import {
-  ScatterChart, Scatter, Treemap, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ZAxis, ReferenceLine,
+  ScatterChart,
+  Scatter,
+  Treemap,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  ZAxis,
+  ReferenceLine,
 } from "recharts";
-import { articles, FAMILLES, CHART_COLORS, formatTND } from "@/data/mockData";
+import { articles as mockArticles, FAMILLES, CHART_COLORS, formatTND } from "@/data/mockData";
 import { useFilters } from "@/store/useFilters";
 import { useMemo } from "react";
+import { api } from "@/lib/api";
+import { useApiResource } from "@/hooks/useApiResource";
 
 export const Route = createFileRoute("/produits")({
   component: ProduitsPage,
@@ -25,16 +40,19 @@ function rotationColor(r) {
 function priorityBadge(p) {
   const map = {
     CRITIQUE: "bg-red-500/20 text-red-400 border border-red-500/30",
-    URGENT:   "bg-orange-500/20 text-orange-400 border border-orange-500/30",
-    ATTENTION:"bg-yellow-500/20 text-yellow-400 border border-yellow-500/30",
+    URGENT: "bg-orange-500/20 text-orange-400 border border-orange-500/30",
+    ATTENTION: "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30",
   };
   return map[p] || "";
 }
 
 function GaugeChart({ value, target, label }) {
   const pct = Math.min(value / 100, 1);
-  const r = 70, cx = 100, cy = 90;
-  const startA = Math.PI, endA = 0;
+  const r = 70,
+    cx = 100,
+    cy = 90;
+  const startA = Math.PI,
+    endA = 0;
   const valA = startA + (endA - startA) * pct;
   const arcX = (a, rr) => cx + rr * Math.cos(a);
   const arcY = (a, rr) => cy + rr * Math.sin(a);
@@ -46,11 +64,25 @@ function GaugeChart({ value, target, label }) {
       <svg width={200} height={110}>
         <path d={bgPath} fill="none" stroke="#2a2a2a" strokeWidth={14} strokeLinecap="round" />
         <path d={valPath} fill="none" stroke={color} strokeWidth={14} strokeLinecap="round" />
-        <line x1={cx} y1={cy} x2={arcX(valA, r - 18)} y2={arcY(valA, r - 18)} stroke={color} strokeWidth={2} strokeLinecap="round" />
+        <line
+          x1={cx}
+          y1={cy}
+          x2={arcX(valA, r - 18)}
+          y2={arcY(valA, r - 18)}
+          stroke={color}
+          strokeWidth={2}
+          strokeLinecap="round"
+        />
         <circle cx={cx} cy={cy} r={4} fill={color} />
-        <text x={cx} y={cy - 18} textAnchor="middle" fill={color} fontSize={22} fontWeight="bold">{value}%</text>
-        <text x={cx} y={cy - 4} textAnchor="middle" fill="#666" fontSize={10}>objectif &lt; {target}%</text>
-        <text x={cx} y={105} textAnchor="middle" fill="#888" fontSize={11}>{label}</text>
+        <text x={cx} y={cy - 18} textAnchor="middle" fill={color} fontSize={22} fontWeight="bold">
+          {value}%
+        </text>
+        <text x={cx} y={cy - 4} textAnchor="middle" fill="#666" fontSize={10}>
+          objectif &lt; {target}%
+        </text>
+        <text x={cx} y={105} textAnchor="middle" fill="#888" fontSize={11}>
+          {label}
+        </text>
       </svg>
     </div>
   );
@@ -58,10 +90,15 @@ function GaugeChart({ value, target, label }) {
 
 function ProduitsPage() {
   const { famille, statutArticle, horizonPrev, depot, getActiveMonthIndexes } = useFilters();
+  const { data: articles, loading: articlesLoading } = useApiResource(
+    api.produits.articles,
+    mockArticles,
+  );
+  const { data: stockAlerts, loading: alertsLoading } = useApiResource(api.produits.alerts, []);
   const activeIdx = getActiveMonthIndexes();
   const chartH = useChartHeight();
-  const kpiLoading    = useSimulatedLoading(500);
-  const chartsLoading = useSimulatedLoading(950);
+  const kpiLoading = useSimulatedLoading(500) || articlesLoading || alertsLoading;
+  const chartsLoading = useSimulatedLoading(950) || articlesLoading || alertsLoading;
 
   // Filter articles
   const filteredArticles = useMemo(() => {
@@ -86,7 +123,7 @@ function ProduitsPage() {
 
   // Alerts filtered by famille
   const alertes = useMemo(() => {
-    return Array.from({ length: 20 }, (_, i) => ({
+    const fallbackAlerts = Array.from({ length: 20 }, (_, i) => ({
       article: `ART-${String(i + 1).padStart(4, "0")}`,
       designation: `Article critique ${i + 1}`,
       stockActuel: Math.ceil(Math.random() * 50),
@@ -95,18 +132,19 @@ function ProduitsPage() {
       famille: FAMILLES[i % FAMILLES.length],
       fournisseur: `Fournisseur ${String.fromCharCode(65 + (i % 8))}`,
       priorite: ["CRITIQUE", "URGENT", "ATTENTION"][Math.floor(Math.random() * 3)],
-    }))
+    }));
+    return (stockAlerts.length > 0 ? stockAlerts : fallbackAlerts)
       .filter((a) => famille === "Toutes" || a.famille === famille)
       .sort((a, b) => {
         const order = { CRITIQUE: 0, URGENT: 1, ATTENTION: 2 };
         return order[a.priorite] - order[b.priorite];
       });
-  }, [famille]);
+  }, [famille, stockAlerts]);
 
   // DSI scatter filtered
   const dsiScatter = useMemo(() => {
     return filteredArticles.slice(0, 40).map((a) => ({
-      dsi: Math.round(10 + Math.random() * 90),
+      dsi: Math.round(a.dsi || 10 + Math.random() * 90),
       ca: a.ca,
       stockVal: Math.round(a.ca * (0.1 + Math.random() * 0.4)),
       name: a.designation,
@@ -116,32 +154,64 @@ function ProduitsPage() {
   // KPIs
   const valeurStock = filteredArticles.reduce((s, a) => s + a.ca * 0.3, 0);
   const nbRuptures = alertes.filter((a) => a.stockActuel < a.seuil).length;
-  const dsiMoyen = Math.round(dsiScatter.reduce((s, d) => s + d.dsi, 0) / Math.max(dsiScatter.length, 1));
-  const nbAlertes = alertes.filter((a) => a.priorite === "CRITIQUE" || a.priorite === "URGENT").length;
-  const txRupture = parseFloat(((nbRuptures / Math.max(filteredArticles.length, 1)) * 100).toFixed(1));
+  const dsiMoyen = Math.round(
+    dsiScatter.reduce((s, d) => s + d.dsi, 0) / Math.max(dsiScatter.length, 1),
+  );
+  const nbAlertes = alertes.filter(
+    (a) => a.priorite === "CRITIQUE" || a.priorite === "URGENT",
+  ).length;
+  const txRupture = parseFloat(
+    ((nbRuptures / Math.max(filteredArticles.length, 1)) * 100).toFixed(1),
+  );
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-  {kpiLoading ? (
-    <>
-      <KPICardSkeleton />
-      <KPICardSkeleton />
-      <KPICardSkeleton />
-      <KPICardSkeleton />
-    </>
-  ) : (
-    <>
-      <KPICard label="Valeur stock" value={`${(valeurStock / 1000000).toFixed(1)} MDT`} subtitle={famille !== "Toutes" ? famille : "Tous dépôts"} icon={Boxes} />
-      <KPICard label="Articles en rupture" value={String(nbRuptures)} subtitle={`sur ${filteredArticles.length} actifs (${txRupture}%)`} trend={-1.1} icon={AlertTriangle} />
-      <KPICard label="DSI moyen (rotation)" value={`${dsiMoyen}j`} subtitle="Days Sales of Inventory" icon={Clock} />
-      <KPICard label="Alertes restock actives" value={String(nbAlertes)} subtitle={`à commander sous ${horizonPrev}`} icon={Bell} />
-    </>
-  )}
-</div>
+        {kpiLoading ? (
+          <>
+            <KPICardSkeleton />
+            <KPICardSkeleton />
+            <KPICardSkeleton />
+            <KPICardSkeleton />
+          </>
+        ) : (
+          <>
+            <KPICard
+              label="Valeur stock"
+              value={`${(valeurStock / 1000000).toFixed(1)} MDT`}
+              subtitle={famille !== "Toutes" ? famille : "Tous dépôts"}
+              icon={Boxes}
+            />
+            <KPICard
+              label="Articles en rupture"
+              value={String(nbRuptures)}
+              subtitle={`sur ${filteredArticles.length} actifs (${txRupture}%)`}
+              trend={-1.1}
+              icon={AlertTriangle}
+            />
+            <KPICard
+              label="DSI moyen (rotation)"
+              value={`${dsiMoyen}j`}
+              subtitle="Days Sales of Inventory"
+              icon={Clock}
+            />
+            <KPICard
+              label="Alertes restock actives"
+              value={String(nbAlertes)}
+              subtitle={`à commander sous ${horizonPrev}`}
+              icon={Bell}
+            />
+          </>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ChartCard loading={chartsLoading} skeleton="bar" key={`${famille}-${statutArticle}-${horizonPrev}`} title={`Valeur stock par famille${famille !== "Toutes" ? ` — ${famille}` : ""} (KPI-11)`}>
+        <ChartCard
+          loading={chartsLoading}
+          skeleton="bar"
+          key={`${famille}-${statutArticle}-${horizonPrev}`}
+          title={`Valeur stock par famille${famille !== "Toutes" ? ` — ${famille}` : ""} (KPI-11)`}
+        >
           <ResponsiveContainer width="100%" height={chartH}>
             <Treemap
               data={treemapData}
@@ -150,22 +220,51 @@ function ProduitsPage() {
               stroke="#1a1a1a"
               content={({ x, y, width, height, name, rotation }) => (
                 <g>
-                  <rect x={x} y={y} width={width} height={height} fill={rotationColor(rotation ?? 0.5)} stroke="#111" strokeWidth={2} rx={3} opacity={0.85} />
+                  <rect
+                    x={x}
+                    y={y}
+                    width={width}
+                    height={height}
+                    fill={rotationColor(rotation ?? 0.5)}
+                    stroke="#111"
+                    strokeWidth={2}
+                    rx={3}
+                    opacity={0.85}
+                  />
                   {width > 40 && height > 20 && (
-                    <text x={x + width / 2} y={y + height / 2} textAnchor="middle" fill="#fff" fontSize={10} dominantBaseline="middle">{name}</text>
+                    <text
+                      x={x + width / 2}
+                      y={y + height / 2}
+                      textAnchor="middle"
+                      fill="#fff"
+                      fontSize={10}
+                      dominantBaseline="middle"
+                    >
+                      {name}
+                    </text>
                   )}
                 </g>
               )}
             />
           </ResponsiveContainer>
           <div className="flex gap-4 text-[10px] text-text-dim mt-1 justify-end">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Rotation lente</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-500 inline-block" /> Moyenne</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Rapide</span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Rotation lente
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-orange-500 inline-block" /> Moyenne
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Rapide
+            </span>
           </div>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="table" title={`Alertes réapprovisionnement — horizon ${horizonPrev} (KPI-12)`}>
+        <ChartCard
+          loading={chartsLoading}
+          skeleton="table"
+          title={`Alertes réapprovisionnement — horizon ${horizonPrev} (KPI-12)`}
+        >
           <div className="overflow-auto max-h-[280px]">
             <table className="w-full text-[11px]">
               <thead className="sticky top-0 bg-background">
@@ -184,23 +283,41 @@ function ProduitsPage() {
                       <div className="font-medium text-foreground">{row.article}</div>
                       <div className="text-text-dim text-[10px]">{row.fournisseur}</div>
                     </td>
-                    <td className={`py-1.5 px-2 text-right font-semibold ${row.stockActuel < row.seuil ? "text-red-400" : "text-foreground"}`}>{row.stockActuel}</td>
+                    <td
+                      className={`py-1.5 px-2 text-right font-semibold ${row.stockActuel < row.seuil ? "text-red-400" : "text-foreground"}`}
+                    >
+                      {row.stockActuel}
+                    </td>
                     <td className="py-1.5 px-2 text-right text-text-dim">{row.seuil}</td>
-                    <td className="py-1.5 px-2 text-center text-text-dim text-[10px]">{row.dateRupture}</td>
+                    <td className="py-1.5 px-2 text-center text-text-dim text-[10px]">
+                      {row.dateRupture}
+                    </td>
                     <td className="py-1.5 px-2 text-center">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${priorityBadge(row.priorite)}`}>{row.priorite}</span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${priorityBadge(row.priorite)}`}
+                      >
+                        {row.priorite}
+                      </span>
                     </td>
                   </tr>
                 ))}
                 {alertes.length === 0 && (
-                  <tr><td colSpan={5} className="py-8 text-center text-text-dim text-[12px]">Aucune alerte pour cette famille</td></tr>
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-text-dim text-[12px]">
+                      Aucune alerte pour cette famille
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
           </div>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="gauge" title="Taux de rupture & tension stock (KPI-14)">
+        <ChartCard
+          loading={chartsLoading}
+          skeleton="gauge"
+          title="Taux de rupture & tension stock (KPI-14)"
+        >
           <div className="flex items-start gap-4 h-[280px]">
             <div className="flex flex-col items-center justify-center flex-shrink-0 pt-4">
               <GaugeChart value={txRupture} target={3} label="Taux rupture" />
@@ -213,11 +330,23 @@ function ProduitsPage() {
                 const ratio = Math.round(70 + Math.random() * 29);
                 return (
                   <div key={i} className="flex items-center gap-2 mb-1.5">
-                    <span className="text-[10px] text-text-dim w-16 flex-shrink-0">{a.article}</span>
+                    <span className="text-[10px] text-text-dim w-16 flex-shrink-0">
+                      {a.article}
+                    </span>
                     <div className="flex-1 h-2 bg-surface-hover rounded-full overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${ratio}%`, background: ratio > 90 ? "#ef4444" : ratio > 80 ? "#f97316" : "#22c55e" }} />
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${ratio}%`,
+                          background: ratio > 90 ? "#ef4444" : ratio > 80 ? "#f97316" : "#22c55e",
+                        }}
+                      />
                     </div>
-                    <span className={`text-[10px] font-medium w-8 text-right ${ratio > 90 ? "text-red-400" : ratio > 80 ? "text-orange-400" : "text-green-400"}`}>{ratio}%</span>
+                    <span
+                      className={`text-[10px] font-medium w-8 text-right ${ratio > 90 ? "text-red-400" : ratio > 80 ? "text-orange-400" : "text-green-400"}`}
+                    >
+                      {ratio}%
+                    </span>
                   </div>
                 );
               })}
@@ -225,34 +354,77 @@ function ProduitsPage() {
           </div>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="scatter" title="Rotation stocks — DSI vs CA par article (KPI-13)
-        ">
+        <ChartCard
+          loading={chartsLoading}
+          skeleton="scatter"
+          title="Rotation stocks — DSI vs CA par article (KPI-13)
+        "
+        >
           <ResponsiveContainer width="100%" height={chartH}>
             <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
-              <XAxis dataKey="dsi" name="DSI (j)" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} label={{ value: "DSI (jours)", position: "insideBottom", offset: -10, fill: "#555", fontSize: 11 }} />
-              <YAxis dataKey="ca" name="CA" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} tickFormatter={(v) => `${(v/1000).toFixed(0)}K`} />
+              <XAxis
+                dataKey="dsi"
+                name="DSI (j)"
+                tick={{ fill: "#666", fontSize: 11 }}
+                axisLine={false}
+                label={{
+                  value: "DSI (jours)",
+                  position: "insideBottom",
+                  offset: -10,
+                  fill: "#555",
+                  fontSize: 11,
+                }}
+              />
+              <YAxis
+                dataKey="ca"
+                name="CA"
+                tick={{ fill: "#666", fontSize: 11 }}
+                axisLine={false}
+                tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`}
+              />
               <ZAxis dataKey="stockVal" range={[40, 400]} name="Valeur stock" />
               <Tooltip content={<CustomTooltip />} />
-              <ReferenceLine x={dsiMoyen} stroke="#444" strokeDasharray="4 4" label={{ value: "DSI moy.", fill: "#555", fontSize: 10, position: "top" }} />
+              <ReferenceLine
+                x={dsiMoyen}
+                stroke="#444"
+                strokeDasharray="4 4"
+                label={{ value: "DSI moy.", fill: "#555", fontSize: 10, position: "top" }}
+              />
               <Scatter
                 data={dsiScatter}
                 fill="#3b82f6"
                 opacity={0.7}
                 shape={(props) => {
                   const { cx, cy, payload } = props;
-                  const avgCa = filteredArticles.reduce((s, a) => s + a.ca, 0) / Math.max(filteredArticles.length, 1);
+                  const avgCa =
+                    filteredArticles.reduce((s, a) => s + a.ca, 0) /
+                    Math.max(filteredArticles.length, 1);
                   const isStar = payload.dsi < dsiMoyen && payload.ca > avgCa;
                   const isSlow = payload.dsi >= dsiMoyen && payload.ca <= avgCa;
-                  return <circle cx={cx} cy={cy} r={6} fill={isStar ? "#22c55e" : isSlow ? "#ef4444" : "#3b82f6"} opacity={0.75} />;
+                  return (
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r={6}
+                      fill={isStar ? "#22c55e" : isSlow ? "#ef4444" : "#3b82f6"}
+                      opacity={0.75}
+                    />
+                  );
                 }}
               />
             </ScatterChart>
           </ResponsiveContainer>
           <div className="flex gap-4 text-[10px] text-text-dim mt-1 justify-end">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Star / Fast</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Normal</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Sleeping / Slow</span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Star / Fast
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Normal
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Sleeping / Slow
+            </span>
           </div>
         </ChartCard>
       </div>
