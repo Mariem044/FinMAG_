@@ -430,7 +430,7 @@ def extract_dim_client_grt() -> pd.DataFrame:
             CT_ChiffreAffaire,
             CT_EchusUnMois,
             CT_EchusDeuxMois,
-            CT_EchustTroisMois,
+            CT_EchustTroisMois AS CT_EchusTroisMois,
             CT_EchusPlusTroisMois,
             CT_MoyenneDelaiPayement,
             CT_MoyenneDelaiImpaye
@@ -465,6 +465,7 @@ def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.D
             rc.RT_Num,
             rc.CT_Num,
             rc.DO_Type,
+            rc.DO_Piece,
             rc.RT_Date,
             rc.RT_Mode,
             rc.RT_Montant,

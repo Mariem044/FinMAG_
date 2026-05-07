@@ -27,12 +27,58 @@ Mode = Literal["full", "delta"]
 _DROP_IF_EXISTS = "IF OBJECT_ID(N'[dbo].[{name}]', N'U') IS NOT NULL DROP TABLE [{name}]"
 
 
+def _target_columns(table: str) -> tuple[list[str], set[str]]:
+    """Return DW columns and identity columns for *table*."""
+    sql = """
+        SELECT
+            COLUMN_NAME,
+            COLUMNPROPERTY(
+                OBJECT_ID(TABLE_SCHEMA + '.' + TABLE_NAME),
+                COLUMN_NAME,
+                'IsIdentity'
+            ) AS IS_IDENTITY
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = 'dbo'
+          AND TABLE_NAME = :table
+        ORDER BY ORDINAL_POSITION
+    """
+    with DW_ENGINE.connect() as conn:
+        rows = conn.execute(text(sql), {"table": table}).fetchall()
+    columns = [row[0] for row in rows]
+    identity_cols = {row[0] for row in rows if row[1] == 1}
+    if not columns:
+        raise ValueError(f"DW table '{table}' does not exist or has no columns")
+    return columns, identity_cols
+
+
+def _prepare_for_load(df: pd.DataFrame, table: str) -> pd.DataFrame:
+    """Drop source-only columns before inserting into a DW table."""
+    if df.empty:
+        return df
+
+    target_cols, identity_cols = _target_columns(table)
+    writable_cols = [c for c in target_cols if c not in identity_cols]
+    kept_cols = [c for c in writable_cols if c in df.columns]
+    dropped_cols = [c for c in df.columns if c not in kept_cols]
+
+    if dropped_cols:
+        logger.debug(
+            f"[LOAD] {table} - dropping non-DW columns: {', '.join(dropped_cols)}"
+        )
+
+    if not kept_cols:
+        raise ValueError(f"No writable DW columns remain for {table} after schema alignment")
+
+    return df.loc[:, kept_cols].copy()
+
+
 def _bulk_insert(df: pd.DataFrame, table: str) -> None:
     """Insert DataFrame into DW table using pandas.to_sql (method='multi')."""
     if df.empty:
         logger.info(f"[LOAD] {table} – DataFrame vide, rien à insérer")
         return
     logger.info(f"[LOAD] {table} – Insertion bulk ({len(df)} lignes, chunksize={CHUNK_SIZE})")
+    df = _prepare_for_load(df, table)
     df.to_sql(
         name=table,
         con=DW_ENGINE,
@@ -55,6 +101,10 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
         logger.info(f"[LOAD] {table} – DataFrame vide, rien à MERGE")
         return
 
+    df = _prepare_for_load(df, table)
+    if key_col not in df.columns:
+        raise ValueError(f"MERGE key column '{key_col}' is missing from {table} load")
+
     # Bug 7 fix: use a plain permanent staging table name (no # prefix).
     temp_name = f"_etl_tmp_{table}"
 
@@ -75,13 +125,18 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
     # Bug 5 fix: exclude both the natural‑key hash col AND the IDENTITY PK.
     pk_col = f"id_{table.lower()}"
     update_cols = [c for c in df.columns if c not in (key_col, pk_col)]
+    update_set = (
+        ", ".join([f"target.[{c}]=src.[{c}]" for c in update_cols])
+        if update_cols
+        else f"target.[{key_col}]=target.[{key_col}]"
+    )
 
     merge_sql = f"""
         MERGE INTO [{table}] AS target
         USING [{temp_name}] AS src
         ON target.[{key_col}] = src.[{key_col}]
         WHEN MATCHED THEN UPDATE SET
-            {', '.join([f'target.[{c}]=src.[{c}]' for c in update_cols])}
+            {update_set}
         WHEN NOT MATCHED THEN INSERT ({', '.join([f'[{c}]' for c in df.columns])})
             VALUES ({', '.join([f'src.[{c}]' for c in df.columns])});
     """
@@ -112,7 +167,7 @@ def load_dimension(
     """
     if mode == "full":
         with DW_ENGINE.begin() as conn:
-            conn.execute(text(f"TRUNCATE TABLE [{table}]"))
+            conn.execute(text(f"DELETE FROM [{table}]"))
         _bulk_insert(df, table)
     else:
         if key_col is None:
@@ -132,7 +187,7 @@ def load_fact(df: pd.DataFrame, table: str, mode: Mode) -> None:
     if mode == "full":
         with DW_ENGINE.begin() as conn:
             conn.execute(text(f"ALTER TABLE [{table}] NOCHECK CONSTRAINT ALL"))
-            conn.execute(text(f"TRUNCATE TABLE [{table}]"))
+            conn.execute(text(f"DELETE FROM [{table}]"))
         _bulk_insert(df, table)
         with DW_ENGINE.begin() as conn:
             conn.execute(text(f"ALTER TABLE [{table}] WITH CHECK CHECK CONSTRAINT ALL"))

@@ -26,16 +26,15 @@ Bug 10 – audit.py bare imports fixed (from etl.config / etl.utils.logger).
 
 from __future__ import annotations
 
-from etl.config import SEGMENTS
+from etl.config import SEGMENTS, DIM_DATE_START, DIM_DATE_END
 import sys
-import traceback
 from datetime import datetime, date
 from typing import Callable, Dict, List, Tuple, Optional
 
 import pandas as pd
 from sqlalchemy import text
 
-from etl.config import DW_ENGINE, CHUNK_SIZE
+from etl.config import DW_ENGINE
 from etl.utils.logger import get_logger
 from etl.utils.audit import (
     acquire_lock,
@@ -106,6 +105,8 @@ def _build_lookup(
     )
 
     df = pd.read_sql(query, DW_ENGINE)
+    if table_name == "DIM_DATE" and not df.empty:
+        df["nhash"] = pd.to_datetime(df["nhash"]).dt.date
     lookup = dict(zip(df["nhash"], df["sid"]))
 
     logger.debug(f"Lookup built for {table_name}: {len(lookup)} rows")
@@ -114,6 +115,15 @@ def _build_lookup(
 
 LOOKUP_CONFIG: Dict[str, Tuple[str, str]] = {
     "DIM_DATE":          ("date_valeur",       "id_date"),
+    "DIM_DOMAINE":       ("code_domaine",      "id_domaine"),
+    "DIM_TYPE_DOC":      ("code_type_doc",     "id_type_doc"),
+    "DIM_MODE_REGLEMENT":("code_mode_reg",     "id_mode_reg"),
+    "DIM_ETAT_REGLEMENT":("code_etat_reg",     "id_etat_reg"),
+    "DIM_ETAT_DOCREGL":  ("code_etat_docregl", "id_etat_docregl"),
+    "DIM_TYPE_LIGNE":    ("code_type_ligne",   "id_type_ligne"),
+    "DIM_SENS_ECRITURE": ("code_sens",         "id_sens"),
+    "DIM_TYPE_TVA":      ("code_type_tva",     "id_type_tva"),
+    "DIM_TYPE_MVT_CAISSE": ("code_type_mvt",   "id_type_mvt"),
     "DIM_SEGMENT":       ("cbIndice_code",      "id_segment"),
     "DIM_COLLABORATEUR": ("CO_No",              "id_collab"),
     "DIM_FAMILLE":       ("FA_CodeFamille_code","id_famille"),
@@ -148,6 +158,75 @@ def _hash_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     for col in cols:
         df[f"{col}_code"] = df[col].apply(transform.hash_key)
     return df
+
+
+def _lookup_code(lookups: Dict, table_name: str, value):
+    if pd.isna(value):
+        return None
+    return lookups.get(table_name, {}).get(value)
+
+
+def _transform_dim_famille(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(
+            columns=[
+                "FA_CodeFamille_code",
+                "niveau_0_code",
+                "niveau_1_code",
+                "niveau_2_code",
+            ]
+        )
+
+    pivot = (
+        df.pivot_table(
+            index="FA_CodeFamille",
+            columns="CL_Niveau",
+            values="CL_Code",
+            aggfunc="first",
+        )
+        .reset_index()
+        .rename(
+            columns={
+                0: "niveau_0",
+                1: "niveau_1",
+                2: "niveau_2",
+            }
+        )
+    )
+
+    pivot["FA_CodeFamille_code"] = pivot["FA_CodeFamille"].apply(transform.hash_key)
+    for level in ("niveau_0", "niveau_1", "niveau_2"):
+        if level not in pivot.columns:
+            pivot[level] = None
+        pivot[f"{level}_code"] = pivot[level].apply(transform.hash_key)
+
+    return pivot[
+        [
+            "FA_CodeFamille_code",
+            "niveau_0_code",
+            "niveau_1_code",
+            "niveau_2_code",
+        ]
+    ]
+
+
+def _add_static_label(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["libelle_type_mvt"] = df["code_type_mvt"].map(
+        lambda v: f"Mouvement {int(v)}" if pd.notna(v) else None
+    )
+    return df
+
+
+def _resolve_banque_id(row: pd.Series, lookups: Dict):
+    banque_lookup = lookups.get("DIM_BANQUE", {})
+    for col in ("BQ_ABREGE", "BQ_Num"):
+        value = row.get(col)
+        if pd.notna(value):
+            resolved = banque_lookup.get(transform.hash_key(str(value)))
+            if resolved is not None:
+                return resolved
+    return None
 
 
 def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
@@ -203,12 +282,23 @@ def _assemble_fait_ecritures(
         extract.extract_fait_ecriturec(last_run)
         .assign(
             type_ligne=1,
+            id_type_ligne=_lookup_code(lookups, "DIM_TYPE_LIGNE", 1),
             id_date=lambda d: d["EC_Date"].apply(_resolve_date),
             id_journal=lambda d: d["JO_Num"].apply(
                 lambda v: lookups.get("DIM_JOURNAL", {}).get(transform.hash_key(v))
             ),
             id_client=lambda d: d["CT_Num"].apply(
                 lambda v: lookups.get("DIM_CLIENT", {}).get(transform.hash_key(v))
+            ),
+            id_sens=lambda d: d["EC_Sens"].apply(
+                lambda v: _lookup_code(lookups, "DIM_SENS_ECRITURE", v)
+            ),
+            id_type_tva=lambda d: d["JO_Type"].apply(
+                lambda v: _lookup_code(
+                    lookups,
+                    "DIM_TYPE_TVA",
+                    1 if v == 1 else 2 if v == 0 else None,
+                )
             ),
             date_extraction=today,
         )
@@ -219,12 +309,20 @@ def _assemble_fait_ecritures(
         extract.extract_fait_regtaxe(last_run)
         .assign(
             type_ligne=2,
+            id_type_ligne=_lookup_code(lookups, "DIM_TYPE_LIGNE", 2),
             id_date=lambda d: d["EC_Date"].apply(_resolve_date),
             id_journal=lambda d: d["JO_Num"].apply(
                 lambda v: lookups.get("DIM_JOURNAL", {}).get(transform.hash_key(v))
             ),
             id_client=lambda d: d["CT_Num"].apply(
                 lambda v: lookups.get("DIM_CLIENT", {}).get(transform.hash_key(v))
+            ),
+            id_type_tva=lambda d: d["JO_Type"].apply(
+                lambda v: _lookup_code(
+                    lookups,
+                    "DIM_TYPE_TVA",
+                    1 if v == 1 else 2 if v == 0 else None,
+                )
             ),
             date_extraction=today,
         )
@@ -235,9 +333,13 @@ def _assemble_fait_ecritures(
         extract.extract_fait_mvtcaisse(last_run)
         .assign(
             type_ligne=3,
+            id_type_ligne=_lookup_code(lookups, "DIM_TYPE_LIGNE", 3),
             id_date=lambda d: d["MC_Date"].apply(_resolve_date),
             id_caisse=lambda d: d["CA_No"].apply(
                 lambda v: lookups.get("DIM_CAISSE", {}).get(transform.hash_key(v))
+            ),
+            id_type_mvt=lambda d: d["MC_TypeMvt"].apply(
+                lambda v: _lookup_code(lookups, "DIM_TYPE_MVT_CAISSE", v)
             ),
             date_extraction=today,
         )
@@ -249,6 +351,7 @@ def _assemble_fait_ecritures(
         extract.extract_fait_artstock()
         .assign(
             type_ligne=4,
+            id_type_ligne=_lookup_code(lookups, "DIM_TYPE_LIGNE", 4),
             id_date=lookups.get("DIM_DATE", {}).get(today),
             id_article=lambda d: d["AR_Ref"].apply(
                 lambda v: lookups.get("DIM_ARTICLE", {}).get(transform.hash_key(v))
@@ -275,6 +378,8 @@ def _compute_dsi_jours() -> None:
                 ELSE NULL
             END
         FROM FAIT_ECRITURES fe
+        INNER JOIN DIM_TYPE_LIGNE tl
+            ON tl.id_type_ligne = fe.id_type_ligne
         INNER JOIN (
             SELECT
                 id_article,
@@ -283,7 +388,7 @@ def _compute_dsi_jours() -> None:
             WHERE date_extraction >= DATEADD(DAY, -365, CAST(GETDATE() AS DATE))
             GROUP BY id_article
         ) sub ON sub.id_article = fe.id_article
-        WHERE fe.type_ligne = 4
+        WHERE tl.code_type_ligne = 4
     """
     with DW_ENGINE.begin() as conn:
         conn.execute(text(sql))
@@ -295,8 +400,8 @@ def _compute_dsi_jours() -> None:
 # ===========================================================================
 
 def _generate_dim_date(
-    start: str = "2015-01-01",
-    end: str = "2030-12-31",
+    start: str = DIM_DATE_START,
+    end: str = DIM_DATE_END,
 ) -> pd.DataFrame:
 
     dr = pd.date_range(start=start, end=end, freq="D")
@@ -304,9 +409,12 @@ def _generate_dim_date(
     df["annee"]      = df["date_valeur"].dt.year.astype("Int16")
     df["mois"]       = df["date_valeur"].dt.month.astype("Int16")
     df["jour"]       = df["date_valeur"].dt.day.astype("Int16")
-    df["semaine_iso"]= df["date_valeur"].dt.isocalendar().week.astype("Int32")
+    df["trimestre"]  = df["date_valeur"].dt.quarter.astype("Int16")
+    df["semestre"]   = ((df["date_valeur"].dt.month - 1) // 6 + 1).astype("Int16")
+    df["semaine_iso"]= df["date_valeur"].dt.isocalendar().week.astype("Int16")
     df["jour_semaine"]= df["date_valeur"].dt.weekday + 1
     df["est_weekend"]= (df["jour_semaine"] >= 6).astype("Int16")
+    df["est_ferie"]  = 0
     df["exercice"]   = None
     return df
 
@@ -322,6 +430,69 @@ STEPS: List[Step] = [
         lambda **kw: pd.DataFrame(),
         None,
         lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="date_valeur"),
+    ),
+
+    (
+        "DIM_DOMAINE",
+        lambda **kw: extract.extract_static_dims()["DIM_DOMAINE"],
+        None,
+        lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="code_domaine"),
+    ),
+
+    (
+        "DIM_TYPE_DOC",
+        lambda **kw: extract.extract_static_dims()["DIM_TYPE_DOC"],
+        None,
+        lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="code_type_doc"),
+    ),
+
+    (
+        "DIM_MODE_REGLEMENT",
+        lambda **kw: extract.extract_static_dims()["DIM_MODE_REGLEMENT"],
+        None,
+        lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="code_mode_reg"),
+    ),
+
+    (
+        "DIM_ETAT_REGLEMENT",
+        lambda **kw: extract.extract_static_dims()["DIM_ETAT_REGLEMENT"],
+        None,
+        lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="code_etat_reg"),
+    ),
+
+    (
+        "DIM_ETAT_DOCREGL",
+        lambda **kw: extract.extract_static_dims()["DIM_ETAT_DOCREGL"],
+        None,
+        lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="code_etat_docregl"),
+    ),
+
+    (
+        "DIM_TYPE_LIGNE",
+        lambda **kw: extract.extract_static_dims()["DIM_TYPE_LIGNE"],
+        None,
+        lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="code_type_ligne"),
+    ),
+
+    (
+        "DIM_SENS_ECRITURE",
+        lambda **kw: extract.extract_static_dims()["DIM_SENS_ECRITURE"],
+        None,
+        lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="code_sens"),
+    ),
+
+    (
+        "DIM_TYPE_TVA",
+        lambda **kw: extract.extract_static_dims()["DIM_TYPE_TVA"],
+        None,
+        lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="code_type_tva"),
+    ),
+
+    (
+        "DIM_TYPE_MVT_CAISSE",
+        lambda **kw: extract.extract_dim_type_mvt_caisse(),
+        lambda df, lookups: _add_static_label(df),
+        lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="code_type_mvt"),
     ),
 
     (
@@ -370,7 +541,7 @@ STEPS: List[Step] = [
     (
         "DIM_FAMILLE",
         lambda **kw: extract.extract_dim_famille(),
-        lambda df, lookups: _hash_columns(df, ["FA_CodeFamille", "CL_Code"]),
+        lambda df, lookups: _transform_dim_famille(df),
         lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="FA_CodeFamille_code"),
     ),
 
@@ -412,11 +583,11 @@ STEPS: List[Step] = [
         lambda df, lookups: (
             _hash_columns(df, ["AR_Ref", "FA_CodeFamille", "CT_Num_fourn"])
             .assign(
-                id_famille=df["FA_CodeFamille"].map(
-                    lookups.get("DIM_FAMILLE", {})
+                id_famille=df["FA_CodeFamille"].apply(
+                    lambda v: lookups.get("DIM_FAMILLE", {}).get(transform.hash_key(v))
                 ),
-                id_fournisseur=df["CT_Num_fourn"].map(
-                    lookups.get("DIM_FOURNISSEUR", {})
+                id_fournisseur=df["CT_Num_fourn"].apply(
+                    lambda v: lookups.get("DIM_FOURNISSEUR", {}).get(transform.hash_key(v))
                 ),
             )
         ),
@@ -449,6 +620,12 @@ STEPS: List[Step] = [
                         pd.Timestamp(d).date() if pd.notna(d) else None
                     )
                 ),
+                id_type_doc=df["DO_Type"].apply(
+                    lambda v: _lookup_code(lookups, "DIM_TYPE_DOC", v)
+                ),
+                id_domaine=df["DO_Domaine"].apply(
+                    lambda v: _lookup_code(lookups, "DIM_DOMAINE", v)
+                ),
                 id_client=df["CT_Num"].apply(
                     lambda v: lookups.get("DIM_CLIENT", {}).get(transform.hash_key(v))
                 ),
@@ -475,11 +652,16 @@ STEPS: List[Step] = [
             _add_fact_reglements_bucket(
                 transform.add_fact_reglements_calcs(
                     df.merge(
-                        extract.extract_docentete_dates()[["DO_Piece", "DO_Date"]],
+                        extract.extract_docentete_dates()[["DO_Type", "DO_Piece", "DO_Date"]],
+                        on=["DO_Type", "DO_Piece"],
+                        how="left",
+                    )
+                    .merge(
+                        extract.extract_docregl_grt(lookups.get("_last_run")),
                         on="DO_Piece",
                         how="left",
                     )
-                    .rename(columns={"LB_NbJour": "RT_NbJour"})
+                    .assign(RT_NbJour=lambda d: d["LB_NbJour"])
                 )
             )
             .assign(
@@ -491,16 +673,18 @@ STEPS: List[Step] = [
                 id_client=lambda d: d["CT_Num"].apply(
                     lambda v: lookups.get("DIM_CLIENT", {}).get(transform.hash_key(v))
                 ),
-                id_banque=lambda d: d["BQ_Num"].apply(
-                    lambda v: lookups.get("DIM_BANQUE", {}).get(
-                        transform.hash_key(str(v))
-                    ) if pd.notna(v) else None
+                id_banque=lambda d: d.apply(
+                    lambda row: _resolve_banque_id(row, lookups),
+                    axis=1,
                 ),
                 id_mode_reg=lambda d: d["RT_Mode"].map(
                     lookups.get("DIM_MODE_REGLEMENT", {})
                 ),
                 id_etat_reg=lambda d: d["RT_Etat"].map(
                     lookups.get("DIM_ETAT_REGLEMENT", {})
+                ),
+                id_etat_docregl=lambda d: d["DR_Regle"].map(
+                    lookups.get("DIM_ETAT_DOCREGL", {})
                 ),
                 RT_Rapproche=lambda d: (
                     d["BR_Rapproch"].fillna(0).astype("Int16")

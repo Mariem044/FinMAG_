@@ -88,11 +88,46 @@ def add_fact_ecritures_calcs(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_fact_reglements_calcs(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculate delay columns for FACT_REGLEMENTS.
+    """Calculate delay columns for FAIT_REGLEMENTS.
     Expects RT_Date (datetime), DO_Date (datetime), RT_NbJour (int).
     """
+    df = df.copy()
+    df["RT_Date"] = pd.to_datetime(df["RT_Date"], errors="coerce")
+    df["DO_Date"] = pd.to_datetime(df["DO_Date"], errors="coerce")
+    df["RT_NbJour"] = pd.to_numeric(df["RT_NbJour"], errors="coerce")
     df["delai_reel_jours"] = (df["RT_Date"] - df["DO_Date"]).dt.days
     df["ecart_delai"] = df["delai_reel_jours"] - df["RT_NbJour"]
+    return df
+
+
+def add_fact_reglements_bucket(df: pd.DataFrame) -> pd.DataFrame:
+    """Assign bucket_impaye based on delai_reel_jours and DR_Regle (KPI-08).
+
+    Buckets:
+        0 = 0–30 days
+        1 = 31–60 days
+        2 = 61–90 days
+        3 = > 90 days
+
+    Only unpaid rows (DR_Regle == 0) receive a bucket; paid rows get NULL.
+    """
+    def _bucket(row) -> Optional[int]:
+        if row.get("DR_Regle", 1) != 0:
+            return None
+        days = row.get("delai_reel_jours")
+        if days is None or pd.isna(days):
+            return None
+        days = int(days)
+        if days <= 30:
+            return 0
+        if days <= 60:
+            return 1
+        if days <= 90:
+            return 2
+        return 3
+
+    df = df.copy()
+    df["bucket_impaye"] = df.apply(_bucket, axis=1)
     return df
 
 
@@ -117,16 +152,19 @@ def transform_dim_client(
 
     CT_Num → CT_Num_code : CRC32 hash stored as the surrogate natural key
                            (no FK lookup — the hash *is* the code column).
-    N_CatTarif → id_segment      : FK to DIM_SEGMENT.
-    CO_No      → id_collaborateur : FK to DIM_COLLABORATEUR.
-
-    Bug fix: replaced ``resolve_fk(df, "CT_Num", lookup_client := {}, …)``
-    walrus-assigned empty-dict which mapped nothing (Bug 3).
+    N_CatTarif → id_segment : FK to DIM_SEGMENT (lookup keys are CRC32 hashes
+                              of cbIndice, not raw ints — hash N_CatTarif first).
+    CO_No      → id_collab  : FK to DIM_COLLABORATEUR (DDL column = id_collab,
+                              not id_collaborateur).
     """
     df = df.copy()
     df["CT_Num_code"] = df["CT_Num"].apply(hash_key)
-    df = resolve_fk(df, "N_CatTarif", lookup_segment, "id_segment")
-    df = resolve_fk(df, "CO_No", lookup_collab, "id_collaborateur")
+    # Bug fix #2: hash N_CatTarif before lookup — DIM_SEGMENT keys are CRC32 hashes
+    df["_N_CatTarif_hash"] = df["N_CatTarif"].apply(hash_key)
+    df = resolve_fk(df, "_N_CatTarif_hash", lookup_segment, "id_segment")
+    df = df.drop(columns=["_N_CatTarif_hash"])
+    # Bug fix #3: column must be id_collab to match DDL DIM_COLLABORATEUR PK ref
+    df = resolve_fk(df, "CO_No", lookup_collab, "id_collab")
     return df
 
 
@@ -136,6 +174,7 @@ __all__ = [
     "add_fact_lignes_vente_calcs",
     "add_fact_ecritures_calcs",
     "add_fact_reglements_calcs",
+    "add_fact_reglements_bucket",
     "transform_dim_date",
     "transform_dim_client",
 ]
