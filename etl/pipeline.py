@@ -21,6 +21,7 @@ Bug 19  – disable_all_fk called before dimension loads in full mode;
 """
 from __future__ import annotations
 
+from etl.config import SEGMENTS 
 import sys
 import traceback
 from datetime import datetime, date
@@ -123,11 +124,23 @@ STEPS: List[Step] = [
     ),
     # ── Groupe 2 ───────────────────────────────────────────────────────────
     (
-        "DIM_SEGMENT",
-        lambda **kw: extract.extract_dim_segment(),
-        lambda df, lookups: _hash_columns(df, ["cbIndice"]),
-        lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="cbIndice_code"),
+    "DIM_SEGMENT",
+    lambda **kw: extract.extract_dim_segment(),
+    lambda df, lookups: (
+        _hash_columns(df, ["cbIndice"])
+        .assign(
+            # CT_PrixTTC (0/1) maps directly to prix_ttc_flag
+            prix_ttc_flag=df["CT_PrixTTC"].fillna(0).astype("Int16"),
+            # Resolve human-readable label from the SEGMENTS config dict;
+            # fall back to a safe placeholder if a code is not in the dict.
+            libelle_segment=df["cbIndice"].map(
+                lambda v: transform.hash_key.__module__ and
+                __import__("etl.config", fromlist=["SEGMENTS"]).SEGMENTS.get(int(v), f"Segment {v}")
+            ),
+        )
     ),
+    lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="cbIndice_code"),
+),
     (
         "DIM_COLLABORATEUR",
         lambda **kw: extract.extract_dim_collaborateur(kw.get("last_run")),

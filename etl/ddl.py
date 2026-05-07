@@ -121,9 +121,10 @@ _DDL_GROUPE_2: list[tuple[str, str]] = [
     ("DIM_SEGMENT", """
 CREATE TABLE DIM_SEGMENT (
     id_segment         INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    cb_indice          SMALLINT NOT NULL UNIQUE,   -- 1..5
+    cbIndice           SMALLINT NOT NULL UNIQUE,   -- 1..5  (raw natural key)
+    cbIndice_code      INT      NOT NULL UNIQUE,   -- CRC32(cbIndice) surrogate hash
     prix_ttc_flag      SMALLINT NOT NULL DEFAULT 0,
-    libelle_segment    NVARCHAR(100) NOT NULL,      -- human-readable label (Bug 17)
+    libelle_segment    NVARCHAR(100) NOT NULL,
     row_hash           BINARY(32) NULL
 )"""),
 
