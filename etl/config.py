@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
+import logging
+logging.getLogger("pyodbc").setLevel(logging.WARNING)
 from sqlalchemy import create_engine, Engine, event
 from sqlalchemy.pool import QueuePool
 

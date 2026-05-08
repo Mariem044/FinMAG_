@@ -88,7 +88,20 @@ def _prepare_for_load(df: pd.DataFrame, table: str) -> pd.DataFrame:
             f"No writable DW columns remain for {table} after schema alignment"
         )
 
-    return df.loc[:, kept_cols].copy()
+    df = df.loc[:, kept_cols].copy()
+
+    # ✅ FIX: convert datetime.date objects to ISO string 'YYYY-MM-DD'
+    # so pyodbc sends DATE not DATETIME to SQL Server DATE columns.
+    import datetime as _dt
+    for col in df.columns:
+        if df[col].dtype == object:
+            sample = df[col].dropna()
+            if not sample.empty and isinstance(sample.iloc[0], _dt.date) and not isinstance(sample.iloc[0], _dt.datetime):
+                df[col] = df[col].apply(
+                    lambda v: v.isoformat() if isinstance(v, _dt.date) else v
+                )
+
+    return df
 
 
 def _sha256_row(row: pd.Series) -> bytearray:
@@ -142,7 +155,8 @@ def _bulk_insert(df: pd.DataFrame, table: str) -> None:
         raw_conn = conn.connection
         cursor = raw_conn.cursor()
         cursor.fast_executemany = True
-        cursor.executemany(sql, rows)
+        for i in range(0, len(rows), CHUNK_SIZE):
+            cursor.executemany(sql, rows[i:i + CHUNK_SIZE])
         cursor.close()
 
 
@@ -163,7 +177,12 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
         return
 
     # _prepare_for_load strips IDENTITY columns — df.columns has no PK after this
+    # _prepare_for_load strips IDENTITY columns — df.columns has no PK after this
     df = _prepare_for_load(df, table)
+
+    # FIX: drop BINARY columns before to_sql — pandas cannot infer BINARY(32) type
+    # and creates varchar(max) in the staging table causing MERGE type mismatch
+    df = df.drop(columns=["row_hash", "source_hash"], errors="ignore")
 
     if key_col not in df.columns:
         raise ValueError(
@@ -186,12 +205,17 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
         conn.execute(text(_DROP_IF_EXISTS.format(name=temp_name)))
 
     logger.debug(f"[LOAD] {table} – création table temporaire {temp_name}")
+    # SQL Server limit: 2100 parameters per statement
+    # Calculate max rows per chunk: floor(2100 / number of columns)
+    n_cols = len(df.columns)
+    sql_server_chunk = max(1, 2099 // n_cols)
+
     df.to_sql(
         name=temp_name,
         con=DW_ENGINE,
         if_exists="replace",
         index=False,
-        chunksize=CHUNK_SIZE,
+        chunksize=sql_server_chunk,
         method="multi",
     )
 

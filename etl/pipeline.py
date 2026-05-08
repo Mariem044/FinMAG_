@@ -207,21 +207,27 @@ def _generate_dim_date(
     exercices = extract.extract_exercices_fiscaux()
 
     dr = pd.date_range(start=start, end=end, freq="D")
-    df = pd.DataFrame({"date_val": dr})
 
-    df["annee"]        = df["date_val"].dt.year.astype("Int16")
-    df["mois"]         = df["date_val"].dt.month.astype("Int16")
-    df["jour"]         = df["date_val"].dt.day.astype("Int16")
-    df["trimestre"]    = df["date_val"].dt.quarter.astype("Int16")
-    df["semestre"]     = ((df["mois"] - 1) // 6 + 1).astype("Int16")
-    df["semaine"]      = df["date_val"].dt.isocalendar().week.astype("Int32")
-    df["jour_semaine"] = (df["date_val"].dt.weekday + 1).astype("Int16")
-    df["est_weekend"]  = (df["jour_semaine"] >= 6).astype("Int16")
-    df["est_ferie"]    = 0
+    # FIX-1: build date_val as a pandas Series of Python datetime.date objects
+    # Use pd.Series so .dt accessor works, then convert to plain date
+    date_series = pd.Series(dr)
+
+    df = pd.DataFrame({
+        "date_val":     date_series.dt.date,                              # plain date
+        "annee":        dr.year.astype("int16"),
+        "mois":         dr.month.astype("int16"),
+        "jour":         dr.day.astype("int16"),
+        "trimestre":    dr.quarter.astype("int16"),
+        "semestre":     ((dr.month - 1) // 6 + 1).astype("int16"),
+        "semaine":      dr.isocalendar().week.values.astype("int32"),     # FIX-2: .values extracts numpy array
+        "jour_semaine": (dr.weekday + 1).astype("int16"),
+        "est_weekend":  (dr.weekday >= 5).astype("int16"),
+        "est_ferie":    0,
+    })
 
     def _get_exercice(d) -> Optional[int]:
         for i, (debut, fin) in enumerate(exercices, 1):
-            if debut <= d.date() <= fin:
+            if debut <= d <= fin:
                 return i
         return None
 
@@ -633,7 +639,19 @@ def _compute_dsi_jours() -> None:
         conn.execute(text(sql))
     logger.info("dsi_jours computed successfully.")
 
+def _load_dim_date_full(df: pd.DataFrame, table: str) -> None:
+    """Full reload of DIM_DATE with FK constraints disabled to avoid lock waits."""
+    fk_tables = ["FAIT_LIGNES_VENTE", "FAIT_REGLEMENTS", "FAIT_ECRITURES"]
 
+    with DW_ENGINE.begin() as conn:
+        for t in fk_tables:
+            conn.execute(text(f"ALTER TABLE [{t}] NOCHECK CONSTRAINT ALL"))
+
+    load.load_dimension(df, table, "full", key_col="date_val")
+
+    with DW_ENGINE.begin() as conn:
+        for t in fk_tables:
+            conn.execute(text(f"ALTER TABLE [{t}] WITH CHECK CHECK CONSTRAINT ALL"))
 # ===========================================================================
 # STEPS
 # ===========================================================================
@@ -641,10 +659,10 @@ def _compute_dsi_jours() -> None:
 STEPS: List[Step] = [
 
     (
-        "DIM_DATE",
-        lambda **kw: pd.DataFrame(),
-        None,
-        lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="date_val"),
+    "DIM_DATE",
+    lambda **kw: pd.DataFrame(),
+    None,
+    lambda df, tbl, mode: _load_dim_date_full(df, tbl),
     ),
 
     (
