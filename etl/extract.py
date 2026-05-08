@@ -219,24 +219,19 @@ def extract_dim_banque_mag() -> pd.DataFrame:
 def extract_dim_caisse_mag() -> pd.DataFrame:
     """
     DIM_CAISSE (partie MAG) — Source : F_CAISSE.
-    Attention : clé CA_No dans MAG (pas CA_Numero).
     """
     sql = """
         SELECT
             CA_No,
-            CA_Type,
-            JO_Num
+            JO_Num,
+            DE_No,
+            CO_No
         FROM F_CAISSE
     """
     return _read(MAG_ENGINE, sql)
 
 
 def extract_fait_lignes_vente(last_run: Optional[datetime] = None) -> pd.DataFrame:
-    """
-    FAIT_LIGNES_VENTE — Source : F_DOCLIGNE JOIN F_DOCENTETE.
-    KPI-01 CA, KPI-02 Marge brute, KPI-03 Escompte,
-    KPI-04 Top articles, KPI-16 Concentration achat, KPI-18 RFM.
-    """
     delta_clause, params = _delta_filter("dl.cbModification", last_run)
     sql = f"""
         SELECT
@@ -264,7 +259,10 @@ def extract_fait_lignes_vente(last_run: Optional[datetime] = None) -> pd.DataFra
             ON  de.DO_Domaine = dl.DO_Domaine
             AND de.DO_Type    = dl.DO_Type
             AND de.DO_Piece   = dl.DO_Piece
-        WHERE 1=1 {delta_clause}
+        WHERE dl.DO_Domaine = 0
+          AND dl.DO_Type IN (6, 7)
+          AND dl.DL_MontantHT IS NOT NULL
+          {delta_clause.replace('AND dl.cbModification', 'AND dl.cbModification')}
     """
     return _read(MAG_ENGINE, sql, params)
 
@@ -294,10 +292,6 @@ def extract_fait_ecriturec(last_run: Optional[datetime] = None) -> pd.DataFrame:
 
 
 def extract_fait_regtaxe(last_run: Optional[datetime] = None) -> pd.DataFrame:
-    """
-    FAIT_ECRITURES type_ligne=2 — Source : F_REGTAXE JOIN F_ECRITUREC.
-    KPI-20 TVA collectée/déductible.
-    """
     delta_clause, params = _delta_filter("rt.cbModification", last_run)
     sql = f"""
         SELECT
@@ -381,10 +375,6 @@ def extract_reglech(last_run: Optional[datetime] = None) -> pd.DataFrame:
 
 
 def extract_docregl_mag(last_run: Optional[datetime] = None) -> pd.DataFrame:
-    """
-    F_DOCREGL (MAG) — KPI-08 Impayés avec buckets ancienneté.
-    Filtre sur DR_Regle=0 pour les impayés actifs.
-    """
     delta_clause, params = _delta_filter("cbModification", last_run)
     sql = f"""
         SELECT
@@ -394,11 +384,12 @@ def extract_docregl_mag(last_run: Optional[datetime] = None) -> pd.DataFrame:
             DR_Date,
             DR_Montant,
             DR_Regle,
-            N_Reglement
+            N_Reglement,
+            DR_TypeRegl
         FROM F_DOCREGL
         WHERE 1=1 {delta_clause}
     """
-    return _read(MAG_ENGINE, sql, params)
+    return _read(MAG_ENGINE, sql)
 
 
 def extract_docentete_dates() -> pd.DataFrame:
@@ -422,19 +413,15 @@ def extract_docentete_dates() -> pd.DataFrame:
 # ════════════════════════════════════════════════════════════════════════════
 
 def extract_dim_client_grt() -> pd.DataFrame:
-    """
-    DIM_CLIENT enrichissement GRT — Source : F_COMPTET (GRT).
-    Attention : colonne CT_NUM en MAJUSCULES dans GRT.
-    """
     sql = """
         SELECT
-            CT_NUM                  AS CT_Num,
+            CT_NUM                    AS CT_Num,
             CT_SoldeActuel,
             CT_Engagement,
             CT_ChiffreAffaire,
             CT_EchusUnMois,
             CT_EchusDeuxMois,
-            CT_EchustTroisMois AS CT_EchusTroisMois,
+            CT_EchustTroisMois        AS CT_EchusTroisMois,
             CT_EchusPlusTroisMois,
             CT_MoyenneDelaiPayement,
             CT_MoyenneDelaiImpaye
@@ -444,25 +431,11 @@ def extract_dim_client_grt() -> pd.DataFrame:
 
 
 def extract_dim_banque_grt() -> pd.DataFrame:
-    """DIM_BANQUE enrichissement GRT — Source : F_EBANQUE (GRT)."""
-    sql = """
-        SELECT
-            EB_Abrege,
-            EB_Banque
-        FROM F_EBANQUE
-    """
-    return _read(GRT_ENGINE, sql)
+    """GRT has no F_EBANQUE — banque info comes from BQ_ABREGE on reglements."""
+    return pd.DataFrame(columns=["EB_Abrege", "EB_Banque"])
 
 
 def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.DataFrame:
-    """
-    FAIT_REGLEMENTS clients — GRT : F_ReglementClient
-    JOIN F_LigneBordereauRemise JOIN F_BordereauRemise.
-    KPI-05, KPI-06, KPI-09, KPI-15.
-    """
-    # Bug 15 fix: LEFT JOIN columns can be NULL when a règlement has no
-    # bordereau entry.  Use COALESCE on numeric KPI columns so aggregations
-    # do not silently corrupt results with NULLs.
     delta_clause, params = _delta_filter("rc.cbModification", last_run)
     sql = f"""
         SELECT
@@ -475,15 +448,16 @@ def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.D
             rc.RT_Montant,
             rc.RT_Etat,
             rc.BQ_Num,
-            lb.LB_Ligne,
-            lb.BR_Num,
-            COALESCE(lb.LB_MontantReg,       0) AS LB_MontantReg,
-            lb.LB_EcheanceReg,
-            COALESCE(lb.LB_NbJour,           0) AS LB_NbJour,
-            COALESCE(lb.LB_Agios,            0) AS LB_Agios,
-            br.BQ_ABREGE,
-            COALESCE(br.BR_TotalReglement,   0) AS BR_TotalReglement,
-            br.BR_Rapproch
+            rc.BQ_ABREGE,
+            rc.RT_Rapproche,
+            COALESCE(lb.LB_Ligne,       NULL) AS LB_Ligne,
+            COALESCE(lb.BR_Num,         NULL) AS BR_Num,
+            COALESCE(lb.LB_MontantReg,  0)    AS LB_MontantReg,
+            COALESCE(lb.LB_EcheanceReg, NULL) AS LB_EcheanceReg,
+            COALESCE(lb.LB_NbJour,      0)    AS LB_NbJour,
+            COALESCE(lb.LB_Agios,       0)    AS LB_Agios,
+            COALESCE(br.BR_TotalReglement, 0) AS BR_TotalReglement,
+            COALESCE(br.BR_Rapproch,    0)    AS BR_Rapproch
         FROM F_ReglementClient rc
         LEFT JOIN F_LigneBordereauRemise lb ON lb.RT_Num = rc.RT_Num
         LEFT JOIN F_BordereauRemise      br ON br.BR_Num = lb.BR_Num
@@ -493,12 +467,7 @@ def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.D
 
 
 def extract_fait_reglements_fournisseurs(last_run: Optional[datetime] = None) -> pd.DataFrame:
-    """
-    FAIT_REGLEMENTS fournisseurs — GRT : F_ReglementFournisseur.
-    KPI-07 Délai moyen fournisseur.
-    """
-    delta_clause, params = _delta_filter("cbModification", last_run)
-    sql = f"""
+    sql = """
         SELECT
             RT_Num,
             CT_Num,
@@ -510,40 +479,24 @@ def extract_fait_reglements_fournisseurs(last_run: Optional[datetime] = None) ->
             RT_Etat,
             BQ_Num
         FROM F_ReglementFournisseur
-        WHERE 1=1 {delta_clause}
     """
-    return _read(GRT_ENGINE, sql, params)
+    return _read(GRT_ENGINE, sql)
 
 
 def extract_docregl_grt(last_run: Optional[datetime] = None) -> pd.DataFrame:
-    """
-    F_DOCREGL (GRT) — état règlement, mode règlement.
-    KPI-08 Impayés côté GRT.
-    """
-    delta_clause, params = _delta_filter("cbModification", last_run)
-    sql = f"""
+    sql = """
         SELECT
             DO_Piece,
             DR_Montant,
-            DR_EtatRegle   AS DR_Regle,
+            DR_EtatRegle  AS DR_Regle,
             DR_ModeReg
         FROM F_DOCREGL
-        WHERE 1=1 {delta_clause}
     """
-    return _read(GRT_ENGINE, sql, params)
+    return _read(GRT_ENGINE, sql)
 
 
 def extract_fait_mvtcaisse(last_run: Optional[datetime] = None) -> pd.DataFrame:
-    """
-    FAIT_ECRITURES type_ligne=3 — GRT : F_MvtCaisse JOIN F_Caisse.
-    Attention : F_Caisse GRT utilise CA_Numero (pas CA_No).
-    KPI-22 Solde caisse, KPI-23 Entrées/Sorties, KPI-24 Taux clôture.
-    """
-    # Bug 14 fix: alias CA_Numero AS CA_No so both MAG (F_CAISSE.CA_No) and
-    # GRT (F_Caisse.CA_Numero) sides share the same column name before hashing.
-    # This ensures hash keys match when joining caisse records in DIM_CAISSE.
-    delta_clause, params = _delta_filter("mc.cbModification", last_run)
-    sql = f"""
+    sql = """
         SELECT
             mc.MC_Numero,
             mc.MC_Date,
@@ -559,9 +512,8 @@ def extract_fait_mvtcaisse(last_run: Optional[datetime] = None) -> pd.DataFrame:
             c.CA_NumJournal  AS JO_Num
         FROM F_MvtCaisse mc
         INNER JOIN F_Caisse c ON c.CA_Numero = mc.CA_Numero
-        WHERE 1=1 {delta_clause}
     """
-    return _read(GRT_ENGINE, sql, params)
+    return _read(GRT_ENGINE, sql)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -596,7 +548,6 @@ def extract_static_dims() -> dict[str, pd.DataFrame]:
 
 
 def extract_dim_type_mvt_caisse(last_run: Optional[datetime] = None) -> pd.DataFrame:
-    """DIM_TYPE_MVT_CAISSE — valeurs distinctes de F_MvtCaisse.MC_TypeMvt."""
     sql = """
         SELECT DISTINCT MC_TypeMvt AS code_type_mvt
         FROM F_MvtCaisse

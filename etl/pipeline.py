@@ -359,7 +359,7 @@ def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
     df_mag = extract.extract_dim_caisse_mag()
     df_grt = (
         extract.extract_fait_mvtcaisse()
-        [["CA_No", "CA_Type", "JO_Num"]]
+        [["CA_No", "JO_Num"]]
         .drop_duplicates(subset=["CA_No"])
     )
     return (
@@ -367,6 +367,7 @@ def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
         .assign(
             CA_Numero_code=lambda d: d["CA_No"].apply(transform.hash_key),
             JO_Num_code=lambda d: d["JO_Num"].apply(transform.hash_key),
+            CA_Type=None,   # not available in MAG schema
         )
         .drop_duplicates(subset=["CA_Numero_code"], keep="first")
     )
