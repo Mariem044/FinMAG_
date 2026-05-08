@@ -94,27 +94,29 @@ def _bulk_insert(df: pd.DataFrame, table: str) -> None:
         logger.info(f"[LOAD] {table} – DataFrame vide, rien à insérer")
         return
     df = _prepare_for_load(df, table)
-    # Drop BINARY columns that pyodbc cannot send via to_sql.
-    # row_hash is only needed for MERGE delta detection.
-    # source_hash on fact tables has the same issue.
     df = df.drop(columns=["row_hash", "source_hash"], errors="ignore")
     if df.empty or len(df.columns) == 0:
         logger.info(f"[LOAD] {table} – DataFrame vide après préparation")
         return
-    # SQL Server limit: 2100 parameters per statement.
-    # Safe chunksize = floor(2100 / num_columns) - 1
-    safe_chunk = max(1, (2100 // len(df.columns)) - 1)
-    chunk = min(CHUNK_SIZE, safe_chunk)
-    logger.info(f"[LOAD] {table} – Insertion bulk ({len(df)} lignes, chunksize={chunk})")
-    df.to_sql(
-        name=table,
-        con=DW_ENGINE,
-        if_exists="append",
-        index=False,
-        chunksize=chunk,
-        method="multi",
-    )
 
+    cols = list(df.columns)
+    placeholders = ", ".join(["?" for _ in cols])
+    col_names = ", ".join([f"[{c}]" for c in cols])
+    sql = f"INSERT INTO [{table}] ({col_names}) VALUES ({placeholders})"
+
+    # Convert to list of tuples, replacing NaN/NaT with None
+    rows = [
+        tuple(None if (isinstance(v, float) and v != v) else v for v in row)
+        for row in df.itertuples(index=False, name=None)
+    ]
+
+    logger.info(f"[LOAD] {table} – Insertion bulk ({len(df)} lignes via fast_executemany)")
+    with DW_ENGINE.begin() as conn:
+        raw_conn = conn.connection
+        cursor = raw_conn.cursor()
+        cursor.fast_executemany = True
+        cursor.executemany(sql, rows)
+        cursor.close()
 
 def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
     """Perform a MERGE (upsert) on the DW table.
