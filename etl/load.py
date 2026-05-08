@@ -90,18 +90,20 @@ def _sha256_row(row: pd.Series) -> bytes:
 
 
 def _bulk_insert(df: pd.DataFrame, table: str) -> None:
-    """Insert DataFrame into DW table using pandas.to_sql (method='multi')."""
     if df.empty:
         logger.info(f"[LOAD] {table} – DataFrame vide, rien à insérer")
         return
-    logger.info(f"[LOAD] {table} – Insertion bulk ({len(df)} lignes, chunksize={CHUNK_SIZE})")
-    df = _prepare_for_load(df, table)
+    # SQL Server limit: 2100 parameters per statement.
+    # Safe chunksize = floor(2100 / num_columns) - 1
+    safe_chunk = max(1, (2100 // len(df.columns)) - 1)
+    chunk = min(CHUNK_SIZE, safe_chunk)
+    logger.info(f"[LOAD] {table} – Insertion bulk ({len(df)} lignes, chunksize={chunk})")
     df.to_sql(
         name=table,
         con=DW_ENGINE,
         if_exists="append",
         index=False,
-        chunksize=CHUNK_SIZE,
+        chunksize=chunk,
         method="multi",
     )
 

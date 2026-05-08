@@ -532,23 +532,19 @@ def _compute_dsi_jours() -> None:
 # DATE DIM
 # ===========================================================================
 
-def _generate_dim_date(
-    start: str = DIM_DATE_START,
-    end: str = DIM_DATE_END,
-) -> pd.DataFrame:
-
+def _generate_dim_date(start: str = "2015-01-01", end: str = "2030-12-31") -> pd.DataFrame:
     dr = pd.date_range(start=start, end=end, freq="D")
     df = pd.DataFrame({"date_valeur": dr})
-    df["annee"]      = df["date_valeur"].dt.year.astype("Int16")
-    df["mois"]       = df["date_valeur"].dt.month.astype("Int16")
-    df["jour"]       = df["date_valeur"].dt.day.astype("Int16")
-    df["trimestre"]  = df["date_valeur"].dt.quarter.astype("Int16")
-    df["semestre"]   = ((df["date_valeur"].dt.month - 1) // 6 + 1).astype("Int16")
-    df["semaine_iso"]= df["date_valeur"].dt.isocalendar().week.astype("Int16")
+    df["annee"]       = df["date_valeur"].dt.year.astype("Int16")
+    df["mois"]        = df["date_valeur"].dt.month.astype("Int16")
+    df["jour"]        = df["date_valeur"].dt.day.astype("Int16")
+    df["trimestre"]   = df["date_valeur"].dt.quarter.astype("Int16")          # ← ADD THIS
+    df["semestre"]    = ((df["mois"] - 1) // 6 + 1).astype("Int16")          # ← ADD THIS
+    df["semaine_iso"] = df["date_valeur"].dt.isocalendar().week.astype("Int32")
     df["jour_semaine"]= df["date_valeur"].dt.weekday + 1
-    df["est_weekend"]= (df["jour_semaine"] >= 6).astype("Int16")
-    df["est_ferie"]  = 0
-    df["exercice"]   = None
+    df["est_weekend"] = (df["jour_semaine"] >= 6).astype("Int16")
+    df["est_ferie"]   = 0  # placeholder
+    df["exercice"]    = None
     return df
 
 
