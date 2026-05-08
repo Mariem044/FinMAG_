@@ -79,19 +79,27 @@ def _prepare_for_load(df: pd.DataFrame, table: str) -> pd.DataFrame:
     return df.loc[:, kept_cols].copy()
 
 
-def _sha256_row(row: pd.Series) -> bytes:
+def _sha256_row(row: pd.Series) -> bytearray:
     parts = []
     for value in row.tolist():
         if pd.isna(value):
             parts.append("<NULL>")
         else:
             parts.append(str(value))
-    return hashlib.sha256("|".join(parts).encode("utf-8")).digest()
+    return bytearray(hashlib.sha256("|".join(parts).encode("utf-8")).digest())
 
 
 def _bulk_insert(df: pd.DataFrame, table: str) -> None:
     if df.empty:
         logger.info(f"[LOAD] {table} – DataFrame vide, rien à insérer")
+        return
+    df = _prepare_for_load(df, table)
+    # Drop BINARY columns that pyodbc cannot send via to_sql.
+    # row_hash is only needed for MERGE delta detection.
+    # source_hash on fact tables has the same issue.
+    df = df.drop(columns=["row_hash", "source_hash"], errors="ignore")
+    if df.empty or len(df.columns) == 0:
+        logger.info(f"[LOAD] {table} – DataFrame vide après préparation")
         return
     # SQL Server limit: 2100 parameters per statement.
     # Safe chunksize = floor(2100 / num_columns) - 1

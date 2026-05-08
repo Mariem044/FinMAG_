@@ -628,23 +628,27 @@ STEPS: List[Step] = [
         "DIM_SEGMENT",
         lambda **kw: extract.extract_dim_segment(),
         lambda df, lookups: (
-            _hash_columns(df, ["cbIndice"])
-            .assign(
-                prix_ttc_flag=df["CT_PrixTTC"].fillna(0).astype("Int16"),
-                libelle_segment=df["cbIndice"].map(
-                    lambda v: SEGMENTS.get(int(v), f"Segment {v}")
-                ),
-            )
+    _hash_columns(df, ["cbIndice"])
+    .assign(
+        prix_ttc_flag=lambda d: d["CT_PrixTTC"].fillna(0).astype("Int16"),
+        libelle_segment=lambda d: d["cbIndice"].map(
+            lambda v: SEGMENTS.get(int(v), f"Segment {v}")
         ),
+    )
+    .drop(columns=["CT_PrixTTC"], errors="ignore")
+),
         lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="cbIndice_code"),
     ),
 
     (
-        "DIM_COLLABORATEUR",
-        lambda **kw: extract.extract_dim_collaborateur(kw.get("last_run")),
-        lambda df, lookups: _hash_columns(df, ["CO_Fonction"]),
-        lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CO_No"),
+    "DIM_COLLABORATEUR",
+    lambda **kw: extract.extract_dim_collaborateur(kw.get("last_run")),
+    lambda df, lookups: (
+        _hash_columns(df, ["CO_Fonction"])
+        .drop(columns=["CO_Fonction"], errors="ignore")
     ),
+    lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CO_No"),
+),
 
     (
         "DIM_JOURNAL",
