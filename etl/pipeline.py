@@ -262,6 +262,7 @@ def _assemble_fait_reglements(
     last_run: Optional[datetime],
     lookups: Dict,
 ) -> pd.DataFrame:
+
     defaults = {
         "DO_Piece": None,
         "LB_Ligne": None,
@@ -269,6 +270,10 @@ def _assemble_fait_reglements(
         "LB_Agios": 0,
         "BR_Rapproch": 0,
         "BQ_ABREGE": None,
+        "LB_MontantReg": None,
+        "RG_Montant": None,
+        "BR_TotalReglement": None,
+        "LB_EcheanceReg": None,
     }
 
     clients = _ensure_columns(
@@ -287,6 +292,7 @@ def _assemble_fait_reglements(
         extract.extract_docentete_dates()[["DO_Type", "DO_Piece", "DO_Date"]]
         .drop_duplicates(subset=["DO_Type", "DO_Piece"], keep="last")
     )
+
     docregl = (
         extract.extract_docregl_grt(last_run)
         .drop_duplicates(subset=["DO_Piece"], keep="last")
@@ -296,7 +302,9 @@ def _assemble_fait_reglements(
         pd.concat([clients, fournisseurs], ignore_index=True, sort=False)
         .merge(doc_dates, on=["DO_Type", "DO_Piece"], how="left")
         .merge(docregl, on="DO_Piece", how="left")
-        .assign(RT_NbJour=lambda d: d["LB_NbJour"])
+        .assign(
+            RT_NbJour=lambda d: d["LB_NbJour"]
+        )
     )
 
     df = transform.add_fact_reglements_bucket(
@@ -304,19 +312,41 @@ def _assemble_fait_reglements(
     )
 
     return df.assign(
+
+        # ─────────────────────────────────────────────────────────────
+        # FIX-1 : id_date
+        # ─────────────────────────────────────────────────────────────
         id_date=lambda d: d["RT_Date"].apply(
             lambda dt: lookups.get("DIM_DATE", {}).get(
-                pd.Timestamp(dt).date() if pd.notna(dt) else None
+                pd.Timestamp(dt).date()
+                if pd.notna(dt) else None
             )
         ),
+
+        # ─────────────────────────────────────────────────────────────
+        # FIX-2 : id_date_echeance
+        # ─────────────────────────────────────────────────────────────
+        id_date_echeance=lambda d: d["LB_EcheanceReg"].apply(
+            lambda dt: lookups.get("DIM_DATE", {}).get(
+                pd.Timestamp(dt).date()
+                if pd.notna(dt) else None
+            )
+        ),
+
+        # ─────────────────────────────────────────────────────────────
+        # FIX-3 : client / fournisseur
+        # ─────────────────────────────────────────────────────────────
         id_client=lambda d: d.apply(
             lambda row: (
-                lookups.get("DIM_CLIENT", {}).get(transform.hash_key(row.get("CT_Num")))
+                lookups.get("DIM_CLIENT", {}).get(
+                    transform.hash_key(row.get("CT_Num"))
+                )
                 if row.get("_acteur") == "CLIENT"
                 else None
             ),
             axis=1,
         ),
+
         id_fournisseur=lambda d: d.apply(
             lambda row: (
                 lookups.get("DIM_FOURNISSEUR", {}).get(
@@ -327,20 +357,65 @@ def _assemble_fait_reglements(
             ),
             axis=1,
         ),
+
+        # ─────────────────────────────────────────────────────────────
+        # FIX-4 : banque
+        # ─────────────────────────────────────────────────────────────
         id_banque=lambda d: d.apply(
             lambda row: _resolve_banque_id(row, lookups),
             axis=1,
         ),
+
+        # ─────────────────────────────────────────────────────────────
+        # FIX-5 : mode / état / type doc
+        # ─────────────────────────────────────────────────────────────
         id_mode_reg=lambda d: d["RT_Mode"].map(
             lookups.get("DIM_MODE_REGLEMENT", {})
         ),
+
         id_etat_reg=lambda d: d["RT_Etat"].map(
             lookups.get("DIM_ETAT_REGLEMENT", {})
         ),
+
         id_etat_docregl=lambda d: d["DR_Regle"].map(
             lookups.get("DIM_ETAT_DOCREGL", {})
         ),
-        RT_Rapproche=lambda d: d["BR_Rapproch"].fillna(0).astype("Int16"),
+
+        id_type_doc=lambda d: d["DO_Type"].apply(
+            lambda v: _lookup_code(
+                lookups,
+                "DIM_TYPE_DOC",
+                v,
+            )
+        ),
+
+        # ─────────────────────────────────────────────────────────────
+        # FIX-6 : explicit monetary columns
+        # ─────────────────────────────────────────────────────────────
+        RT_Montant=lambda d: d["RT_Montant"],
+        DR_Montant=lambda d: d["DR_Montant"],
+        RC_Montant=lambda d: d["RC_Montant"],
+        RG_Montant=lambda d: d["RG_Montant"],
+
+        LB_Agios=lambda d: d["LB_Agios"],
+        LB_NbJour=lambda d: d["LB_NbJour"],
+        LB_MontantReg=lambda d: d["LB_MontantReg"],
+
+        BR_TotalReglement=lambda d: d["BR_TotalReglement"],
+        BR_Rapproch=lambda d: d["BR_Rapproch"],
+
+        # ─────────────────────────────────────────────────────────────
+        # Existing flags
+        # ─────────────────────────────────────────────────────────────
+        RT_Rapproche=lambda d: (
+            d["BR_Rapproch"]
+            .fillna(0)
+            .astype("Int16")
+        ),
+
+        # ─────────────────────────────────────────────────────────────
+        # Source hash
+        # ─────────────────────────────────────────────────────────────
         source_hash=lambda d: d.apply(
             lambda row: _source_hash(
                 "REGLEMENT",
@@ -351,9 +426,9 @@ def _assemble_fait_reglements(
             ),
             axis=1,
         ),
+
         date_extraction=date.today(),
     )
-
 
 def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
     df_mag = extract.extract_dim_caisse_mag()
