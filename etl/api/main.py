@@ -1,4 +1,10 @@
 # api/main.py
+"""
+FinMAG API — v14
+Fixes applied vs original:
+  FIX-1 : get_banque_rapprochement() — r.id_date → r.id_date_paiement
+  FIX-2 : get_stock_alerts()         — tl.code_type_ligne → tl.type_ligne
+"""
 import os
 
 from fastapi import FastAPI
@@ -208,7 +214,11 @@ def get_impayes():
             "region": "DW",
             "representant": "",
             "dateEcheance": "",
-            "statut": "Critique" if _int(r.anciennete) > 90 else "Urgent" if _int(r.anciennete) > 60 else "Attention",
+            "statut": (
+                "Critique" if _int(r.anciennete) > 90
+                else "Urgent" if _int(r.anciennete) > 60
+                else "Attention"
+            ),
         }
         for r in _rows(sql)
     ]
@@ -268,6 +278,7 @@ def get_aging():
 
 @app.get("/api/produits/stock-alerts")
 def get_stock_alerts():
+    # FIX-2: tl.code_type_ligne renamed to tl.type_ligne in v14 DDL
     sql = """
         SELECT TOP 20
             a.AR_Ref_code,
@@ -278,7 +289,7 @@ def get_stock_alerts():
         FROM FAIT_ECRITURES f
         JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = f.id_type_ligne
         JOIN DIM_ARTICLE a ON a.id_article = f.id_article
-        WHERE tl.code_type_ligne = 4
+        WHERE tl.type_ligne = 4
           AND f.en_rupture = 1
         ORDER BY f.ratio_tension DESC
     """
@@ -295,7 +306,11 @@ def get_stock_alerts():
             "dateRupture": "",
             "famille": "DW",
             "fournisseur": "",
-            "priorite": "CRITIQUE" if stock <= seuil else "URGENT" if ratio >= 0.8 else "ATTENTION",
+            "priorite": (
+                "CRITIQUE" if stock <= seuil
+                else "URGENT" if ratio >= 0.8
+                else "ATTENTION"
+            ),
             "ratioTension": ratio,
         })
     return alerts
@@ -315,7 +330,9 @@ def get_articles():
         FROM DIM_ARTICLE a
         LEFT JOIN FAIT_LIGNES_VENTE v ON v.id_article = a.id_article
         LEFT JOIN FAIT_ECRITURES e ON e.id_article = a.id_article
-        LEFT JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne AND tl.code_type_ligne = 4
+        LEFT JOIN DIM_TYPE_LIGNE tl
+            ON tl.id_type_ligne = e.id_type_ligne
+            AND tl.type_ligne = 4
         GROUP BY a.AR_Ref_code, a.id_famille, a.AR_PrixAch
         ORDER BY ca DESC
     """
@@ -343,7 +360,7 @@ def get_clients():
             COALESCE(s.libelle_segment, 'Sans segment') AS segment,
             SUM(v.DL_MontantHT) AS ca_total,
             COUNT(DISTINCT v.DO_Piece_hash) AS nb_commandes,
-            MAX(d.date_valeur) AS derniere_commande,
+            MAX(d.date_val) AS derniere_commande,
             c.CT_SoldeActuel AS solde_impaye,
             c.CT_Sommeil AS sommeil
         FROM DIM_CLIENT c
@@ -372,19 +389,24 @@ def get_clients():
 
 @app.get("/api/banque/rapprochement")
 def get_banque_rapprochement():
+    # FIX-1: id_date renamed to id_date_paiement in FAIT_REGLEMENTS (v14 DDL)
     sql = """
         SELECT
             d.mois AS month_num,
             AVG(CASE WHEN r.RT_Rapproche = 1 THEN 100.0 ELSE 0.0 END) AS taux,
             SUM(CASE WHEN r.RT_Rapproche = 0 THEN 1 ELSE 0 END) AS non_rapproches
         FROM FAIT_REGLEMENTS r
-        LEFT JOIN DIM_DATE d ON d.id_date = r.id_date
+        LEFT JOIN DIM_DATE d ON d.id_date = r.id_date_paiement
         WHERE d.mois IS NOT NULL
         GROUP BY d.mois
         ORDER BY d.mois
     """
     return [
-        {"month": MONTHS[r.month_num - 1], "taux": round(_num(r.taux)), "nonRapproches": _int(r.non_rapproches)}
+        {
+            "month": MONTHS[r.month_num - 1],
+            "taux": round(_num(r.taux)),
+            "nonRapproches": _int(r.non_rapproches),
+        }
         for r in _rows(sql)
     ]
 
@@ -418,22 +440,28 @@ def get_caisses():
 def get_caisse_flux_daily():
     sql = """
         SELECT TOP 30
-            d.date_valeur,
+            d.date_val,
             SUM(e.MC_Credit) AS credit,
             SUM(e.MC_Debit) AS debit
         FROM FAIT_ECRITURES e
         LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
         WHERE e.MC_Credit IS NOT NULL OR e.MC_Debit IS NOT NULL
-        GROUP BY d.date_valeur
-        ORDER BY d.date_valeur DESC
+        GROUP BY d.date_val
+        ORDER BY d.date_val DESC
     """
     rows = list(reversed(_rows(sql)))
-    cumul = 0
+    cumul = 0.0
     data = []
     for i, r in enumerate(rows):
         credit = _num(r.credit)
         debit = _num(r.debit)
         net = credit - debit
         cumul += net
-        data.append({"day": f"J-{len(rows) - i}", "credit": credit, "debit": -debit, "net": net, "cumul": cumul})
+        data.append({
+            "day": f"J-{len(rows) - i}",
+            "credit": credit,
+            "debit": -debit,
+            "net": net,
+            "cumul": cumul,
+        })
     return data

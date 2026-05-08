@@ -1,19 +1,18 @@
 # etl/pipeline.py
 """Main orchestrator for the SIAD MAG Distribution ETL — v14.
 
-FIXES APPLIED
+FIXES APPLIED (on top of original v14 fixes)
+─────────────────────────────────────────────────────────────
+FIX-A : DIM_SEGMENT transform — removed erroneous .drop(CT_PrixTTC) that
+         deleted the column immediately after assigning it.
+FIX-B : DIM_ARTICLE transform — .assign() lambdas now reference the piped
+         DataFrame (lambda d:) instead of capturing the outer df variable.
+FIX-C : FAIT_LIGNES_VENTE transform — same outer-df capture fix; all
+         .assign() lambdas now use lambda d: to reference the piped result.
+
+Original v14 fixes (preserved)
 ─────────────────────────────────────────────────────────────
 FIX-1  : LOOKUP_CONFIG aligned with v14 DDL column names
-           DIM_DATE          : date_valeur → date_val
-           DIM_DOMAINE       : code_domaine → DO_Domaine
-           DIM_TYPE_DOC      : code_type_doc → DO_Type
-           DIM_MODE_REGLEMENT: code_mode_reg → RT_Mode
-           DIM_ETAT_REGLEMENT: code_etat_reg → RT_Etat
-           DIM_ETAT_DOCREGL  : code_etat_docregl → DR_Regle
-           DIM_TYPE_LIGNE    : code_type_ligne → type_ligne
-           DIM_SENS_ECRITURE : code_sens → EC_Sens
-           DIM_TYPE_TVA      : code_type_tva → type_tva
-           DIM_TYPE_MVT_CAISSE: code_type_mvt → MC_TypeMvt
 FIX-2  : _generate_dim_date() uses date_val and semaine
 FIX-3  : _assemble_fait_reglements() uses id_date_paiement
 FIX-4  : FAIT_LIGNES_VENTE step — id_depot assignment removed
@@ -22,8 +21,8 @@ FIX-6  : DIM_SEGMENT transform — prix_ttc_flag → CT_PrixTTC
 FIX-7  : _assemble_dim_caisse — id_journal FK resolved, CA_Type from MAG
 FIX-8  : _assemble_dim_banque — EB_Banque_code → EB_Banque
 FIX-9  : _assemble_fait_ecritures — id_banque populated for TYPE 1
-FIX-10 : Fix 11 from spec — RT_NbJour sourced from F_REGLEMENTT
-FIX-11 : Fix 12 from spec — exercice populated from P_DOSSIER
+FIX-10 : RT_NbJour sourced from F_REGLEMENTT
+FIX-11 : exercice populated from P_DOSSIER
 FIX-12 : Carries forward all original bug fixes (1-10) from v13
 """
 
@@ -86,26 +85,26 @@ def _build_lookup(
 
 # FIX-1: all natural_hash_col values aligned with v14 DDL column names
 LOOKUP_CONFIG: Dict[str, Tuple[str, str]] = {
-    "DIM_DATE":           ("date_val",      "id_date"),        # was date_valeur
-    "DIM_DOMAINE":        ("DO_Domaine",    "id_domaine"),     # was code_domaine
-    "DIM_TYPE_DOC":       ("DO_Type",       "id_type_doc"),    # was code_type_doc
-    "DIM_MODE_REGLEMENT": ("RT_Mode",       "id_mode_reg"),    # was code_mode_reg
-    "DIM_ETAT_REGLEMENT": ("RT_Etat",       "id_etat_reg"),    # was code_etat_reg
-    "DIM_ETAT_DOCREGL":   ("DR_Regle",      "id_etat_docregl"),# was code_etat_docregl
-    "DIM_TYPE_LIGNE":     ("type_ligne",    "id_type_ligne"),  # was code_type_ligne
-    "DIM_SENS_ECRITURE":  ("EC_Sens",       "id_sens"),        # was code_sens
-    "DIM_TYPE_TVA":       ("type_tva",      "id_type_tva"),    # was code_type_tva
-    "DIM_TYPE_MVT_CAISSE":("MC_TypeMvt",   "id_type_mvt"),    # was code_type_mvt
-    "DIM_SEGMENT":        ("cbIndice_code", "id_segment"),
-    "DIM_COLLABORATEUR":  ("CO_No",         "id_collab"),
-    "DIM_FAMILLE":        ("FA_CodeFamille_code", "id_famille"),
-    "DIM_CLIENT":         ("CT_Num_code",   "id_client"),
-    "DIM_FOURNISSEUR":    ("CT_Num_code",   "id_fournisseur"),
-    "DIM_JOURNAL":        ("JO_Num_code",   "id_journal"),
-    "DIM_BANQUE":         ("EB_Abrege_code","id_banque"),
-    "DIM_ARTICLE":        ("AR_Ref_code",   "id_article"),
-    "DIM_DEPOT":          ("DE_No",         "id_depot"),
-    "DIM_CAISSE":         ("CA_Numero_code","id_caisse"),
+    "DIM_DATE":            ("date_val",           "id_date"),
+    "DIM_DOMAINE":         ("DO_Domaine",          "id_domaine"),
+    "DIM_TYPE_DOC":        ("DO_Type",             "id_type_doc"),
+    "DIM_MODE_REGLEMENT":  ("RT_Mode",             "id_mode_reg"),
+    "DIM_ETAT_REGLEMENT":  ("RT_Etat",             "id_etat_reg"),
+    "DIM_ETAT_DOCREGL":    ("DR_Regle",            "id_etat_docregl"),
+    "DIM_TYPE_LIGNE":      ("type_ligne",          "id_type_ligne"),
+    "DIM_SENS_ECRITURE":   ("EC_Sens",             "id_sens"),
+    "DIM_TYPE_TVA":        ("type_tva",            "id_type_tva"),
+    "DIM_TYPE_MVT_CAISSE": ("MC_TypeMvt",          "id_type_mvt"),
+    "DIM_SEGMENT":         ("cbIndice_code",       "id_segment"),
+    "DIM_COLLABORATEUR":   ("CO_No",               "id_collab"),
+    "DIM_FAMILLE":         ("FA_CodeFamille_code", "id_famille"),
+    "DIM_CLIENT":          ("CT_Num_code",         "id_client"),
+    "DIM_FOURNISSEUR":     ("CT_Num_code",         "id_fournisseur"),
+    "DIM_JOURNAL":         ("JO_Num_code",         "id_journal"),
+    "DIM_BANQUE":          ("EB_Abrege_code",      "id_banque"),
+    "DIM_ARTICLE":         ("AR_Ref_code",         "id_article"),
+    "DIM_DEPOT":           ("DE_No",               "id_depot"),
+    "DIM_CAISSE":          ("CA_Numero_code",      "id_caisse"),
 }
 
 
@@ -187,8 +186,6 @@ def _transform_dim_famille(df: pd.DataFrame) -> pd.DataFrame:
 def _add_static_label(df: pd.DataFrame) -> pd.DataFrame:
     """Add libelle_type_mvt and rename code col to match DDL (MC_TypeMvt)."""
     df = df.copy()
-    # extract.extract_dim_type_mvt_caisse returns column 'code_type_mvt'
-    # DDL expects 'MC_TypeMvt' — rename to match
     if "code_type_mvt" in df.columns and "MC_TypeMvt" not in df.columns:
         df = df.rename(columns={"code_type_mvt": "MC_TypeMvt"})
     df["libelle_type_mvt"] = df["MC_TypeMvt"].map(
@@ -207,21 +204,20 @@ def _generate_dim_date(
 ) -> pd.DataFrame:
     """Generate date dimension with v14 column names and fiscal year mapping."""
 
-    # FIX-11: populate exercice from P_DOSSIER
     exercices = extract.extract_exercices_fiscaux()
 
     dr = pd.date_range(start=start, end=end, freq="D")
-    df = pd.DataFrame({"date_val": dr})           # FIX-2: was date_valeur
+    df = pd.DataFrame({"date_val": dr})
 
-    df["annee"]       = df["date_val"].dt.year.astype("Int16")
-    df["mois"]        = df["date_val"].dt.month.astype("Int16")
-    df["jour"]        = df["date_val"].dt.day.astype("Int16")
-    df["trimestre"]   = df["date_val"].dt.quarter.astype("Int16")
-    df["semestre"]    = ((df["mois"] - 1) // 6 + 1).astype("Int16")
-    df["semaine"]     = df["date_val"].dt.isocalendar().week.astype("Int32")  # FIX-2: was semaine_iso
-    df["jour_semaine"]= (df["date_val"].dt.weekday + 1).astype("Int16")
-    df["est_weekend"] = (df["jour_semaine"] >= 6).astype("Int16")
-    df["est_ferie"]   = 0
+    df["annee"]        = df["date_val"].dt.year.astype("Int16")
+    df["mois"]         = df["date_val"].dt.month.astype("Int16")
+    df["jour"]         = df["date_val"].dt.day.astype("Int16")
+    df["trimestre"]    = df["date_val"].dt.quarter.astype("Int16")
+    df["semestre"]     = ((df["mois"] - 1) // 6 + 1).astype("Int16")
+    df["semaine"]      = df["date_val"].dt.isocalendar().week.astype("Int32")
+    df["jour_semaine"] = (df["date_val"].dt.weekday + 1).astype("Int16")
+    df["est_weekend"]  = (df["jour_semaine"] >= 6).astype("Int16")
+    df["est_ferie"]    = 0
 
     def _get_exercice(d) -> Optional[int]:
         for i, (debut, fin) in enumerate(exercices, 1):
@@ -300,10 +296,8 @@ def _assemble_fait_reglements(
         pd.concat([clients, fournisseurs], ignore_index=True, sort=False)
         .merge(doc_dates, on=["DO_Type", "DO_Piece"], how="left")
         .merge(docregl, on="DO_Piece", how="left")
-        .merge(reglementt, on=["CT_Num", "N_Reglement"], how="left")  # FIX-10
-        .assign(
-            RT_NbJour=lambda d: d["RT_NbJour_contrat"]  # FIX-10: contractual delay
-        )
+        .merge(reglementt, on=["CT_Num", "N_Reglement"], how="left")
+        .assign(RT_NbJour=lambda d: d["RT_NbJour_contrat"])
     )
 
     df = transform.add_fact_reglements_bucket(
@@ -404,7 +398,7 @@ def _assemble_fait_reglements(
 def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
     """Assemble DIM_CAISSE with proper id_journal FK and CA_Type from MAG."""
 
-    df_mag = extract.extract_dim_caisse_mag()   # includes CA_Type from F_CAISSE
+    df_mag = extract.extract_dim_caisse_mag()
 
     df_grt = (
         extract.extract_fait_mvtcaisse()
@@ -412,7 +406,6 @@ def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
         .drop_duplicates(subset=["CA_No"])
     )
 
-    # If MAG already has JO_Num we keep it; GRT fills gaps
     df = (
         pd.concat([df_mag, df_grt], ignore_index=True)
         .assign(
@@ -423,11 +416,11 @@ def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
                     transform.hash_key(v)
                 )
             ),
-            # CA_Type from MAG source; GRT rows get None
             CA_Type=lambda d: (
-                pd.to_numeric(d.get("CA_Type", pd.Series([None] * len(d))),
-                              errors="coerce")
-                .astype("Int16")
+                pd.to_numeric(
+                    d.get("CA_Type", pd.Series([None] * len(d))),
+                    errors="coerce",
+                ).astype("Int16")
             ),
         )
         .drop_duplicates(subset=["CA_Numero_code"], keep="first")
@@ -451,7 +444,7 @@ def _assemble_dim_banque(lookups: Dict) -> pd.DataFrame:
         pd.concat([df_mag, df_grt], ignore_index=True)
         .assign(
             EB_Abrege_code=lambda d: d["EB_Abrege"].apply(transform.hash_key),
-            EB_Banque=lambda d: d["EB_Banque"].apply(transform.hash_key),  # FIX-8: was EB_Banque_code
+            EB_Banque=lambda d: d["EB_Banque"].apply(transform.hash_key),
         )
         .drop_duplicates(subset=["EB_Abrege_code"], keep="first")
     )
@@ -474,7 +467,6 @@ def _assemble_fait_ecritures(
         return lookups.get("DIM_DATE", {}).get(pd.Timestamp(d).date())
 
     # TYPE 1 — écritures comptables
-    # FIX-9: id_banque populated when JO_Type == 2 (banking journal)
     df1 = (
         extract.extract_fait_ecriturec(last_run)
         .assign(
@@ -718,27 +710,29 @@ STEPS: List[Step] = [
         lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="MC_TypeMvt"),
     ),
 
+    # FIX-A: removed .drop(columns=["CT_PrixTTC"]) that deleted the column
+    #         immediately after assigning it.
     (
         "DIM_SEGMENT",
         lambda **kw: extract.extract_dim_segment(),
-        # FIX-6: CT_PrixTTC replaces prix_ttc_flag
         lambda df, lookups: (
             _hash_columns(df, ["cbIndice"])
             .assign(
-                CT_PrixTTC=lambda d: d["CT_PrixTTC"].fillna(0).astype("Int16"),
+                CT_PrixTTC=lambda d: pd.to_numeric(
+                    d["CT_PrixTTC"], errors="coerce"
+                ).fillna(0).astype("Int16"),
                 libelle_segment=lambda d: d["cbIndice"].map(
                     lambda v: SEGMENTS.get(int(v), f"Segment {v}")
                 ),
             )
-            .drop(columns=["CT_PrixTTC"], errors="ignore")  # drop raw before re-assign handled above
         ),
         lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="cbIndice_code"),
     ),
 
+    # FIX-5: raw SMALLINT cast, no hashing
     (
         "DIM_COLLABORATEUR",
         lambda **kw: extract.extract_dim_collaborateur(kw.get("last_run")),
-        # FIX-5: raw SMALLINT cast, no hashing
         lambda df, lookups: (
             df.assign(
                 CO_Fonction=lambda d: pd.to_numeric(
@@ -803,17 +797,23 @@ STEPS: List[Step] = [
         lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CT_Num_code"),
     ),
 
+    # FIX-B: .assign() lambdas now reference the piped DataFrame (lambda d:)
+    #         instead of capturing the outer df variable.
     (
         "DIM_ARTICLE",
         lambda **kw: extract.extract_dim_article(kw.get("last_run")),
         lambda df, lookups: (
             _hash_columns(df, ["AR_Ref", "FA_CodeFamille", "CT_Num_fourn"])
             .assign(
-                id_famille=df["FA_CodeFamille"].apply(
-                    lambda v: lookups.get("DIM_FAMILLE", {}).get(transform.hash_key(v))
+                id_famille=lambda d: d["FA_CodeFamille"].apply(
+                    lambda v: lookups.get("DIM_FAMILLE", {}).get(
+                        transform.hash_key(v)
+                    )
                 ),
-                id_fournisseur=df["CT_Num_fourn"].apply(
-                    lambda v: lookups.get("DIM_FOURNISSEUR", {}).get(transform.hash_key(v))
+                id_fournisseur=lambda d: d["CT_Num_fourn"].apply(
+                    lambda v: lookups.get("DIM_FOURNISSEUR", {}).get(
+                        transform.hash_key(v)
+                    )
                 ),
             )
         ),
@@ -834,32 +834,36 @@ STEPS: List[Step] = [
         lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CA_Numero_code"),
     ),
 
-    # FIX-4: id_depot removed from FAIT_LIGNES_VENTE
+    # FIX-C: all .assign() lambdas now use lambda d: to reference the piped
+    #         result of add_fact_lignes_vente_calcs() instead of outer df.
     (
         "FAIT_LIGNES_VENTE",
         lambda **kw: extract.extract_fait_lignes_vente(kw.get("last_run")),
         lambda df, lookups: (
             transform.add_fact_lignes_vente_calcs(df)
             .assign(
-                id_date=df["DO_Date"].apply(
-                    lambda d: lookups.get("DIM_DATE", {}).get(
-                        pd.Timestamp(d).date() if pd.notna(d) else None
+                id_date=lambda d: d["DO_Date"].apply(
+                    lambda dt: lookups.get("DIM_DATE", {}).get(
+                        pd.Timestamp(dt).date() if pd.notna(dt) else None
                     )
                 ),
-                id_type_doc=df["DO_Type"].apply(
+                id_type_doc=lambda d: d["DO_Type"].apply(
                     lambda v: _lookup_code(lookups, "DIM_TYPE_DOC", v)
                 ),
-                id_domaine=df["DO_Domaine"].apply(
+                id_domaine=lambda d: d["DO_Domaine"].apply(
                     lambda v: _lookup_code(lookups, "DIM_DOMAINE", v)
                 ),
-                id_client=df["CT_Num"].apply(
-                    lambda v: lookups.get("DIM_CLIENT", {}).get(transform.hash_key(v))
+                id_client=lambda d: d["CT_Num"].apply(
+                    lambda v: lookups.get("DIM_CLIENT", {}).get(
+                        transform.hash_key(v)
+                    )
                 ),
-                id_article=df["AR_Ref"].apply(
-                    lambda v: lookups.get("DIM_ARTICLE", {}).get(transform.hash_key(v))
+                id_article=lambda d: d["AR_Ref"].apply(
+                    lambda v: lookups.get("DIM_ARTICLE", {}).get(
+                        transform.hash_key(v)
+                    )
                 ),
-                # FIX-4: id_depot intentionally removed — not in v14 DDL
-                source_hash=df.apply(
+                source_hash=lambda d: d.apply(
                     lambda row: _source_hash(
                         "DOCLIGNE",
                         row.get("DO_Domaine"),

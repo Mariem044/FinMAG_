@@ -1,16 +1,26 @@
 # etl/load.py
 """Loading module for SIAD MAG Distribution ETL.
-Provides bulk load for dimensions (full) and MERGE‑based upserts for delta.
+Provides bulk load for dimensions (full) and MERGE-based upserts for delta.
 All operations are wrapped in a transaction per table.
 
-Bug fixes applied
------------------
+FIXES APPLIED
+─────────────────────────────────────────────────────────────
+FIX-NEW : _merge_upsert() — removed broken pk_col name inference
+           (f"id_{table.lower()}") which was always wrong for fact tables
+           and multi-word table names. Since _prepare_for_load() already
+           strips all IDENTITY columns before _merge_upsert() builds its
+           column list, the pk_col exclusion was redundant. The fix simply
+           excludes key_col from the UPDATE SET clause; the identity column
+           is already absent from df.columns at that point.
+
+Original fixes (preserved)
+─────────────────────────────────────────────────────────────
 Bug 5  – SET clause now excludes the IDENTITY PK column (id_<table>).
 Bug 6  – DROP TABLE executed as a separate statement, not inside MERGE body.
-Bug 7  – Temp table uses ``_etl_tmp_`` prefix (no ``#``); dropped before and
+Bug 7  – Temp table uses _etl_tmp_ prefix (no #); dropped before and
           after use so pandas.to_sql can create a regular permanent staging
           table without name collisions.
-Bug 8  – ``load_dimension`` now accepts an explicit ``key_col`` parameter;
+Bug 8  – load_dimension now accepts an explicit key_col parameter;
           the broken automatic inference is removed.
 """
 import logging
@@ -29,7 +39,7 @@ _DROP_IF_EXISTS = "IF OBJECT_ID(N'[dbo].[{name}]', N'U') IS NOT NULL DROP TABLE 
 
 
 def _target_columns(table: str) -> tuple[list[str], set[str]]:
-    """Return DW columns and identity columns for *table*."""
+    """Return (all_columns, identity_columns) for *table* in the DW."""
     sql = """
         SELECT
             COLUMN_NAME,
@@ -53,7 +63,7 @@ def _target_columns(table: str) -> tuple[list[str], set[str]]:
 
 
 def _prepare_for_load(df: pd.DataFrame, table: str) -> pd.DataFrame:
-    """Drop source-only columns before inserting into a DW table."""
+    """Align DataFrame columns to the writable (non-identity) DW columns."""
     if df.empty:
         return df
 
@@ -74,7 +84,9 @@ def _prepare_for_load(df: pd.DataFrame, table: str) -> pd.DataFrame:
         )
 
     if not kept_cols:
-        raise ValueError(f"No writable DW columns remain for {table} after schema alignment")
+        raise ValueError(
+            f"No writable DW columns remain for {table} after schema alignment"
+        )
 
     return df.loc[:, kept_cols].copy()
 
@@ -93,8 +105,10 @@ def _bulk_insert(df: pd.DataFrame, table: str) -> None:
     if df.empty:
         logger.info(f"[LOAD] {table} – DataFrame vide, rien à insérer")
         return
+
     df = _prepare_for_load(df, table)
     df = df.drop(columns=["row_hash", "source_hash"], errors="ignore")
+
     if df.empty or len(df.columns) == 0:
         logger.info(f"[LOAD] {table} – DataFrame vide après préparation")
         return
@@ -104,7 +118,6 @@ def _bulk_insert(df: pd.DataFrame, table: str) -> None:
     col_names = ", ".join([f"[{c}]" for c in cols])
     sql = f"INSERT INTO [{table}] ({col_names}) VALUES ({placeholders})"
 
-    # Convert to native Python types — pyodbc cannot handle numpy types
     def _to_python(v):
         if v is None:
             return None
@@ -113,7 +126,6 @@ def _bulk_insert(df: pd.DataFrame, table: str) -> None:
                 return None
         except (TypeError, ValueError):
             pass
-        # Convert numpy types to native Python
         if hasattr(v, "item"):
             return v.item()
         return v
@@ -123,7 +135,9 @@ def _bulk_insert(df: pd.DataFrame, table: str) -> None:
         for row in df.itertuples(index=False, name=None)
     ]
 
-    logger.info(f"[LOAD] {table} – Insertion bulk ({len(df)} lignes via fast_executemany)")
+    logger.info(
+        f"[LOAD] {table} – Insertion bulk ({len(df)} lignes via fast_executemany)"
+    )
     with DW_ENGINE.begin() as conn:
         raw_conn = conn.connection
         cursor = raw_conn.cursor()
@@ -131,32 +145,43 @@ def _bulk_insert(df: pd.DataFrame, table: str) -> None:
         cursor.executemany(sql, rows)
         cursor.close()
 
+
 def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
     """Perform a MERGE (upsert) on the DW table.
 
-    The *key_col* is the natural‑key hash column used to match rows
-    (e.g. ``CT_Num_code``).  The IDENTITY PK column (``id_<table>``) is
-    automatically excluded from the UPDATE SET list so SQL Server does not
-    reject the statement.
+    *key_col* is the natural-key hash column used to match rows
+    (e.g. ``CT_Num_code``).
+
+    FIX-NEW: the IDENTITY PK is already stripped by _prepare_for_load()
+    before this function builds its column list. There is therefore no need
+    to guess the PK column name (the old f"id_{table.lower()}" pattern was
+    always wrong for fact tables). The UPDATE SET clause simply excludes
+    key_col; the identity column is already absent from df.columns.
     """
     if df.empty:
         logger.info(f"[LOAD] {table} – DataFrame vide, rien à MERGE")
         return
 
+    # _prepare_for_load strips IDENTITY columns — df.columns has no PK after this
     df = _prepare_for_load(df, table)
+
     if key_col not in df.columns:
-        raise ValueError(f"MERGE key column '{key_col}' is missing from {table} load")
+        raise ValueError(
+            f"MERGE key column '{key_col}' is missing from {table} load"
+        )
+
     before_dedupe = len(df)
     df = df.drop_duplicates(subset=[key_col], keep="last")
     if len(df) != before_dedupe:
         logger.warning(
-            f"[LOAD] {table} - dropped {before_dedupe - len(df)} duplicate {key_col} rows"
+            f"[LOAD] {table} - dropped {before_dedupe - len(df)} "
+            f"duplicate {key_col} rows"
         )
 
-    # Bug 7 fix: use a plain permanent staging table name (no # prefix).
+    # Bug 7: plain permanent staging table (no # prefix)
     temp_name = f"_etl_tmp_{table}"
 
-    # Drop any leftover staging table from a previous failed run.
+    # Drop any leftover staging table from a previous failed run
     with DW_ENGINE.begin() as conn:
         conn.execute(text(_DROP_IF_EXISTS.format(name=temp_name)))
 
@@ -170,14 +195,16 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
         method="multi",
     )
 
-    # Bug 5 fix: exclude both the natural‑key hash col AND the IDENTITY PK.
-    pk_col = f"id_{table.lower()}"
-    update_cols = [c for c in df.columns if c not in (key_col, pk_col)]
+    # FIX-NEW: identity col already gone — just exclude key_col from SET
+    update_cols = [c for c in df.columns if c != key_col]
     update_set = (
         ", ".join([f"target.[{c}]=src.[{c}]" for c in update_cols])
         if update_cols
         else f"target.[{key_col}]=target.[{key_col}]"
     )
+
+    all_cols_sql = ", ".join([f"[{c}]" for c in df.columns])
+    src_cols_sql = ", ".join([f"src.[{c}]" for c in df.columns])
 
     merge_sql = f"""
         MERGE INTO [{table}] AS target
@@ -185,11 +212,11 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
         ON target.[{key_col}] = src.[{key_col}]
         WHEN MATCHED THEN UPDATE SET
             {update_set}
-        WHEN NOT MATCHED THEN INSERT ({', '.join([f'[{c}]' for c in df.columns])})
-            VALUES ({', '.join([f'src.[{c}]' for c in df.columns])});
+        WHEN NOT MATCHED THEN INSERT ({all_cols_sql})
+            VALUES ({src_cols_sql});
     """
 
-    # Bug 6 fix: execute DROP TABLE as a separate statement after MERGE.
+    # Bug 6: DROP TABLE as a separate statement after MERGE
     drop_sql = _DROP_IF_EXISTS.format(name=temp_name)
 
     with DW_ENGINE.begin() as conn:
@@ -207,11 +234,10 @@ def load_dimension(
 ) -> None:
     """Load a dimension table.
 
-    - full  : TRUNCATE then bulk insert.
-    - delta : MERGE based on *key_col* (the natural‑key hash column).
+    - full  : DELETE all rows then bulk insert.
+    - delta : MERGE based on *key_col* (the natural-key hash column).
 
-    Bug 8 fix: ``key_col`` must be supplied explicitly for delta mode;
-    the previous automatic inference was always wrong for multi‑word table names.
+    Bug 8: key_col must be supplied explicitly for delta mode.
     """
     if mode == "full":
         with DW_ENGINE.begin() as conn:
@@ -221,7 +247,7 @@ def load_dimension(
         if key_col is None:
             raise ValueError(
                 f"key_col must be provided explicitly for delta load of '{table}'. "
-                "Pass the natural‑key hash column name (e.g. 'CT_Num_code')."
+                "Pass the natural-key hash column name (e.g. 'CT_Num_code')."
             )
         _merge_upsert(df, table, key_col)
 
@@ -234,8 +260,9 @@ def load_fact(
 ) -> None:
     """Load a fact table.
 
-    - full  : disable FK, TRUNCATE, bulk insert, re‑enable FK.
-    - delta : append‑only INSERT (facts are immutable).
+    - full  : disable FK, DELETE all rows, bulk insert, re-enable FK.
+    - delta : MERGE on source_hash (idempotent upsert) or append-only
+              fallback if source_hash column is absent.
     """
     if mode == "full":
         with DW_ENGINE.begin() as conn:
@@ -243,13 +270,16 @@ def load_fact(
             conn.execute(text(f"DELETE FROM [{table}]"))
         _bulk_insert(df, table)
         with DW_ENGINE.begin() as conn:
-            conn.execute(text(f"ALTER TABLE [{table}] WITH CHECK CHECK CONSTRAINT ALL"))
+            conn.execute(
+                text(f"ALTER TABLE [{table}] WITH CHECK CHECK CONSTRAINT ALL")
+            )
     else:
         if key_col and key_col in df.columns:
             _merge_upsert(df, table, key_col)
         else:
             logger.warning(
-                f"[LOAD] {table} - no {key_col} column, falling back to append-only fact load"
+                f"[LOAD] {table} - no {key_col} column, "
+                "falling back to append-only fact load"
             )
             _bulk_insert(df, table)
 
