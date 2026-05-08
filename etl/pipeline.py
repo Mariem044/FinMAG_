@@ -418,7 +418,7 @@ def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
             ),
             CA_Type=lambda d: (
                 pd.to_numeric(
-                    d.get("CA_Type", pd.Series([None] * len(d))),
+                    d["CA_Type"] if "CA_Type" in d.columns else pd.Series([None] * len(d), index=d.index),
                     errors="coerce",
                 ).astype("Int16")
             ),
