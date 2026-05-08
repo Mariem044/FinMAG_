@@ -192,6 +192,20 @@ def _transform_dim_famille(df: pd.DataFrame) -> pd.DataFrame:
             ]
         )
 
+    df = df.copy()
+    df["FA_CodeFamille_code"] = df["FA_CodeFamille"].apply(transform.hash_key)
+    df["niveau_0_code"] = df["CL_No1"].apply(transform.hash_key)
+    df["niveau_1_code"] = df["CL_No2"].apply(transform.hash_key)
+    df["niveau_2_code"] = df["CL_No3"].apply(transform.hash_key)
+
+    return df[[
+        "FA_CodeFamille_code",
+        "niveau_0_code",
+        "niveau_1_code",
+        "niveau_2_code",
+    ]]
+
+
     pivot = (
         df.pivot_table(
             index="FA_CodeFamille",
@@ -679,36 +693,33 @@ STEPS: List[Step] = [
     ),
 
     # BUG 2, 3, 8 FIX — DIM_CLIENT
-    (
-        "DIM_CLIENT",
-        lambda **kw: extract.extract_dim_client_mag(kw.get("last_run")),
+   (
+    "DIM_CLIENT",
+    lambda **kw: extract.extract_dim_client_mag(kw.get("last_run")),
 
-        lambda df, lookups: (
-            lambda df_mag: (
-                # BUG 8 FIX: merge GRT enrichment columns
-                df_mag.merge(
-                    extract.extract_dim_client_grt(),
-                    on="CT_Num",
-                    how="left",
+    lambda df, lookups: (
+        df.copy()
+        .merge(
+            extract.extract_dim_client_grt(),
+            on="CT_Num",
+            how="left",
+        )
+        .pipe(_hash_columns, ["CT_Num"])
+        .assign(
+            id_segment=lambda d: d["N_CatTarif"].apply(
+                lambda v: lookups.get("DIM_SEGMENT", {}).get(
+                    transform.hash_key(v)
                 )
-                .pipe(_hash_columns, ["CT_Num"])
-                .assign(
-                    # BUG 2 FIX: hash N_CatTarif before lookup (keys are CRC32)
-                    id_segment=lambda d: d["N_CatTarif"].apply(
-                        lambda v: lookups.get("DIM_SEGMENT", {}).get(
-                            transform.hash_key(v)
-                        )
-                    ),
-                    # BUG 3 FIX: column name is id_collab (matches DDL), not id_collaborateur
-                    id_collab=lambda d: d["CO_No"].map(
-                        lookups.get("DIM_COLLABORATEUR", {})
-                    ),
-                )
-            )(df.copy())
-        ),
-
-        lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CT_Num_code"),
+            ),
+            id_collab=lambda d: d["CO_No"].map(
+                lookups.get("DIM_COLLABORATEUR", {})
+            ),
+        )
+        .drop_duplicates(subset=["CT_Num_code"], keep="last")  # ← add this
     ),
+
+    lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CT_Num_code"),
+),
 
     (
         "DIM_ARTICLE",

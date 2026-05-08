@@ -109,17 +109,20 @@ def extract_dim_collaborateur(last_run: Optional[datetime] = None) -> pd.DataFra
 
 def extract_dim_famille() -> pd.DataFrame:
     """
-    DIM_FAMILLE — Source : F_FAMILLE JOIN F_CATALOGUE.
-    Construit les 3 niveaux hiérarchiques via pivot sur CL_Niveau.
+    DIM_FAMILLE — Source : F_FAMILLE.
+    Catalogue hierarchy levels are stored as CL_No1..CL_No4 FK columns
+    directly on F_FAMILLE — no join to F_CATALOGUE needed.
     """
     sql = """
         SELECT
-            f.FA_CodeFamille,
-            c.CL_Code,
-            c.CL_Niveau
-        FROM F_FAMILLE f
-        LEFT JOIN F_CATALOGUE c ON c.FA_CodeFamille = f.FA_CodeFamille
-        WHERE c.CL_Niveau IN (0, 1, 2)
+            FA_CodeFamille,
+            FA_Intitule,
+            CL_No1,
+            CL_No2,
+            CL_No3,
+            CL_No4
+        FROM F_FAMILLE
+        WHERE FA_Type = 0
     """
     return _read(MAG_ENGINE, sql)
 
