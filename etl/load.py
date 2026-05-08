@@ -262,7 +262,7 @@ def load_fact(
 
     - full  : disable FK, DELETE all rows, bulk insert, re-enable FK.
     - delta : MERGE on source_hash (idempotent upsert) or append-only
-              fallback if source_hash column is absent.
+    fallback if source_hash column is absent.
     """
     if mode == "full":
         with DW_ENGINE.begin() as conn:
