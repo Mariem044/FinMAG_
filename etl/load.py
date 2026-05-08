@@ -104,9 +104,22 @@ def _bulk_insert(df: pd.DataFrame, table: str) -> None:
     col_names = ", ".join([f"[{c}]" for c in cols])
     sql = f"INSERT INTO [{table}] ({col_names}) VALUES ({placeholders})"
 
-    # Convert to list of tuples, replacing NaN/NaT with None
+    # Convert to native Python types — pyodbc cannot handle numpy types
+    def _to_python(v):
+        if v is None:
+            return None
+        try:
+            if pd.isna(v):
+                return None
+        except (TypeError, ValueError):
+            pass
+        # Convert numpy types to native Python
+        if hasattr(v, "item"):
+            return v.item()
+        return v
+
     rows = [
-        tuple(None if (isinstance(v, float) and v != v) else v for v in row)
+        tuple(_to_python(v) for v in row)
         for row in df.itertuples(index=False, name=None)
     ]
 
