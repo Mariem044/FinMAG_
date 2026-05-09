@@ -223,7 +223,7 @@ function ProfilPage() {
   };
 
   const currentData = editing ? draft : user;
-  const currentAvatar = editing ? avatarPreview ?? user.avatar : user.avatar;
+  const currentAvatar = editing ? (avatarPreview ?? user.avatar) : user.avatar;
   const permissions = ROLE_PERMISSIONS[user.role] || {};
 
   const field = (key, label, icon, type = "text", options = null) => {

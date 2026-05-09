@@ -46,4 +46,15 @@ export const api = {
     caisses: () => get("/api/caisse/caisses"),
     fluxDaily: () => get("/api/caisse/flux-daily"),
   },
+  fiscalite: {
+    kpis: () => get("/api/fiscalite/kpis"),
+    journaux: () => get("/api/fiscalite/journaux"),
+    tvaByMonth: () => get("/api/fiscalite/tva-by-month"),
+    anomalies: () => get("/api/fiscalite/anomalies"),
+    balanceByMonth: () => get("/api/fiscalite/balance-by-month"),
+    ecritures: () => get("/api/fiscalite/ecritures"),
+  },
+  search: (query) => get(`/api/search-q=${encodeURIComponent(query)}`),
+  notifications: () => get("/api/notifications"),
+  assistantSummary: () => get("/api/assistant/summary"),
 };

@@ -23,7 +23,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { CHART_COLORS, formatTND, MONTHS } from "@/data/mockData";
+import { CHART_COLORS, formatTND } from "@/lib/dashboardConstants";
 import { useFilters } from "@/store/useFilters";
 import { useMemo } from "react";
 import { api } from "@/lib/api";
@@ -33,58 +33,19 @@ export const Route = createFileRoute("/ventes")({
   component: VentesPage,
 });
 
-// Stable seed data — generated once at module load to avoid re-randomising on every render
-const MONTHLY_DATA = MONTHS.map((m) => ({
-  month: m,
-  ca: Math.round(800000 + Math.random() * 600000),
-  objectif: Math.round(900000 + Math.random() * 300000),
-  caN1: Math.round(700000 + Math.random() * 500000),
-}));
-
-const FAMILLE_DATA = [
-  "Biscuits",
-  "Boissons",
-  "Conserves",
-  "Produits Laitiers",
-  "Confiserie",
-  "Épicerie",
-  "Huiles",
-  "Pâtes",
-]
-  .map((f) => ({
-    name: f,
-    ca: Math.round(400000 + Math.random() * 1500000),
-  }))
-  .sort((a, b) => b.ca - a.ca);
-
-const REGION_DATA = [
-  "Tunis",
-  "Sfax",
-  "Sousse",
-  "Nabeul",
-  "Bizerte",
-  "Gabès",
-  "Kairouan",
-  "Monastir",
-].map((r) => ({
-  name: r,
-  ca: Math.round(300000 + Math.random() * 1400000),
-  commandes: Math.round(100 + Math.random() * 500),
-}));
-
 function VentesPage() {
   const { segment, depot, source, getActiveMonthIndexes } = useFilters();
   const { data: monthlyData, loading: monthlyLoading } = useApiResource(
     api.ventes.caByMonth,
-    MONTHLY_DATA,
+    [],
   );
   const { data: familleData, loading: familleLoading } = useApiResource(
     api.ventes.topFamilles,
-    FAMILLE_DATA,
+    [],
   );
   const { data: regionData, loading: regionLoading } = useApiResource(
     api.ventes.caByRegion,
-    REGION_DATA,
+    [],
   );
   const activeIdx = getActiveMonthIndexes();
   const chartH = useChartHeight();

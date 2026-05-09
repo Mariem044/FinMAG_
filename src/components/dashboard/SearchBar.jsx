@@ -6,9 +6,11 @@ import {
   Receipt, Banknote, Landmark, Settings, HelpCircle,
   User, Package, FileText, Truck,
 } from "lucide-react";
-import {
-  clients, articles, ecritures, fournisseurs, representants,
-} from "@/data/mockData";
+const clients = [];
+const articles = [];
+const ecritures = [];
+const fournisseurs = [];
+const representants = [];
 
 // ─── Static pages + KPIs ─────────────────────────────────────────────────────
 const PAGES = [

@@ -8,9 +8,9 @@ export const Route = createFileRoute("/login")({
 });
 
 const DEMO_ACCOUNTS = [
-  { email: "ahmed.dridi@magdistribution.tn", password: "Admin@2024", role: "Administrateur" },
-  { email: "sarra.bensalah@magdistribution.tn", password: "Manager@2024", role: "Manager" },
-  { email: "karim.maaloul@magdistribution.tn", password: "Analyste@2024", role: "Analyste" },
+  { email: "ahmed.dridi@magdistribution.tn", role: "Administrateur" },
+  { email: "sarra.bensalah@magdistribution.tn", role: "Manager" },
+  { email: "karim.maaloul@magdistribution.tn", role: "Analyste" },
 ];
 
 function LoginPage() {
@@ -44,7 +44,7 @@ function LoginPage() {
 
   const fillDemo = (account) => {
     setEmail(account.email);
-    setPassword(account.password);
+    setPassword("");
     clearError();
   };
 
@@ -221,8 +221,8 @@ function LoginPage() {
                     </p>
                     <p className="text-[10px] text-text-dim truncate">{acc.email}</p>
                   </div>
-                  <span className="text-[10px] text-text-dim font-mono bg-surface-hover px-2 py-0.5 rounded">
-                    {acc.password}
+                  <span className="text-[10px] text-text-dim bg-surface-hover px-2 py-0.5 rounded">
+                    Email
                   </span>
                 </button>
               ))}
@@ -230,7 +230,7 @@ function LoginPage() {
           </div>
 
           <p className="text-center text-[11px] text-text-dim mt-8">
-            Problème de connexion ?{" "}
+            Problème de connexion ? {" "}
             <a href="mailto:support@siad.tn" className="text-primary hover:underline">
               Contacter le support
             </a>

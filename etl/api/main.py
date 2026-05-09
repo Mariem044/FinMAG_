@@ -63,6 +63,10 @@ def _int(value, default=0):
     return int(value) if value is not None else default
 
 
+def _date_str(value):
+    return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else "")
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
@@ -488,3 +492,255 @@ def get_caisse_flux_daily():
             "cumul": cumul,
         })
     return data
+
+
+@app.get("/api/fiscalite/kpis")
+def get_fiscalite_kpis():
+    row = _row(
+        """
+        SELECT
+            COUNT(*) AS nb_ecritures,
+            SUM(CASE WHEN t.type_tva = 1 THEN e.RT_Montant01 ELSE 0 END) AS tva_collectee,
+            SUM(CASE WHEN t.type_tva = 2 THEN e.RT_Montant01 ELSE 0 END) AS tva_deductible,
+            SUM(CASE WHEN ABS(COALESCE(e.EC_Montant, 0)) > 30000 THEN 1 ELSE 0 END) AS anomalies
+        FROM FAIT_ECRITURES e
+        LEFT JOIN DIM_TYPE_TVA t ON t.id_type_tva = e.id_type_tva
+        """
+    )
+    debit_credit = _row(
+        """
+        SELECT
+            SUM(CASE WHEN s.EC_Sens = 0 THEN ABS(e.EC_Montant) ELSE 0 END) AS debit,
+            SUM(CASE WHEN s.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END) AS credit
+        FROM FAIT_ECRITURES e
+        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
+        """
+    )
+    debit = _num(debit_credit.debit)
+    credit = _num(debit_credit.credit)
+    total = max(debit, credit)
+    return {
+        "nb_ecritures": _int(row.nb_ecritures),
+        "tva_collectee": _num(row.tva_collectee),
+        "tva_deductible": _num(row.tva_deductible),
+        "anomalies": _int(row.anomalies),
+        "equilibre_pct": (min(debit, credit) / total * 100) if total else 100,
+    }
+
+
+@app.get("/api/fiscalite/journaux")
+def get_fiscalite_journaux():
+    sql = """
+        SELECT TOP 10
+            COALESCE(CONVERT(VARCHAR(30), j.JO_Num_code), 'Sans journal') AS journal,
+            SUM(CASE WHEN s.EC_Sens = 0 THEN ABS(e.EC_Montant) ELSE 0 END) AS debit,
+            SUM(CASE WHEN s.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END) AS credit
+        FROM FAIT_ECRITURES e
+        LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
+        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
+        GROUP BY j.JO_Num_code
+        ORDER BY debit + credit DESC
+    """
+    return [{"journal": f"Journal {r.journal}", "debit": _num(r.debit), "credit": _num(r.credit)} for r in _rows(sql)]
+
+
+@app.get("/api/fiscalite/tva-by-month")
+def get_fiscalite_tva_by_month():
+    sql = """
+        SELECT
+            d.mois AS month_num,
+            SUM(CASE WHEN t.type_tva = 1 THEN e.RT_Montant01 ELSE 0 END) AS collectee,
+            SUM(CASE WHEN t.type_tva = 2 THEN e.RT_Montant01 ELSE 0 END) AS deductible
+        FROM FAIT_ECRITURES e
+        JOIN DIM_DATE d ON d.id_date = e.id_date
+        LEFT JOIN DIM_TYPE_TVA t ON t.id_type_tva = e.id_type_tva
+        WHERE e.RT_Montant01 IS NOT NULL
+        GROUP BY d.mois
+        ORDER BY d.mois
+    """
+    return [
+        {
+            "month": MONTHS[r.month_num - 1],
+            "collectee": _num(r.collectee),
+            "deductible": _num(r.deductible),
+            "soldeNet": _num(r.collectee) - _num(r.deductible),
+        }
+        for r in _rows(sql)
+    ]
+
+
+@app.get("/api/fiscalite/anomalies")
+def get_fiscalite_anomalies():
+    sql = """
+        SELECT TOP 100
+            d.date_val,
+            COALESCE(CONVERT(VARCHAR(30), j.JO_Num_code), 'Journal') AS journal,
+            ABS(COALESCE(e.EC_Montant, 0)) AS montant,
+            CASE
+                WHEN ABS(COALESCE(e.EC_Montant, 0)) >= 100000 THEN 0.95
+                WHEN ABS(COALESCE(e.EC_Montant, 0)) >= 50000 THEN 0.85
+                WHEN ABS(COALESCE(e.EC_Montant, 0)) >= 30000 THEN 0.70
+                ELSE 0.25
+            END AS score
+        FROM FAIT_ECRITURES e
+        LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
+        LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
+        WHERE e.EC_Montant IS NOT NULL
+        ORDER BY montant DESC
+    """
+    return [
+        {
+            "date": _date_str(r.date_val),
+            "score": _num(r.score),
+            "montant": _num(r.montant),
+            "journal": r.journal,
+            "anomalie": _num(r.score) >= 0.8,
+        }
+        for r in _rows(sql)
+    ]
+
+
+@app.get("/api/fiscalite/balance-by-month")
+def get_fiscalite_balance_by_month():
+    sql = """
+        SELECT
+            d.mois AS month_num,
+            SUM(CASE WHEN s.EC_Sens = 0 THEN ABS(e.EC_Montant) ELSE 0 END) AS debit,
+            SUM(CASE WHEN s.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END) AS credit
+        FROM FAIT_ECRITURES e
+        JOIN DIM_DATE d ON d.id_date = e.id_date
+        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
+        GROUP BY d.mois
+        ORDER BY d.mois
+    """
+    return [
+        {
+            "month": MONTHS[r.month_num - 1],
+            "debit": _num(r.debit),
+            "credit": _num(r.credit),
+            "ecart": _num(r.debit) - _num(r.credit),
+        }
+        for r in _rows(sql)
+    ]
+
+
+@app.get("/api/fiscalite/ecritures")
+def get_fiscalite_ecritures():
+    sql = """
+        SELECT TOP 100
+            d.date_val,
+            e.EC_No,
+            COALESCE(CONVERT(VARCHAR(30), j.JO_Num_code), 'Journal') AS journal,
+            e.CG_Num,
+            e.EC_Montant,
+            s.EC_Sens
+        FROM FAIT_ECRITURES e
+        LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
+        LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
+        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
+        ORDER BY d.date_val DESC, e.id_ecriture DESC
+    """
+    rows = []
+    for r in _rows(sql):
+        montant = _num(r.EC_Montant)
+        is_debit = _int(r.EC_Sens) == 0
+        rows.append({
+            "date": _date_str(r.date_val),
+            "numPiece": f"EC-{r.EC_No or ''}",
+            "journal": r.journal,
+            "compte": str(r.CG_Num or ""),
+            "libelle": f"Ecriture {r.EC_No or ''}",
+            "debit": montant if is_debit else 0,
+            "credit": 0 if is_debit else montant,
+            "solde": montant if is_debit else -montant,
+        })
+    return rows
+
+
+@app.get("/api/notifications")
+def get_notifications():
+    stock = get_stock_alerts()[:6]
+    impayes = get_impayes()[:6]
+    items = []
+    for a in stock:
+        items.append({
+            "id": f"stock-{a['article']}",
+            "type": "stock",
+            "severity": "critical" if a["priorite"] == "CRITIQUE" else "warning",
+            "title": a["designation"],
+            "message": f"Stock critique - {a['stockActuel']:.0f} unites restantes",
+            "meta": a["famille"],
+            "time": "DW",
+        })
+    for i in impayes:
+        items.append({
+            "id": f"pay-{i['code']}-{i['anciennete']}",
+            "type": "payment",
+            "severity": "critical" if i["anciennete"] > 90 else "warning",
+            "title": i["client"],
+            "message": f"Impaye {i['anciennete']}j - {i['montantImpaye']:.0f} DT",
+            "meta": i["region"],
+            "time": i["dateEcheance"] or "DW",
+        })
+    return items
+
+
+@app.get("/api/search")
+def search(q: str = ""):
+    needle = f"%{q.strip()}%"
+    if not q.strip():
+        return {"clients": [], "articles": [], "ecritures": [], "fournisseurs": []}
+    clients = _rows(
+        """
+        SELECT TOP 5 CT_Num_code, CT_SoldeActuel
+        FROM DIM_CLIENT
+        WHERE CONVERT(VARCHAR(30), CT_Num_code) LIKE :q
+        ORDER BY CT_Num_code
+        """,
+        {"q": needle},
+    )
+    articles = _rows(
+        """
+        SELECT TOP 5 AR_Ref_code, id_famille
+        FROM DIM_ARTICLE
+        WHERE CONVERT(VARCHAR(30), AR_Ref_code) LIKE :q
+        ORDER BY AR_Ref_code
+        """,
+        {"q": needle},
+    )
+    ecritures = _rows(
+        """
+        SELECT TOP 5 EC_No, CG_Num, EC_Montant
+        FROM FAIT_ECRITURES
+        WHERE CONVERT(VARCHAR(30), EC_No) LIKE :q OR CONVERT(VARCHAR(30), CG_Num) LIKE :q
+        ORDER BY id_ecriture DESC
+        """,
+        {"q": needle},
+    )
+    fournisseurs = _rows(
+        """
+        SELECT TOP 5 CT_Num_code, CT_Encours
+        FROM DIM_FOURNISSEUR
+        WHERE CONVERT(VARCHAR(30), CT_Num_code) LIKE :q
+        ORDER BY CT_Num_code
+        """,
+        {"q": needle},
+    )
+    return {
+        "clients": [{"label": f"Client {r.CT_Num_code}", "subtitle": f"Solde {round(_num(r.CT_SoldeActuel))} DT", "to": "/acteurs"} for r in clients],
+        "articles": [{"label": f"Article {r.AR_Ref_code}", "subtitle": f"Famille {r.id_famille or 'N/A'}", "to": "/produits"} for r in articles],
+        "ecritures": [{"label": f"Ecriture {r.EC_No or ''}", "subtitle": f"Compte {r.CG_Num or ''} - {round(_num(r.EC_Montant))} DT", "to": "/fiscalite"} for r in ecritures],
+        "fournisseurs": [{"label": f"Fournisseur {r.CT_Num_code}", "subtitle": f"Encours {round(_num(r.CT_Encours))} DT", "to": "/acteurs"} for r in fournisseurs],
+    }
+
+
+@app.get("/api/assistant/summary")
+def get_assistant_summary():
+    return {
+        "kpis": get_dashboard_kpis(),
+        "tresorerie": get_tresorerie_summary(),
+        "articles": get_articles()[:20],
+        "clients": get_clients()[:20],
+        "impayes": get_impayes()[:20],
+        "stockAlerts": get_stock_alerts()[:20],
+    }

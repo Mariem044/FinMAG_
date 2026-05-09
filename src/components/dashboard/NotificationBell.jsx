@@ -1,45 +1,18 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Bell, AlertTriangle, Clock, X, ChevronRight, CheckCheck, Package, Banknote } from "lucide-react";
-import { articles, impayes } from "@/data/mockData";
+import { Bell, Clock, X, ChevronRight, CheckCheck, Package, Banknote } from "lucide-react";
+import { api } from "@/lib/api";
+import { useApiResource } from "@/hooks/useApiResource";
 
 function useNotifications() {
+  const { data } = useApiResource(api.notifications, []);
+
   return useMemo(() => {
-    // Critical stock alerts: articles where qteVendue < 500 (simulate low stock)
-    const stockAlerts = articles
-      .filter((a) => a.qteVendue < 500)
-      .slice(0, 6)
-      .map((a) => ({
-        id: `stock-${a.code}`,
-        type: "stock",
-        severity: a.qteVendue < 200 ? "critical" : "warning",
-        title: a.designation,
-        message: `Stock critique — ${a.qteVendue} unités restantes`,
-        meta: a.famille,
-        time: "Il y a " + (Math.floor(Math.random() * 3) + 1) + "h",
-      }));
-
-    // Overdue payment alerts: impayes where anciennete > 60
-    const paymentAlerts = impayes
-      .filter((i) => i.anciennete > 60)
-      .slice(0, 6)
-      .map((i) => ({
-        id: `pay-${i.client}-${i.anciennete}`,
-        type: "payment",
-        severity: i.anciennete > 90 ? "critical" : "warning",
-        title: i.client,
-        message: `Impayé ${i.anciennete}j — ${new Intl.NumberFormat("fr-TN").format(i.montantImpaye)} DT`,
-        meta: i.region,
-        time: `Échéance ${i.dateEcheance}`,
-      }));
-
-    const all = [...stockAlerts, ...paymentAlerts]
-      .sort((a, b) => (a.severity === "critical" ? -1 : 1));
-
+    const all = [...data].sort((a, b) => (a.severity === "critical" ? -1 : 1));
     return {
       all,
       critical: all.filter((n) => n.severity === "critical").length,
     };
-  }, []);
+  }, [data]);
 }
 
 export function NotificationBell() {
@@ -47,12 +20,13 @@ export function NotificationBell() {
   const [dismissed, setDismissed] = useState(new Set());
   const [activeTab, setActiveTab] = useState("all");
   const ref = useRef(null);
-  const { all, critical } = useNotifications();
+  const { all } = useNotifications();
 
   const visible = all.filter((n) => !dismissed.has(n.id));
   const stockVisible = visible.filter((n) => n.type === "stock");
   const paymentVisible = visible.filter((n) => n.type === "payment");
   const shown = activeTab === "stock" ? stockVisible : activeTab === "payment" ? paymentVisible : visible;
+  const badgeCount = visible.filter((n) => n.severity === "critical").length;
 
   useEffect(() => {
     function handler(e) {
@@ -67,15 +41,10 @@ export function NotificationBell() {
     setDismissed((prev) => new Set([...prev, id]));
   };
 
-  const dismissAll = () => {
-    setDismissed(new Set(all.map((n) => n.id)));
-  };
-
-  const badgeCount = visible.filter((n) => n.severity === "critical").length;
+  const dismissAll = () => setDismissed(new Set(all.map((n) => n.id)));
 
   return (
     <div className="relative" ref={ref}>
-      {/* Bell button */}
       <button
         onClick={() => setOpen(!open)}
         className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-foreground hover:bg-surface-hover hover:scale-110 transition-all duration-200 relative"
@@ -89,10 +58,8 @@ export function NotificationBell() {
         )}
       </button>
 
-      {/* Dropdown */}
       {open && (
         <div className="absolute right-0 top-full mt-2 w-[360px] bg-popover border border-border/70 rounded-2xl shadow-2xl shadow-black/40 z-50 overflow-hidden">
-          {/* Header */}
           <div className="px-4 pt-4 pb-3 border-b border-border/60 flex items-center justify-between">
             <div>
               <h3 className="text-[14px] font-bold text-foreground">Notifications</h3>
@@ -111,12 +78,11 @@ export function NotificationBell() {
             )}
           </div>
 
-          {/* Tabs */}
           <div className="flex border-b border-border/60 px-2 pt-2">
             {[
               { key: "all", label: "Tout", count: visible.length },
               { key: "stock", label: "Stocks", count: stockVisible.length },
-              { key: "payment", label: "Impayés", count: paymentVisible.length },
+              { key: "payment", label: "Impayes", count: paymentVisible.length },
             ].map((tab) => (
               <button
                 key={tab.key}
@@ -139,13 +105,12 @@ export function NotificationBell() {
             ))}
           </div>
 
-          {/* List */}
           <div className="max-h-[340px] overflow-y-auto">
             {shown.length === 0 ? (
               <div className="py-10 text-center">
                 <CheckCheck size={28} className="text-green-400 mx-auto mb-2" />
-                <p className="text-[13px] font-medium text-foreground">Tout est en ordre !</p>
-                <p className="text-[11px] text-text-dim mt-1">Aucune alerte active dans cette catégorie</p>
+                <p className="text-[13px] font-medium text-foreground">Tout est en ordre</p>
+                <p className="text-[11px] text-text-dim mt-1">Aucune alerte active dans cette categorie</p>
               </div>
             ) : (
               <div className="p-2 space-y-1">
@@ -158,13 +123,8 @@ export function NotificationBell() {
                         : "border-orange-500/15 bg-orange-500/5"
                     }`}
                   >
-                    {/* Icon */}
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                      n.severity === "critical"
-                        ? n.type === "stock"
-                          ? "bg-red-500/20"
-                          : "bg-red-500/20"
-                        : "bg-orange-500/20"
+                      n.severity === "critical" ? "bg-red-500/20" : "bg-orange-500/20"
                     }`}>
                       {n.type === "stock"
                         ? <Package size={14} className={n.severity === "critical" ? "text-red-400" : "text-orange-400"} />
@@ -172,7 +132,6 @@ export function NotificationBell() {
                       }
                     </div>
 
-                    {/* Content */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-[12px] font-semibold text-foreground truncate">{n.title}</p>
@@ -205,11 +164,8 @@ export function NotificationBell() {
             )}
           </div>
 
-          {/* Footer */}
           <div className="px-4 py-3 border-t border-border/60 flex items-center justify-between">
-            <span className="text-[10px] text-text-dim">
-              Alertes calculées depuis les données locales
-            </span>
+            <span className="text-[10px] text-text-dim">Alertes calculees depuis le DW</span>
             <a
               href="/produits"
               onClick={() => setOpen(false)}

@@ -20,46 +20,12 @@ import {
   ReferenceLine,
   ZAxis,
 } from "recharts";
-import { ecritures, MONTHS, formatTND } from "@/data/mockData";
+import { formatPercent, formatTND } from "@/lib/dashboardConstants";
+import { api } from "@/lib/api";
+import { useApiResource } from "@/hooks/useApiResource";
 
 export const Route = createFileRoute("/fiscalite")({
   component: FiscalitePage,
-});
-
-// Top 10 journaux grouped Débit/Crédit (KPI-19)
-const journaux = ["Ventes", "Achats", "Banque", "Caisse", "OD", "Salaires", "TVA", "Immob.", "Clients", "Fournisseurs"];
-const journalData = journaux.map((j) => ({
-  journal: j,
-  debit: Math.round(100000 + Math.random() * 500000),
-  credit: Math.round(100000 + Math.random() * 500000),
-}));
-
-// TVA dual-line (KPI-20)
-const tvaData = MONTHS.map((m) => ({
-  month: m,
-  collectee: Math.round(120000 + Math.random() * 80000),
-  deductible: Math.round(30000 + Math.random() * 40000),
-  soldeNet: 0,
-}));
-tvaData.forEach((d) => { d.soldeNet = d.collectee - d.deductible; });
-
-// Anomaly scatter (KPI-21) — local anomaly scores
-const anomalyData = Array.from({ length: 80 }, (_, i) => {
-  const score = Math.random();
-  return {
-    date: `2024-${String(Math.ceil(Math.random() * 12)).padStart(2, "0")}-${String(Math.ceil(Math.random() * 28)).padStart(2, "0")}`,
-    score: parseFloat(score.toFixed(3)),
-    montant: Math.round(10000 + Math.random() * 200000),
-    journal: ["Ventes", "Achats", "Banque", "OD"][Math.floor(Math.random() * 4)],
-    anomalie: score > 0.8,
-  };
-});
-
-// Waterfall mensuel débit/crédit (KPI-19)
-const waterfallData = MONTHS.map((m) => {
-  const debit = Math.round(200000 + Math.random() * 400000);
-  const credit = Math.round(200000 + Math.random() * 400000);
-  return { month: m, debit, credit, ecart: debit - credit };
 });
 
 const columns = [
@@ -90,10 +56,22 @@ function AnomalyDot(props) {
 }
 
 function FiscalitePage() {
+  const { data: kpis, loading: kpisLoading } = useApiResource(api.fiscalite.kpis, {
+    nb_ecritures: 0,
+    tva_collectee: 0,
+    tva_deductible: 0,
+    anomalies: 0,
+    equilibre_pct: 0,
+  });
+  const { data: journalData, loading: journauxLoading } = useApiResource(api.fiscalite.journaux, []);
+  const { data: tvaData, loading: tvaLoading } = useApiResource(api.fiscalite.tvaByMonth, []);
+  const { data: anomalyData, loading: anomaliesLoading } = useApiResource(api.fiscalite.anomalies, []);
+  const { data: waterfallData, loading: balanceLoading } = useApiResource(api.fiscalite.balanceByMonth, []);
+  const { data: ecritures, loading: ecrituresLoading } = useApiResource(api.fiscalite.ecritures, []);
   const nbAnomalies = anomalyData.filter((d) => d.anomalie).length;
   const chartH = useChartHeight();
-  const kpiLoading    = useSimulatedLoading(500);
-  const chartsLoading = useSimulatedLoading(950);
+  const kpiLoading    = useSimulatedLoading(500) || kpisLoading;
+  const chartsLoading = useSimulatedLoading(950) || journauxLoading || tvaLoading || anomaliesLoading || balanceLoading || ecrituresLoading;
 
 
   return (
@@ -109,10 +87,31 @@ function FiscalitePage() {
       </>
     ) : (
       <>
-        <KPICard label="Écritures comptables" value="663 138" subtitle="32 journaux — 5 exercices" icon={FileText} />
-        <KPICard label="TVA collectée YTD" value="1.8 MDT" subtitle="vs 0.4 MDT déductible" icon={Receipt} />
-        <KPICard label="Anomalies détectées" value={String(nbAnomalies)} subtitle="Score local — mois" trend={-2} icon={AlertCircle} />
-        <KPICard label="Équilibre débit/crédit" value="98.4%" subtitle="écarts < 0.01 DT" icon={CheckCircle} />
+        <KPICard
+          label="Écritures comptables"
+          value={kpis.nb_ecritures.toLocaleString("fr-TN")}
+          subtitle={`${journalData.length} journaux`}
+          icon={FileText}
+        />
+        <KPICard
+          label="TVA collectée YTD"
+          value={formatTND(kpis.tva_collectee)}
+          subtitle={`vs ${formatTND(kpis.tva_deductible)} déductible`}
+          icon={Receipt}
+        />
+        <KPICard
+          label="Anomalies détectées"
+          value={String(kpis.anomalies || nbAnomalies)}
+          subtitle="Score issu du DW"
+          trend={-2}
+          icon={AlertCircle}
+        />
+        <KPICard
+          label="Équilibre débit/crédit"
+          value={formatPercent(kpis.equilibre_pct)}
+          subtitle="Débit / crédit"
+          icon={CheckCircle}
+        />
       </>
     )}
   </div>

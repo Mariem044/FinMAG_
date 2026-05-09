@@ -25,14 +25,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import {
-  caByMonth as mockCaByMonth,
-  topFamilles as mockTopFamilles,
-  caByRegion as mockCaByRegion,
-  CHART_COLORS,
-  formatTND,
-  formatPercent,
-} from "@/data/mockData";
+import { CHART_COLORS, formatTND, formatPercent } from "@/lib/dashboardConstants";
 import { api } from "@/lib/api";
 import { useApiResource } from "@/hooks/useApiResource";
 
@@ -42,23 +35,23 @@ export const Route = createFileRoute("/")({
 
 function OverviewPage() {
   const { data: kpis, loading: kpisApiLoading } = useApiResource(api.dashboard.kpis, {
-    ca_total: mockCaByMonth.reduce((s, m) => s + m.ca, 0),
-    nb_commandes: 2847,
-    nb_clients_actifs: 312,
-    taux_recouvrement: 78.5,
-    marge_brute_pct: 24.3,
+    ca_total: 0,
+    nb_commandes: 0,
+    nb_clients_actifs: 0,
+    taux_recouvrement: 0,
+    marge_brute_pct: 0,
   });
   const { data: caByMonth, loading: caLoading } = useApiResource(
     api.dashboard.caByMonth,
-    mockCaByMonth,
+    [],
   );
   const { data: topFamilles, loading: famillesLoading } = useApiResource(
     api.dashboard.topFamilles,
-    mockTopFamilles,
+    [],
   );
   const { data: caByRegion, loading: regionLoading } = useApiResource(
     api.dashboard.caByRegion,
-    mockCaByRegion,
+    [],
   );
   const totalCA = caByMonth.reduce((s, m) => s + m.ca, 0);
   const chartH = useChartHeight();

@@ -106,7 +106,7 @@ export function Header({ pathname }) {
             title={user ? `${user.prenom} ${user.nom}` : "Profil"}
           >
             <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center text-white text-[11px] font-bold shadow-md shadow-primary/30">
-              {user?.initiales ?? "?"}
+              {user?.initiales ?? "-"}
             </div>
             <ChevronDown
               size={12}
@@ -136,7 +136,7 @@ export function Header({ pathname }) {
                   className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-foreground hover:bg-surface-hover transition-colors"
                 >
                   <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">
-                    <span className="text-[10px] font-bold text-primary">{user?.initiales ?? "?"}</span>
+                    <span className="text-[10px] font-bold text-primary">{user?.initiales ?? "-"}</span>
                   </div>
                   Mon profil
                 </Link>

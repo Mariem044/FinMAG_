@@ -1,15 +1,11 @@
 import { useEffect, useState } from "react";
 
-function hasRows(value) {
-  return Array.isArray(value) ? value.length > 0 : value !== null && value !== undefined;
-}
-
-export function useApiResource(fetcher, fallback, deps = []) {
+export function useApiResource(fetcher, initialData, deps = []) {
   const [state, setState] = useState({
-    data: fallback,
+    data: initialData,
     error: null,
     loading: true,
-    usingFallback: true,
+    usingFallback: false,
   });
 
   useEffect(() => {
@@ -20,19 +16,18 @@ export function useApiResource(fetcher, fallback, deps = []) {
     fetcher()
       .then((data) => {
         if (cancelled) return;
-        const usableData = hasRows(data) ? data : fallback;
         setState({
-          data: usableData,
+          data: data ?? initialData,
           error: null,
           loading: false,
-          usingFallback: usableData === fallback,
+          usingFallback: false,
         });
       })
       .catch((error) => {
         if (cancelled) return;
-        console.warn("API request failed; using fallback data.", error);
+        console.warn("API request failed.", error);
         setState({
-          data: fallback,
+          data: initialData,
           error,
           loading: false,
           usingFallback: true,

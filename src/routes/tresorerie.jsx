@@ -24,7 +24,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
-import { MONTHS, CHART_COLORS, formatTND } from "@/data/mockData";
+import { MONTHS, CHART_COLORS, formatTND } from "@/lib/dashboardConstants";
 import { useFilters } from "@/store/useFilters";
 import { useMemo } from "react";
 import { api } from "@/lib/api";
@@ -33,35 +33,6 @@ import { useApiResource } from "@/hooks/useApiResource";
 export const Route = createFileRoute("/tresorerie")({
   component: TresorerietPage,
 });
-
-// Base data
-const ALL_MODES = ["Chèque", "Espèce", "RS", "Traite", "Virement"];
-const BASE_ENCAISSEMENTS = [
-  { mode: "Chèque", mag: 29119, grt: 18500, rapprochement: 87 },
-  { mode: "Espèce", mag: 19709, grt: 0, rapprochement: 100 },
-  { mode: "RS", mag: 16707, grt: 12400, rapprochement: 74 },
-  { mode: "Traite", mag: 5209, grt: 8300, rapprochement: 91 },
-  { mode: "Virement", mag: 1555, grt: 5200, rapprochement: 95 },
-];
-
-const BASE_WATERFALL = MONTHS.slice(0, 9).map((m) => {
-  const enc = Math.round(600000 + Math.random() * 800000);
-  const dec = -Math.round(400000 + Math.random() * 600000);
-  return { month: m, encaissements: enc, decaissements: dec, solde: 0 };
-});
-let s = 1500000;
-BASE_WATERFALL.forEach((d) => {
-  s += d.encaissements + d.decaissements;
-  d.solde = s;
-});
-
-const AGING = [
-  { client: "Client 01", "0-30j": 120000, "31-60j": 45000, "61-90j": 28000, ">90j": 85000 },
-  { client: "Client 02", "0-30j": 95000, "31-60j": 32000, "61-90j": 18000, ">90j": 40000 },
-  { client: "Client 03", "0-30j": 210000, "31-60j": 0, "61-90j": 15000, ">90j": 12000 },
-  { client: "Client 04", "0-30j": 45000, "31-60j": 67000, "61-90j": 33000, ">90j": 95000 },
-  { client: "Client 05", "0-30j": 180000, "31-60j": 12000, "61-90j": 0, ">90j": 22000 },
-];
 
 function TresorerietPage() {
   const { modePaiement, horizonPrev, getActiveMonthIndexes, segment, depot, source } = useFilters();
@@ -73,9 +44,9 @@ function TresorerietPage() {
   });
   const { data: encaissementsData, loading: encaissementsLoading } = useApiResource(
     api.tresorerie.encaissementsByMode,
-    BASE_ENCAISSEMENTS,
+    [],
   );
-  const { data: agingData, loading: agingLoading } = useApiResource(api.tresorerie.aging, AGING);
+  const { data: agingData, loading: agingLoading } = useApiResource(api.tresorerie.aging, []);
   const activeIdx = getActiveMonthIndexes();
   const chartH = useChartHeight();
   const kpiLoading = useSimulatedLoading(500) || summaryLoading || encaissementsLoading;
@@ -99,12 +70,21 @@ function TresorerietPage() {
   // Filter waterfall by month selection AND horizon
   const horizonMonths = horizonPrev === "30j" ? 3 : horizonPrev === "60j" ? 6 : 9;
   const waterfallFlat = useMemo(() => {
-    return BASE_WATERFALL.filter((_, i) => {
-      const monthOk = activeIdx.includes(i);
-      const horizonOk = i < horizonMonths;
-      return monthOk || horizonOk;
-    }).slice(0, horizonMonths);
-  }, [activeIdx, horizonMonths]);
+    const baseEncaissements =
+      encaissementsMode.reduce((sum, row) => sum + row.mag + row.grt, 0) || summary.encaissements;
+    const baseDecaissements = summary.impayes;
+    let solde = baseEncaissements - baseDecaissements;
+
+    return MONTHS.slice(0, horizonMonths)
+      .map((month, i) => {
+        const monthFactor = 0.72 + ((i % 4) * 0.08);
+        const encaissements = Math.round((baseEncaissements / horizonMonths) * monthFactor);
+        const decaissements = -Math.round((baseDecaissements / horizonMonths) * (1.05 - (i % 3) * 0.05));
+        solde += encaissements + decaissements;
+        return { month, encaissements, decaissements, solde };
+      })
+      .filter((_, i) => activeIdx.includes(i) || i < horizonMonths);
+  }, [activeIdx, encaissementsMode, horizonMonths, summary.encaissements, summary.impayes]);
 
   // KPI totals
   const filteredEnc = encaissementsMode.reduce((s, e) => s + e.mag + e.grt, 0);
@@ -116,17 +96,7 @@ function TresorerietPage() {
       ? Math.round(summary.taux_recouvrement || 87)
       : (encaissementsMode[0]?.rapprochement ?? 87);
 
-  // Filter fournisseurs table by depot/segment (simulated)
-  const impayesFournisseurs = useMemo(() => {
-    return Array.from({ length: 15 }, (_, i) => ({
-      fournisseur: `Fournisseur ${String.fromCharCode(65 + i)}`,
-      montant: Math.round(20000 + Math.random() * 150000),
-      etat: ["En attente", "Contentieux", "Partiel"][Math.floor(Math.random() * 3)],
-      dateEcheance: `2024-${String(Math.ceil(Math.random() * 12)).padStart(2, "0")}-${String(Math.ceil(Math.random() * 28)).padStart(2, "0")}`,
-      delaiEffectif: Math.ceil(Math.random() * 45),
-      delaiContractuel: 30,
-    }));
-  }, [depot, segment]);
+  const impayesFournisseurs = useMemo(() => [], [depot, segment]);
 
   return (
     <div className="space-y-6">
@@ -323,6 +293,13 @@ function TresorerietPage() {
                     </tr>
                   );
                 })}
+                {impayesFournisseurs.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-8 px-2 text-center text-text-dim">
+                      Aucun impay-fournisseur disponible dans le DW
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

@@ -21,7 +21,7 @@ import {
   ZAxis,
   ReferenceLine,
 } from "recharts";
-import { articles as mockArticles, FAMILLES, CHART_COLORS, formatTND } from "@/data/mockData";
+import { FAMILLES, CHART_COLORS, formatTND } from "@/lib/dashboardConstants";
 import { useFilters } from "@/store/useFilters";
 import { useMemo } from "react";
 import { api } from "@/lib/api";
@@ -92,7 +92,7 @@ function ProduitsPage() {
   const { famille, statutArticle, horizonPrev, depot, getActiveMonthIndexes } = useFilters();
   const { data: articles, loading: articlesLoading } = useApiResource(
     api.produits.articles,
-    mockArticles,
+    [],
   );
   const { data: stockAlerts, loading: alertsLoading } = useApiResource(api.produits.alerts, []);
   const activeIdx = getActiveMonthIndexes();
@@ -110,30 +110,31 @@ function ProduitsPage() {
     });
   }, [famille, statutArticle]);
 
-  // Treemap data filtered by famille
   const treemapData = useMemo(() => {
-    const familles = famille === "Toutes" ? FAMILLES : [famille];
-    return familles.map((f, i) => ({
-      name: f,
-      size: Math.round(300000 + Math.random() * 1200000),
-      rotation: Math.random(),
+    const totals = new Map();
+    for (const article of filteredArticles) {
+      const key = article.famille || "Sans famille";
+      const current = totals.get(key) || { size: 0, qteVendue: 0, stock: 0 };
+      current.size += Math.round((article.stock || 0) * (article.prixMoyen || 0));
+      current.qteVendue += article.qteVendue || 0;
+      current.stock += article.stock || 0;
+      totals.set(key, current);
+    }
+
+    const rows = Array.from(totals.entries()).map(([name, values], i) => ({
+      name,
+      size: values.size,
+      rotation: values.stock > 0 ? Math.min(1, values.qteVendue / values.stock) : 0,
       fill: CHART_COLORS[i % CHART_COLORS.length],
     }));
-  }, [famille]);
+
+    if (famille !== "Toutes") return rows.filter((row) => row.name === famille);
+    return rows.length ? rows : FAMILLES.map((name, i) => ({ name, size: 0, rotation: 0, fill: CHART_COLORS[i % CHART_COLORS.length] }));
+  }, [famille, filteredArticles]);
 
   // Alerts filtered by famille
   const alertes = useMemo(() => {
-    const fallbackAlerts = Array.from({ length: 20 }, (_, i) => ({
-      article: `ART-${String(i + 1).padStart(4, "0")}`,
-      designation: `Article critique ${i + 1}`,
-      stockActuel: Math.ceil(Math.random() * 50),
-      seuil: 30 + Math.ceil(Math.random() * 30),
-      dateRupture: `2024-${String(Math.ceil(Math.random() * 3) + 9).padStart(2, "0")}-${String(Math.ceil(Math.random() * 28)).padStart(2, "0")}`,
-      famille: FAMILLES[i % FAMILLES.length],
-      fournisseur: `Fournisseur ${String.fromCharCode(65 + (i % 8))}`,
-      priorite: ["CRITIQUE", "URGENT", "ATTENTION"][Math.floor(Math.random() * 3)],
-    }));
-    return (stockAlerts.length > 0 ? stockAlerts : fallbackAlerts)
+    return stockAlerts
       .filter((a) => famille === "Toutes" || a.famille === famille)
       .sort((a, b) => {
         const order = { CRITIQUE: 0, URGENT: 1, ATTENTION: 2 };
@@ -144,9 +145,9 @@ function ProduitsPage() {
   // DSI scatter filtered
   const dsiScatter = useMemo(() => {
     return filteredArticles.slice(0, 40).map((a) => ({
-      dsi: Math.round(a.dsi || 10 + Math.random() * 90),
+      dsi: Math.round(a.dsi || 0),
       ca: a.ca,
-      stockVal: Math.round(a.ca * (0.1 + Math.random() * 0.4)),
+      stockVal: Math.round((a.stock || 0) * (a.prixMoyen || 0)),
       name: a.designation,
     }));
   }, [filteredArticles]);
@@ -327,7 +328,7 @@ function ProduitsPage() {
                 Top articles en tension (réservé/dispo &gt; 80%)
               </p>
               {alertes.slice(0, 10).map((a, i) => {
-                const ratio = Math.round(70 + Math.random() * 29);
+                const ratio = Math.round((a.ratioTension || 0) * 100);
                 return (
                   <div key={i} className="flex items-center gap-2 mb-1.5">
                     <span className="text-[10px] text-text-dim w-16 flex-shrink-0">

@@ -9,8 +9,8 @@ const MOCK_USERS = [
     prenom: "Ahmed",
     nom: "Dridi",
     email: "ahmed.dridi@magdistribution.tn",
-    // In production: bcrypt hash. Here: plain for demo
-    password: "Admin@2024",
+    // Demo-only hash. Production auth must be handled by a backend.
+    passwordHash: "QWRtaW5AMjAyNF9maW5tYWdfc2FsdF8yMDI0",
     telephone: "+216 98 765 432",
     poste: "Responsable Financier",
     departement: "Finance",
@@ -26,7 +26,7 @@ const MOCK_USERS = [
     prenom: "Sarra",
     nom: "Ben Salah",
     email: "sarra.bensalah@magdistribution.tn",
-    password: "Manager@2024",
+    passwordHash: "TWFuYWdlckAyMDI0X2Zpbm1hZ19zYWx0XzIwMjQ=",
     telephone: "+216 97 654 321",
     poste: "Manager Commercial",
     departement: "Commercial",
@@ -42,7 +42,7 @@ const MOCK_USERS = [
     prenom: "Karim",
     nom: "Maaloul",
     email: "karim.maaloul@magdistribution.tn",
-    password: "Analyste@2024",
+    passwordHash: "QW5hbHlzdGVAMjAyNF9maW5tYWdfc2FsdF8yMDI0",
     telephone: "+216 96 543 210",
     poste: "Analyste Financier",
     departement: "Finance",
@@ -124,8 +124,7 @@ function hashPassword(password) {
 }
 
 function verifyPassword(plain, stored) {
-  // Support both plain (legacy mock) and "hashed" passwords
-  return plain === stored || hashPassword(plain) === stored;
+  return hashPassword(plain) === stored;
 }
 
 function generateSessionToken() {
@@ -166,12 +165,12 @@ export const useAuth = create()(
           return false;
         }
 
-        if (!verifyPassword(password, found.password)) {
+        if (!verifyPassword(password, found.passwordHash)) {
           set({ isLoading: false, loginError: "Mot de passe incorrect." });
           return false;
         }
 
-        const { password: _pw, ...safeUser } = found;
+        const { passwordHash: _passwordHash, ...safeUser } = found;
         const sessionToken = generateSessionToken();
 
         set({
@@ -207,13 +206,11 @@ export const useAuth = create()(
 
         // Find full user record to verify current password
         const found = MOCK_USERS.find((u) => u.id === user.id);
-        if (!found || !verifyPassword(currentPassword, found.password)) {
+        if (!found || !verifyPassword(currentPassword, found.passwordHash)) {
           return { success: false, error: "Mot de passe actuel incorrect." };
         }
 
-        // In production: hash newPassword and PATCH /api/users/:id/password
-        // Here we just simulate success
-        found.password = newPassword; // update mock db
+        found.passwordHash = hashPassword(newPassword);
         return { success: true };
       },
 

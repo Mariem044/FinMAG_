@@ -18,7 +18,7 @@ import {
   ReferenceLine,
   Cell,
 } from "recharts";
-import { clients as mockClients, CHART_COLORS } from "@/data/mockData";
+import { CHART_COLORS } from "@/lib/dashboardConstants";
 import { useFilters } from "@/store/useFilters";
 import { useMemo } from "react";
 import { api } from "@/lib/api";
@@ -52,24 +52,10 @@ const hhiData = [
 // to prevent re-randomising on every render.
 
 // RFM: cover ALL clients (not just 8) so filtering always yields data
-const RFM_SEED = mockClients.map((c, i) => ({
-  code: c.code,
-  frequence: 1 + ((i * 7 + 13) % 50),
-  recence: 1 + ((i * 11 + 7) % 180),
-  montant: c.caTotal,
-  segment: segmentKeys[i % segmentKeys.length],
-  name: c.nom,
-}));
+const RFM_SEED = [];
 
 // Aging: cover ALL 30 clients so filters can still surface rows
-const AGING_SEED = mockClients.map((c, i) => ({
-  clientCode: c.code,
-  client: c.nom.replace("Client ", "C"),
-  "0-30j": (i * 17 + 3) % 80000,
-  "31-60j": (i * 11 + 5) % 40000,
-  "61-90j": (i * 13 + 7) % 25000,
-  ">90j": (i * 19 + 11) % 60000,
-}));
+const AGING_SEED = [];
 
 // Livreurs: fixed list — 12 entries covering 4 regions
 const LIVREURS_SEED = Array.from({ length: 12 }, (_, i) => ({
@@ -80,10 +66,7 @@ const LIVREURS_SEED = Array.from({ length: 12 }, (_, i) => ({
 }));
 
 // Attrition scores: stable, deterministic per client
-const ATTRITION_SEED = mockClients.map((c, i) => ({
-  ...c,
-  attritionScore: parseFloat((((i * 37 + 11) % 100) / 100).toFixed(2)),
-}));
+const ATTRITION_SEED = [];
 
 // ── Gauge component ────────────────────────────────────────────────────────────
 
@@ -125,7 +108,7 @@ function EmptyState({ message = "Aucune donnée pour ce filtre" }) {
 
 function ActeursPage() {
   const { segment, depot } = useFilters();
-  const { data: clients } = useApiResource(api.acteurs.clients, mockClients);
+  const { data: clients } = useApiResource(api.acteurs.clients, []);
   const chartH = useChartHeight();
   const rfmSeed = useMemo(
     () =>

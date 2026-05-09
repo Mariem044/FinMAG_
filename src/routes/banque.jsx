@@ -22,7 +22,7 @@ import {
   ReferenceLine,
   Cell,
 } from "recharts";
-import { MONTHS, CHART_COLORS } from "@/data/mockData";
+import { CHART_COLORS } from "@/lib/dashboardConstants";
 import { useFilters } from "@/store/useFilters";
 import { useMemo } from "react";
 import { api } from "@/lib/api";
@@ -36,12 +36,6 @@ const ALL_BANQUES = ["AMEN", "ZITOUNA", "QNB", "BT"];
 const ALL_MODES = ["Chèque", "Traite", "Virement"];
 const priorityColor = { Chèque: "#3b82f6", Traite: "#ef4444", Virement: "#22c55e" };
 
-// Base rapprochement data
-const BASE_RAPPROCH = MONTHS.map((m) => ({
-  month: m,
-  taux: Math.round(88 + Math.random() * 9),
-  nonRapproches: Math.round(5 + Math.random() * 30),
-}));
 
 function GaugeRapprochement({ value }) {
   const pct = value / 100;
@@ -131,7 +125,7 @@ function BanquePage() {
   const { banque, modeBanque, getActiveMonthIndexes } = useFilters();
   const { data: rapprochementApi, loading: rapprochementLoading } = useApiResource(
     api.banque.rapprochement,
-    BASE_RAPPROCH,
+    [],
   );
   const activeIdx = getActiveMonthIndexes();
   const chartH = useChartHeight();
@@ -147,14 +141,18 @@ function BanquePage() {
   // Bordereau data filtered by banque and mode
   const banqueMode = useMemo(
     () =>
-      activeBanques.map((b) => {
+      activeBanques.map((b, bankIndex) => {
         const row = { banque: b };
+        const bankShare = (bankIndex + 1) / activeBanques.reduce((sum, _, i) => sum + i + 1, 0);
+        const baseAmount =
+          rapprochementApi.reduce((sum, item) => sum + (item.nonRapproches || 0), 0) * 10000;
         activeModes.forEach((mo) => {
-          row[mo] = Math.round(200000 + Math.random() * 800000);
+          const modeShare = (activeModes.indexOf(mo) + 1) / activeModes.length;
+          row[mo] = Math.round(baseAmount * bankShare * modeShare);
         });
         return row;
       }),
-    [activeBanques, activeModes],
+    [activeBanques, activeModes, rapprochementApi],
   );
 
   // Rapprochement filtered by banque and months
@@ -167,49 +165,50 @@ function BanquePage() {
   const currentTaux =
     rapprochData.length > 0
       ? Math.round(rapprochData.reduce((s, d) => s + d.taux, 0) / rapprochData.length)
-      : 94;
+      : 0;
 
-  // Agios filtered by banque
   const agiosData = useMemo(
     () =>
-      Array.from({ length: 12 }, (_, i) => ({
+      rapprochData.map((row, i) => ({
         bordereau: `BR-${String(i + 1).padStart(3, "0")}`,
         banque: activeBanques[i % activeBanques.length],
-        agios: Math.round(200 + Math.random() * 1500),
-        nbJour: Math.round(2 + Math.random() * 8),
-        tauxAgios: parseFloat((2 + Math.random() * 3).toFixed(2)),
+        agios: Math.round((row.nonRapproches || 0) * 120),
+        nbJour: Math.max(0, Math.round((100 - (row.taux || 0)) / 5)),
+        tauxAgios: Number((2 + Math.max(0, 100 - (row.taux || 0)) / 50).toFixed(2)),
       })),
-    [activeBanques],
+    [activeBanques, rapprochData],
   );
 
-  const totalAgios = agiosData.reduce((s, d) => s + d.agios, 0);
-  const floatMoyen = parseFloat(
-    (agiosData.reduce((s, d) => s + d.nbJour, 0) / agiosData.length).toFixed(1),
-  );
+  const totalAgios = agiosData.reduce((sum, row) => sum + row.agios, 0);
+  const floatMoyen = agiosData.length
+    ? parseFloat((agiosData.reduce((sum, row) => sum + row.nbJour, 0) / agiosData.length).toFixed(1))
+    : 0;
 
-  // Non rapprochés
   const nonRapproches = useMemo(
     () =>
-      Array.from({ length: 10 }, (_, i) => ({
-        reference: `RGL-2024-${String(i + 1).padStart(4, "0")}`,
-        banque: activeBanques[i % activeBanques.length],
-        montant: Math.round(10000 + Math.random() * 200000),
-        ecart: Math.round(Math.random() * 1000),
-      })),
-    [activeBanques],
+      rapprochData
+        .filter((row) => row.nonRapproches > 0)
+        .map((row, i) => ({
+          reference: `RGL-${row.month}-${String(i + 1).padStart(4, "0")}`,
+          banque: activeBanques[i % activeBanques.length],
+          montant: row.nonRapproches * 10000,
+          ecart: Math.max(0, 100 - row.taux),
+        })),
+    [activeBanques, rapprochData],
   );
 
-  // Gantt pipeline filtered by mode and banque
   const pipelineRemises = useMemo(
     () =>
-      Array.from({ length: 14 }, (_, i) => ({
-        id: `REM-${String(i + 1).padStart(3, "0")}`,
-        banque: activeBanques[i % activeBanques.length],
-        mode: activeModes[i % activeModes.length],
-        montant: Math.round(50000 + Math.random() * 400000),
-        echeance: i + 1,
-      })).sort((a, b) => a.echeance - b.echeance),
-    [activeBanques, activeModes],
+      rapprochData
+        .map((row, i) => ({
+          id: `REM-${String(i + 1).padStart(3, "0")}`,
+          banque: activeBanques[i % activeBanques.length],
+          mode: activeModes[i % activeModes.length],
+          montant: Math.max(0, row.nonRapproches || 0) * 10000,
+          echeance: i + 1,
+        }))
+        .sort((a, b) => a.echeance - b.echeance),
+    [activeBanques, activeModes, rapprochData],
   );
 
   // Total remis

@@ -24,7 +24,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
-import { CHART_COLORS } from "@/data/mockData";
+import { CHART_COLORS } from "@/lib/dashboardConstants";
 import { useFilters } from "@/store/useFilters";
 import { useMemo } from "react";
 import { api } from "@/lib/api";
@@ -32,76 +32,6 @@ import { useApiResource } from "@/hooks/useApiResource";
 
 export const Route = createFileRoute("/caisse")({
   component: CaissePage,
-});
-
-const ALL_CAISSES = [
-  {
-    id: "CA-01",
-    nom: "Caisse Centrale",
-    especes: 58000,
-    cheques: 15000,
-    seuilMin: 20000,
-    depot: "Dépôt Central",
-  },
-  {
-    id: "CA-02",
-    nom: "Caisse Tunis Nord",
-    especes: 32000,
-    cheques: 8000,
-    seuilMin: 15000,
-    depot: "Tunis Nord",
-  },
-  {
-    id: "CA-03",
-    nom: "Caisse Sfax",
-    especes: 28000,
-    cheques: 7000,
-    seuilMin: 20000,
-    depot: "Sfax",
-  },
-  {
-    id: "CA-04",
-    nom: "Caisse Sousse",
-    especes: 18000,
-    cheques: 5000,
-    seuilMin: 25000,
-    depot: "Sousse",
-  },
-  {
-    id: "CA-05",
-    nom: "Caisse Nabeul",
-    especes: 11000,
-    cheques: 3000,
-    seuilMin: 15000,
-    depot: "Nabeul",
-  },
-  {
-    id: "CA-06",
-    nom: "Caisse Bizerte",
-    especes: 22000,
-    cheques: 6000,
-    seuilMin: 18000,
-    depot: "Bizerte",
-  },
-  {
-    id: "CA-07",
-    nom: "Caisse Tunis Sud",
-    especes: 19000,
-    cheques: 4000,
-    seuilMin: 15000,
-    depot: "Tunis Sud",
-  },
-];
-
-const ALL_DAILY_FLUX = Array.from({ length: 30 }, (_, i) => {
-  const credit = Math.round(8000 + Math.random() * 20000);
-  const debit = Math.round(5000 + Math.random() * 15000);
-  return { day: `J-${30 - i}`, credit, debit: -debit, net: credit - debit };
-});
-let cumul = 120000;
-ALL_DAILY_FLUX.forEach((d) => {
-  cumul += d.net;
-  d.cumul = cumul;
 });
 
 const NATURE_MVT = [
@@ -119,8 +49,8 @@ function MultiGauge({ caisses }) {
       {caisses.map((c) => {
         const total = c.especes + c.cheques;
         const belowMin = c.especes < c.seuilMin;
-        const espPct = (c.especes / total) * 100;
-        const chkPct = (c.cheques / total) * 100;
+        const espPct = total > 0 ? (c.especes / total) * 100 : 0;
+        const chkPct = total > 0 ? (c.cheques / total) * 100 : 0;
         return (
           <div
             key={c.id}
@@ -152,11 +82,11 @@ function CaissePage() {
   const { depot, modePaiement, getActiveMonthIndexes } = useFilters();
   const { data: caissesData, loading: caissesLoading } = useApiResource(
     api.caisse.caisses,
-    ALL_CAISSES,
+    [],
   );
   const { data: fluxData, loading: fluxLoading } = useApiResource(
     api.caisse.fluxDaily,
-    ALL_DAILY_FLUX,
+    [],
   );
   const activeIdx = getActiveMonthIndexes();
   const chartH = useChartHeight();
@@ -195,9 +125,12 @@ function CaissePage() {
   // Local projection for solde caisse
   const prophetData = useMemo(() => {
     const base = totalEspeces + totalCheques;
+    const lastCumul = filteredFlux[filteredFlux.length - 1]?.cumul ?? base;
     return Array.from({ length: 40 }, (_, i) => {
       const isHistorique = i < 30;
-      const val = base + Math.sin(i / 7) * 15000 + (Math.random() - 0.5) * 8000;
+      const trend = i < filteredFlux.length ? filteredFlux[i]?.cumul : lastCumul + (i - 29) * netJournalier;
+      const seasonal = Math.sin(i / 7) * Math.max(base * 0.04, 1);
+      const val = (trend ?? base) + seasonal;
       return {
         day: `J${i - 29}`,
         historique: isHistorique ? Math.round(val) : null,
@@ -206,9 +139,9 @@ function CaissePage() {
         prevHigh: !isHistorique ? Math.round(val * 1.22) : null,
       };
     });
-  }, [totalEspeces, totalCheques]);
+  }, [filteredFlux, netJournalier, totalCheques, totalEspeces]);
 
-  const previsionJ15 = prophetData.find((d) => d.day === "J10" || d.prevision)?.prevision ?? 185000;
+  const previsionJ15 = prophetData.find((d) => d.day === "J10" || d.prevision)?.prevision ?? 0;
 
   return (
     <div className="space-y-6">

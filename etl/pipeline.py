@@ -513,7 +513,17 @@ def _assemble_fait_ecritures(
                 )
             ),
             source_hash=lambda d: d.apply(
-                lambda row: _source_hash("ECRITUREC", row.get("EC_No")), axis=1
+                lambda row: _source_hash(
+                    "ECRITUREC",
+                    row.get("JO_Num"),
+                    row.get("EC_No"),
+                    row.get("EC_Date"),
+                    row.get("CG_Num"),
+                    row.get("CT_Num"),
+                    row.get("EC_Sens"),
+                    row.get("EC_Montant"),
+                ),
+                axis=1,
             ),
             date_extraction=today,
         )
@@ -540,7 +550,16 @@ def _assemble_fait_ecritures(
                 )
             ),
             source_hash=lambda d: d.apply(
-                lambda row: _source_hash("REGTAXE", row.get("EC_No")), axis=1
+                lambda row: _source_hash(
+                    "REGTAXE",
+                    row.get("JO_Num"),
+                    row.get("EC_No"),
+                    row.get("EC_Date"),
+                    row.get("TA_Taux01"),
+                    row.get("RT_Base01"),
+                    row.get("RT_Montant01"),
+                ),
+                axis=1,
             ),
             date_extraction=today,
         )
@@ -564,7 +583,16 @@ def _assemble_fait_ecritures(
                 lambda v: _lookup_code(lookups, "DIM_TYPE_MVT_CAISSE", v)
             ),
             source_hash=lambda d: d.apply(
-                lambda row: _source_hash("MVTCaisse", row.get("MC_Numero")), axis=1
+                lambda row: _source_hash(
+                    "MVTCaisse",
+                    row.get("CA_No"),
+                    row.get("MC_Numero"),
+                    row.get("MC_Date"),
+                    row.get("MC_TypeMvt"),
+                    row.get("MC_Debit"),
+                    row.get("MC_Credit"),
+                ),
+                axis=1,
             ),
             date_extraction=today,
         )

@@ -19,7 +19,9 @@ import {
   ChevronRight,
   Zap,
 } from "lucide-react";
-import { caByMonth, articles, clients, impayes, ecritures, formatTND } from "@/data/mockData";
+import { formatTND } from "@/lib/dashboardConstants";
+import { api } from "@/lib/api";
+import { useApiResource } from "@/hooks/useApiResource";
 
 export const Route = createFileRoute("/assistant")({
   component: AssistantIAPage,
@@ -29,7 +31,7 @@ const SUGGESTIONS = [
   {
     icon: TrendingUp,
     label: "CA & Ventes",
-    text: "Quel est le chiffre d'affaires total et les meilleures familles de produits ?",
+    text: "Quel est le chiffre d'affaires total et les meilleures familles de produits ? ",
   },
   {
     icon: Wallet,
@@ -39,7 +41,7 @@ const SUGGESTIONS = [
   {
     icon: Boxes,
     label: "Stocks",
-    text: "Quels articles sont en rupture de stock ou sous le seuil d'alerte ?",
+    text: "Quels articles sont en rupture de stock ou sous le seuil d'alerte ? ",
   },
   {
     icon: Users,
@@ -54,13 +56,18 @@ const SUGGESTIONS = [
   {
     icon: Landmark,
     label: "Banque",
-    text: "Quel est le taux de rapprochement bancaire actuel ?",
+    text: "Quel est le taux de rapprochement bancaire actuel ? ",
   },
 ];
 
-function generateAssistantResponse(content) {
+function generateAssistantResponse(content, data = {}) {
   const q = content.toLowerCase();
-  const totalCA = caByMonth.reduce((sum, month) => sum + month.ca, 0);
+  const caByMonth = data.caByMonth || [];
+  const articles = data.articles || [];
+  const clients = data.clients || [];
+  const impayes = data.impayes || [];
+  const ecritures = data.ecritures || [];
+  const totalCA = data.kpis?.ca_total || caByMonth.reduce((sum, month) => sum + month.ca, 0);
   const stockCritique = articles.filter((a) => a.qteVendue < 500);
   const clientsExposes = clients.filter((c) => c.soldeImpaye > 50000);
   const impayesCritiques = impayes.filter((i) => i.anciennete > 90);
@@ -124,8 +131,8 @@ function MessageBubble({ msg }) {
   const renderContent = (text) => {
     return text.split("\n").map((line, i) => {
       const formatted = line
-        .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-        .replace(/_(.*?)_/g, "<em>$1</em>");
+        .replace(/\*\*(.*-)\*\*/g, "<strong>$1</strong>")
+        .replace(/_(.*-)_/g, "<em>$1</em>");
       return (
         <span key={i}>
           <span dangerouslySetInnerHTML={{ __html: formatted }} />
@@ -178,12 +185,19 @@ function MessageBubble({ msg }) {
 }
 
 function AssistantIAPage() {
+  const { data: assistantData } = useApiResource(api.assistantSummary, {
+    kpis: {},
+    articles: [],
+    clients: [],
+    impayes: [],
+    ecritures: [],
+  });
   const [messages, setMessages] = useState([
     {
       id: 1,
       role: "assistant",
       content:
-        "Bonjour ! Je suis votre assistant données pour **MAG Distribution**. Je peux résumer les données locales du tableau de bord, identifier des points à surveiller et préparer des pistes d'analyse.\n\nQue souhaitez-vous explorer aujourd'hui ?",
+        "Bonjour ! Je suis votre assistant données pour **MAG Distribution**. Je peux résumer les données locales du tableau de bord, identifier des points à surveiller et préparer des pistes d'analyse.\n\nQue souhaitez-vous explorer aujourd'hui ? ",
       time: new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" }),
     },
   ]);
@@ -211,12 +225,12 @@ function AssistantIAPage() {
     setInput("");
     setIsTyping(true);
 
-    const delay = 1200 + Math.random() * 800;
+    const delay = 1200 + Math.min(content.length * 12, 800);
     setTimeout(() => {
       const aiMsg = {
         id: Date.now() + 1,
         role: "assistant",
-        content: generateAssistantResponse(content),
+        content: generateAssistantResponse(content, assistantData),
         time: new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" }),
       };
       setIsTyping(false);
@@ -236,7 +250,7 @@ function AssistantIAPage() {
       {
         id: Date.now(),
         role: "assistant",
-        content: "Conversation réinitialisée. Comment puis-je vous aider ?",
+        content: "Conversation réinitialisée. Comment puis-je vous aider ? ",
         time: new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" }),
       },
     ]);

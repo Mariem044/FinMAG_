@@ -316,7 +316,7 @@ export function KPICardSkeleton() {
 export function useSimulatedLoading(delay) {
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    const ms = delay ?? 600 + Math.floor(Math.random() * 500);
+    const ms = delay ?? 800;
     const t = setTimeout(() => setLoading(false), ms);
     return () => clearTimeout(t);
   }, [delay]);
