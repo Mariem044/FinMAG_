@@ -2,6 +2,7 @@ import { Outlet, useLocation } from "@tanstack/react-router";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { FiltersBar } from "./FiltersBar";
+import { DataSourceStatus } from "./DataSourceStatus";
 
 // Pages that don't need the filter bar
 const NO_FILTER_PAGES = ["/", "/parametres", "/aide", "/profil", "/assistant"];
@@ -20,6 +21,7 @@ export function DashboardLayout() {
       <Header pathname={location.pathname} />
 
       <main className="ml-0 lg:ml-[264px] pt-20 px-4 md:px-6 lg:px-8 pb-8 min-h-[calc(100vh-3.5rem)] transition-all duration-500 relative z-10">
+        <DataSourceStatus />
         {showFilters && <FiltersBar />}
         <Outlet />
       </main>

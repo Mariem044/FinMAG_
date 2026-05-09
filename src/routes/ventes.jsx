@@ -52,7 +52,7 @@ function VentesPage() {
   const kpiLoading = useSimulatedLoading(500) || monthlyLoading || regionLoading;
   const chartsLoading =
     useSimulatedLoading(900) || monthlyLoading || familleLoading || regionLoading;
-  const sourceRatio = source === "MAG_2020" ? 0.68 : source === "GRT_MAG" ? 0.32 : 1;
+  const sourceRatio = 1;
 
   // Filter monthly data by active quarter/months
   const filteredMonthly = useMemo(
@@ -98,7 +98,7 @@ function VentesPage() {
               label="CA Total"
               value={formatTND(totalCA)}
               trend={8.2}
-              subtitle={source}
+              subtitle="DW réel"
               icon={DollarSign}
             />
             <KPICard
@@ -117,8 +117,11 @@ function VentesPage() {
             />
             <KPICard
               label="Croissance vs N-1"
-              value="+8.2%"
-              trend={8.2}
+              value={`${(
+                ((totalCA - filteredMonthly.reduce((s, m) => s + m.caN1, 0)) /
+                  Math.max(filteredMonthly.reduce((s, m) => s + m.caN1, 0), 1)) *
+                100
+              ).toFixed(1)}%`}
               subtitle="Comparaison annuelle"
               icon={TrendingUp}
             />

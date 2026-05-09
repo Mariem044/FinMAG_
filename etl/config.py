@@ -24,6 +24,7 @@ import os
 import zlib
 from pathlib import Path
 from typing import Optional
+from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
 
 import logging
 logging.getLogger("pyodbc").setLevel(logging.WARNING)
@@ -37,10 +38,35 @@ _ENV_PATH = Path(__file__).parent / ".env"
 load_dotenv(_ENV_PATH)
 
 # ── Engine factory ────────────────────────────────────────────────────────────
+def _sqlserver_tls_compat(conn_str: str) -> str:
+    """Add SQL Server ODBC TLS flags when .env does not specify them."""
+    lowered = conn_str.lower()
+    if "encrypt=" in lowered or "trustservercertificate=" in lowered:
+        return conn_str
+
+    if "odbc_connect=" in lowered:
+        parts = urlsplit(conn_str)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        odbc = query.get("odbc_connect")
+        if odbc is None:
+            return conn_str
+        query["odbc_connect"] = f"{odbc};Encrypt=no;TrustServerCertificate=yes"
+        return urlunsplit((
+            parts.scheme,
+            parts.netloc,
+            parts.path,
+            urlencode(query, quote_via=quote_plus),
+            parts.fragment,
+        ))
+
+    sep = "&" if "?" in conn_str else "?"
+    return f"{conn_str}{sep}Encrypt=no&TrustServerCertificate=yes"
+
+
 def _make_engine(conn_str: str, pool_size: int = 5) -> Engine:
     """SQLAlchemy engine with pyodbc fast_executemany and pool."""
     engine = create_engine(
-        conn_str,
+        _sqlserver_tls_compat(conn_str),
         poolclass=QueuePool,
         pool_size=pool_size,
         max_overflow=10,

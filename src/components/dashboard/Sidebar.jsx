@@ -1,4 +1,4 @@
-import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import { useSidebar } from "@/store/useSidebar";
 import { useParametres } from "@/store/useParametres";
 import { useAuth } from "@/store/useAuth";
@@ -14,40 +14,15 @@ import {
   Banknote,
   Settings,
   HelpCircle,
-  UserCircle,
   Sparkles,
-  LogOut,
-  ChevronRight,
 } from "lucide-react";
-
-const roleColors = {
-  Administrateur: "bg-red-500/20 text-red-400 border-red-500/30",
-  Manager:        "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  Analyste:       "bg-violet-500/20 text-violet-400 border-violet-500/30",
-  Consultant:     "bg-orange-500/20 text-orange-400 border-orange-500/30",
-  Auditeur:       "bg-teal-500/20 text-teal-400 border-teal-500/30",
-};
-
-const avatarColors = {
-  Administrateur: "from-red-500/80 to-red-600/60",
-  Manager:        "from-blue-500/80 to-blue-600/60",
-  Analyste:       "from-violet-500/80 to-violet-600/60",
-  Consultant:     "from-orange-500/80 to-orange-600/60",
-  Auditeur:       "from-teal-500/80 to-teal-600/60",
-};
 
 export function Sidebar() {
   const location = useLocation();
   const path = location.pathname;
   const { open, setOpen } = useSidebar();
   const { t } = useParametres();
-  const { user, logout, canAccessRoute } = useAuth();
-  const navigate = useNavigate();
-
-  const handleLogout = () => {
-    logout();
-    navigate({ to: "/login" });
-  };
+  const { canAccessRoute } = useAuth();
 
   const allNavItems = [
     { to: "/",           label: t("nav.dashboard"), icon: LayoutDashboard },
@@ -65,7 +40,6 @@ export function Sidebar() {
 
   const bottomItems = [
     { to: "/assistant", label: t("nav.assistant"), icon: Sparkles },
-    { to: "/profil",    label: t("nav.profil"),    icon: UserCircle },
     { to: "/parametres",label: t("nav.parametres"),icon: Settings },
     { to: "/aide",      label: t("nav.aide"),      icon: HelpCircle },
   ].filter((item) => canAccessRoute(item.to));
@@ -161,41 +135,6 @@ export function Sidebar() {
               </Link>
             );
           })}
-
-          {/* Logged-in user card */}
-          {user && (
-            <div className="mt-2 pt-2 border-t border-border/60">
-              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-surface-hover/50 border border-border/40">
-                {/* Avatar */}
-                <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${avatarColors[user.role] ?? "from-primary/80 to-primary/60"} flex items-center justify-center flex-shrink-0 shadow-sm`}>
-                  {user.avatar ? (
-                    <img src={user.avatar} alt={user.initiales} className="w-full h-full object-cover rounded-lg" />
-                  ) : (
-                    <span className="text-[11px] font-bold text-white">{user.initiales}</span>
-                  )}
-                </div>
-
-                {/* Name + role */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-[12px] font-semibold text-foreground truncate">
-                    {user.prenom} {user.nom}
-                  </p>
-                  <span className={`inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${roleColors[user.role] ?? "bg-primary/20 text-primary border-primary/30"}`}>
-                    {user.role}
-                  </span>
-                </div>
-
-                {/* Logout button */}
-                <button
-                  onClick={handleLogout}
-                  title="Déconnexion"
-                  className="w-7 h-7 flex items-center justify-center rounded-lg text-text-dim hover:text-red-400 hover:bg-red-500/10 transition-all duration-200 flex-shrink-0"
-                >
-                  <LogOut size={13} />
-                </button>
-              </div>
-            </div>
-          )}
 
           <p className="text-[10px] text-[#444] px-3 pt-1">{t("common.version")}</p>
         </div>

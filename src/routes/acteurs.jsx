@@ -37,37 +37,6 @@ const rfmSegmentColors = {
   Dormant: "#ef4444",
 };
 
-const segmentKeys = Object.keys(rfmSegmentColors);
-
-const hhiData = [
-  { article: "Biscuits Alpha", hhi: 0.31, fournisseur: "Fournisseur A" },
-  { article: "Boisson Beta", hhi: 0.28, fournisseur: "Fournisseur C" },
-  { article: "Conserve Gamma", hhi: 0.19, fournisseur: "Fournisseur B" },
-  { article: "Laitier Delta", hhi: 0.42, fournisseur: "Fournisseur A" },
-  { article: "Huile Epsilon", hhi: 0.15, fournisseur: "Fournisseur D" },
-];
-
-// ── Stable seed data ───────────────────────────────────────────────────────────
-// Generated once at module level — no random calls inside components/useMemo
-// to prevent re-randomising on every render.
-
-// RFM: cover ALL clients (not just 8) so filtering always yields data
-const RFM_SEED = [];
-
-// Aging: cover ALL 30 clients so filters can still surface rows
-const AGING_SEED = [];
-
-// Livreurs: fixed list — 12 entries covering 4 regions
-const LIVREURS_SEED = Array.from({ length: 12 }, (_, i) => ({
-  name: `Livreur ${String.fromCharCode(65 + i)}`,
-  region: ["Tunis", "Sfax", "Sousse", "Nabeul"][i % 4],
-  ca: 100000 + ((i * 37013) % 500000),
-  clients: 1 + ((i * 7) % 80),
-}));
-
-// Attrition scores: stable, deterministic per client
-const ATTRITION_SEED = [];
-
 // ── Gauge component ────────────────────────────────────────────────────────────
 
 function GaugeSimple({ pct, color, label, value }) {
@@ -109,36 +78,35 @@ function EmptyState({ message = "Aucune donnée pour ce filtre" }) {
 function ActeursPage() {
   const { segment, depot } = useFilters();
   const { data: clients } = useApiResource(api.acteurs.clients, []);
+  const { data: rfmRows } = useApiResource(api.acteurs.rfm, []);
+  const { data: agingRows } = useApiResource(api.acteurs.aging, []);
+  const { data: fournisseurs } = useApiResource(api.acteurs.fournisseurs, []);
+  const { data: concentrationFournisseur } = useApiResource(
+    api.acteurs.fournisseurConcentration,
+    [],
+  );
   const chartH = useChartHeight();
   const rfmSeed = useMemo(
     () =>
-      clients.map((c, i) => ({
-        code: c.code,
-        frequence: c.nbCommandes || 1 + ((i * 7 + 13) % 50),
-        recence: 1 + ((i * 11 + 7) % 180),
-        montant: c.caTotal,
-        segment: segmentKeys[i % segmentKeys.length],
-        name: c.nom,
+      rfmRows.map((row) => ({
+        ...row,
+        segment:
+          row.frequence >= 10 && row.recence <= 60
+            ? "Champion"
+            : row.recence <= 90
+              ? "Fidèle"
+              : row.montant > 0
+                ? "Risque"
+                : "Dormant",
       })),
-    [clients],
-  );
-  const agingSeed = useMemo(
-    () =>
-      clients.map((c, i) => ({
-        clientCode: c.code,
-        client: c.nom.replace("Client ", "C"),
-        "0-30j": (i * 17 + 3) % 80000,
-        "31-60j": (i * 11 + 5) % 40000,
-        "61-90j": (i * 13 + 7) % 25000,
-        ">90j": c.soldeImpaye || (i * 19 + 11) % 60000,
-      })),
-    [clients],
+    [rfmRows],
   );
   const attritionSeed = useMemo(
     () =>
-      clients.map((c, i) => ({
+      clients.map((c) => ({
         ...c,
-        attritionScore: parseFloat((((i * 37 + 11) % 100) / 100).toFixed(2)),
+        attritionScore:
+          (c.nbCommandes || 0) === 0 || Number(c.soldeImpaye || 0) > 0 ? 0.75 : 0.25,
       })),
     [clients],
   );
@@ -155,7 +123,7 @@ function ActeursPage() {
       }
       return true;
     });
-  }, [segment, depot]);
+  }, [clients, segment, depot]);
 
   const filteredCodes = useMemo(
     () => new Set(filteredClients.map((c) => c.code)),
@@ -171,23 +139,15 @@ function ActeursPage() {
   // ── Aging (top 8 by >90j, from the filtered set) ───────────────────────────
   const agingGRT = useMemo(
     () =>
-      agingSeed
+      agingRows
         .filter((d) => filteredCodes.has(d.clientCode))
         .sort((a, b) => b[">90j"] - a[">90j"])
-        .slice(0, 8), // limit to 8 for readability
-    [filteredCodes, agingSeed],
+        .slice(0, 8),
+    [filteredCodes, agingRows],
   );
 
   // ── Livreurs filtered by depot ──────────────────────────────────────────────
-  const livreurs = useMemo(() => {
-    if (depot === "Tous") return [...LIVREURS_SEED].sort((a, b) => b.ca - a.ca);
-    const fragment = depot.replace("Dépôt ", "").toLowerCase();
-    const filtered = LIVREURS_SEED.filter((l) => l.region.toLowerCase().includes(fragment)).sort(
-      (a, b) => b.ca - a.ca,
-    );
-    // Always show at least a couple of rows even if region doesn't match perfectly
-    return filtered.length > 0 ? filtered : [...LIVREURS_SEED].sort((a, b) => b.ca - a.ca);
-  }, [depot]);
+  const livreurs = useMemo(() => [], [depot]);
 
   // ── Attrition ───────────────────────────────────────────────────────────────
   const atRiskClients = useMemo(
@@ -219,8 +179,8 @@ function ActeursPage() {
         />
         <KPICard
           label="Fournisseurs"
-          value="981"
-          subtitle="3 619 articles couverts"
+          value={fournisseurs.length.toLocaleString("fr-TN")}
+          subtitle={`${fournisseurs.reduce((s, f) => s + (f.nbArticles || 0), 0).toLocaleString("fr-TN")} articles couverts`}
           icon={Building2}
         />
         <KPICard
@@ -232,7 +192,7 @@ function ActeursPage() {
         <KPICard
           label="Livreurs actifs"
           value={String(livreurs.length)}
-          subtitle={depot !== "Tous" ? depot : "Tous dépôts"}
+          subtitle="Non disponible dans le DW"
           icon={Truck}
         />
       </div>
@@ -400,38 +360,42 @@ function ActeursPage() {
               )}
             </div>
 
-            {/* HHI table */}
+            {/* Supplier concentration table */}
             <div className="flex-1 overflow-auto border-l border-border/40 pl-4">
               <p className="text-[10px] text-text-dim font-semibold uppercase tracking-wider mb-2 mt-2">
-                Indice Herfindahl fournisseur (HHI)
+                Concentration fournisseur
               </p>
               <table className="w-full text-[11px]">
                 <thead>
                   <tr className="text-text-dim border-b border-border">
-                    <th className="text-left py-1">Article</th>
-                    <th className="text-center py-1">HHI</th>
                     <th className="text-left py-1">Fournisseur</th>
+                    <th className="text-center py-1">Articles</th>
+                    <th className="text-left py-1">Valeur ref.</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {hhiData.map((row, i) => (
+                  {concentrationFournisseur.map((row, i) => (
                     <tr key={i} className="border-b border-border/30">
-                      <td className="py-1.5 text-foreground text-[10px]">{row.article}</td>
+                      <td className="py-1.5 text-foreground text-[10px]">{row.fournisseur}</td>
                       <td className="py-1.5 text-center">
-                        <span
-                          className={`font-semibold ${row.hhi > 0.25 ? "text-red-400" : "text-green-400"}`}
-                        >
-                          {row.hhi.toFixed(2)}
-                          {row.hhi > 0.25 && " ⚠"}
-                        </span>
+                        <span className="font-semibold text-foreground">{row.nbArticles}</span>
                       </td>
-                      <td className="py-1.5 text-text-dim text-[10px]">{row.fournisseur}</td>
+                      <td className="py-1.5 text-text-dim text-[10px]">
+                        {Math.round(row.valeurReference).toLocaleString("fr-TN")}
+                      </td>
                     </tr>
                   ))}
+                  {concentrationFournisseur.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="py-8 text-center text-text-dim">
+                        Aucune donnée fournisseur disponible dans le DW
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
               <p className="text-[9px] text-text-dim mt-2">
-                Rouge si HHI &gt; 0.25 (dépendance fournisseur)
+                Données réelles DIM_FOURNISSEUR / DIM_ARTICLE
               </p>
             </div>
           </div>

@@ -5,7 +5,7 @@ import { translations, langCodeMap } from "@/i18n/Translation";
 export const useParametres = create()(
   persist(
     (set, get) => ({
-      langue: "Fran?ais",
+      langue: "Français",
       devise: "TND - Dinar Tunisien",
 
       setLangue: (langue) => {

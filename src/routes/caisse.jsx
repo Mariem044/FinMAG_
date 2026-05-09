@@ -34,15 +34,6 @@ export const Route = createFileRoute("/caisse")({
   component: CaissePage,
 });
 
-const NATURE_MVT = [
-  { name: "Vente espèces", value: 38 },
-  { name: "Transfert caisse", value: 22 },
-  { name: "Remboursement", value: 15 },
-  { name: "Dépenses courantes", value: 13 },
-  { name: "Avances", value: 8 },
-  { name: "Autres", value: 4 },
-];
-
 function MultiGauge({ caisses }) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 gap-4 py-2">
@@ -88,10 +79,14 @@ function CaissePage() {
     api.caisse.fluxDaily,
     [],
   );
+  const { data: natureMvt, loading: natureLoading } = useApiResource(
+    api.caisse.mouvementsByType,
+    [],
+  );
   const activeIdx = getActiveMonthIndexes();
   const chartH = useChartHeight();
   const kpiLoading = useSimulatedLoading(500) || caissesLoading || fluxLoading;
-  const chartsLoading = useSimulatedLoading(950) || caissesLoading || fluxLoading;
+  const chartsLoading = useSimulatedLoading(950) || caissesLoading || fluxLoading || natureLoading;
 
   // Filter caisses by depot
   const filteredCaisses = useMemo(() => {
@@ -276,7 +271,7 @@ function CaissePage() {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={NATURE_MVT}
+                  data={natureMvt}
                   dataKey="value"
                   nameKey="name"
                   cx="50%"
@@ -286,7 +281,7 @@ function CaissePage() {
                   label={({ percent }) => `${((percent ?? 0) * 100).toFixed(0)}%`}
                   fontSize={10}
                 >
-                  {NATURE_MVT.map((_, i) => (
+                  {natureMvt.map((_, i) => (
                     <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                   ))}
                 </Pie>
@@ -297,7 +292,7 @@ function CaissePage() {
               <p className="text-[10px] text-text-dim font-semibold uppercase tracking-wider mb-2">
                 Top natures
               </p>
-              {NATURE_MVT.map((n, i) => (
+              {natureMvt.map((n, i) => (
                 <div key={i} className="flex items-center gap-2 mb-2">
                   <span
                     className="w-2 h-2 rounded-full flex-shrink-0"
@@ -318,6 +313,11 @@ function CaissePage() {
                   <span className="text-[11px] text-text-dim">{n.value}%</span>
                 </div>
               ))}
+              {natureMvt.length === 0 && (
+                <div className="text-[11px] text-text-dim py-8 text-center">
+                  Aucun mouvement typé disponible dans le DW
+                </div>
+              )}
             </div>
           </div>
         </ChartCard>

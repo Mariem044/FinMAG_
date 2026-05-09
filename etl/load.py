@@ -174,15 +174,15 @@ def _bulk_insert(df: pd.DataFrame, table: str) -> None:
 
     cols = list(df.columns)
     col_names    = ", ".join([f"[{c}]" for c in cols])
-    placeholders = ", ".join(["-" for _ in cols])
 
-    # For binary cols the placeholder becomes CONVERT(VARBINARY(32), -, 2)
+    # pyodbc uses ? parameter markers. Binary columns are sent as hex strings
+    # and converted back to VARBINARY by SQL Server.
     value_exprs = []
     for c in cols:
         if c in binary_cols:
-            value_exprs.append("CONVERT(VARBINARY(32), -, 2)")
+            value_exprs.append("CONVERT(VARBINARY(32), ?, 2)")
         else:
-            value_exprs.append("-")
+            value_exprs.append("?")
     values_sql = ", ".join(value_exprs)
 
     sql = f"INSERT INTO [{table}] ({col_names}) VALUES ({values_sql})"

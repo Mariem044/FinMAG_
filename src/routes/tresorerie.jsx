@@ -39,8 +39,8 @@ function TresorerietPage() {
   const { data: summary, loading: summaryLoading } = useApiResource(api.tresorerie.summary, {
     encaissements: 0,
     impayes: 0,
-    delai_moyen: 23,
-    taux_recouvrement: 87,
+    delai_moyen: 0,
+    taux_recouvrement: 0,
   });
   const { data: encaissementsData, loading: encaissementsLoading } = useApiResource(
     api.tresorerie.encaissementsByMode,
@@ -89,12 +89,12 @@ function TresorerietPage() {
   // KPI totals
   const filteredEnc = encaissementsMode.reduce((s, e) => s + e.mag + e.grt, 0);
   const totalEnc = summary.encaissements || filteredEnc;
-  const impayes = summary.impayes || totalEnc * 0.158;
-  const gt90 = Math.round(impayes * 0.26);
+  const impayes = summary.impayes || 0;
+  const gt90 = agingData.reduce((sum, row) => sum + (row[">90j"] || 0), 0);
   const tauxRecouv =
     modePaiement === "Tous"
-      ? Math.round(summary.taux_recouvrement || 87)
-      : (encaissementsMode[0]?.rapprochement ?? 87);
+      ? Math.round(summary.taux_recouvrement || 0)
+      : (encaissementsMode[0]?.rapprochement ?? 0);
 
   const impayesFournisseurs = useMemo(() => [], [depot, segment]);
 
@@ -125,7 +125,7 @@ function TresorerietPage() {
             />
             <KPICard
               label="Délai moyen règlement"
-              value={`${summary.delai_moyen || 23}j`}
+              value={`${summary.delai_moyen || 0}j`}
               subtitle="+3j vs contractuel"
               icon={Clock}
             />

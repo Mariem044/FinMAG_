@@ -5,7 +5,7 @@ export function useApiResource(fetcher, initialData, deps = []) {
     data: initialData,
     error: null,
     loading: true,
-    usingFallback: false,
+    hasRealData: false,
   });
 
   useEffect(() => {
@@ -20,17 +20,17 @@ export function useApiResource(fetcher, initialData, deps = []) {
           data: data ?? initialData,
           error: null,
           loading: false,
-          usingFallback: false,
+          hasRealData: true,
         });
       })
       .catch((error) => {
         if (cancelled) return;
-        console.warn("API request failed.", error);
+        console.error("Real-data API request failed.", error);
         setState({
           data: initialData,
           error,
           loading: false,
-          usingFallback: true,
+          hasRealData: false,
         });
       });
 

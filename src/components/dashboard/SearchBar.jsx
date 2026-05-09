@@ -6,11 +6,7 @@ import {
   Receipt, Banknote, Landmark, Settings, HelpCircle,
   User, Package, FileText, Truck,
 } from "lucide-react";
-const clients = [];
-const articles = [];
-const ecritures = [];
-const fournisseurs = [];
-const representants = [];
+import { api } from "@/lib/api";
 
 // ─── Static pages + KPIs ─────────────────────────────────────────────────────
 const PAGES = [
@@ -73,7 +69,7 @@ function Highlight({ text, query }) {
   );
 }
 
-function runSearch(q) {
+function runSearch(q, apiResults = {}) {
   if (!q.trim()) return {};
   const results = {};
 
@@ -83,20 +79,29 @@ function runSearch(q) {
   const kpis = KPIS.filter((k) => matches([k.label, k.description, ...k.keywords], q)).slice(0, CATEGORY_META.kpis.max);
   if (kpis.length) results.kpis = kpis.map((k) => ({ ...k, type: "kpis", subtitle: k.description }));
 
-  const foundClients = clients.filter((c) => matches([c.nom, c.code, c.region, c.segment], q)).slice(0, CATEGORY_META.clients.max);
-  if (foundClients.length) results.clients = foundClients.map((c) => ({ label: c.nom, subtitle: `${c.code} · ${c.region} · ${c.segment}`, to: "/acteurs", icon: User, type: "clients" }));
+  if (apiResults.clients?.length) {
+    results.clients = apiResults.clients
+      .slice(0, CATEGORY_META.clients.max)
+      .map((c) => ({ ...c, icon: User, type: "clients" }));
+  }
 
-  const foundArticles = articles.filter((a) => matches([a.designation, a.code, a.famille], q)).slice(0, CATEGORY_META.articles.max);
-  if (foundArticles.length) results.articles = foundArticles.map((a) => ({ label: a.designation, subtitle: `${a.code} · ${a.famille}`, to: "/produits", icon: Package, type: "articles" }));
+  if (apiResults.articles?.length) {
+    results.articles = apiResults.articles
+      .slice(0, CATEGORY_META.articles.max)
+      .map((a) => ({ ...a, icon: Package, type: "articles" }));
+  }
 
-  const foundEcritures = ecritures.filter((e) => matches([e.libelle, e.journal, e.compte, e.numPiece], q)).slice(0, CATEGORY_META.ecritures.max);
-  if (foundEcritures.length) results.ecritures = foundEcritures.map((e) => ({ label: e.libelle, subtitle: `${e.numPiece} · ${e.journal} · ${e.date}`, to: "/fiscalite", icon: FileText, type: "ecritures" }));
+  if (apiResults.ecritures?.length) {
+    results.ecritures = apiResults.ecritures
+      .slice(0, CATEGORY_META.ecritures.max)
+      .map((e) => ({ ...e, icon: FileText, type: "ecritures" }));
+  }
 
-  const foundFournisseurs = fournisseurs.filter((f) => matches([f.nom, f.famille], q)).slice(0, CATEGORY_META.fournisseurs.max);
-  if (foundFournisseurs.length) results.fournisseurs = foundFournisseurs.map((f) => ({ label: f.nom, subtitle: `${f.famille} · ${f.nbCommandes} commandes`, to: "/acteurs", icon: Truck, type: "fournisseurs" }));
-
-  const foundReps = representants.filter((r) => matches([r.nom, r.region], q)).slice(0, CATEGORY_META.representants.max);
-  if (foundReps.length) results.representants = foundReps.map((r) => ({ label: r.nom, subtitle: `${r.region} · ${r.nbClients} clients`, to: "/acteurs", icon: Users, type: "representants" }));
+  if (apiResults.fournisseurs?.length) {
+    results.fournisseurs = apiResults.fournisseurs
+      .slice(0, CATEGORY_META.fournisseurs.max)
+      .map((f) => ({ ...f, icon: Truck, type: "fournisseurs" }));
+  }
 
   return results;
 }
@@ -105,11 +110,13 @@ export function SearchBar() {
   const [query, setQuery]       = useState("");
   const [open, setOpen]         = useState(false);
   const [activeKey, setActiveKey] = useState(null);
+  const [apiResults, setApiResults] = useState({});
+  const [searchLoading, setSearchLoading] = useState(false);
   const inputRef    = useRef(null);
   const dropdownRef = useRef(null);
   const navigate    = useNavigate();
 
-  const grouped      = query.trim().length >= 1 ? runSearch(query) : {};
+  const grouped      = query.trim().length >= 1 ? runSearch(query, apiResults) : {};
   const categories   = Object.keys(grouped);
   const flat         = categories.flatMap((cat) => grouped[cat].map((item, i) => ({ cat, i, item })));
   const activeFlat   = flat.findIndex((f) => `${f.cat}:${f.i}` === activeKey);
@@ -125,6 +132,35 @@ export function SearchBar() {
 
   useEffect(() => {
     setActiveKey(flat[0] ? `${flat[0].cat}:${flat[0].i}` : null);
+  }, [flat.length, query]);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setApiResults({});
+      setSearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSearchLoading(true);
+    const timer = setTimeout(() => {
+      api.search(q)
+        .then((data) => {
+          if (!cancelled) setApiResults(data || {});
+        })
+        .catch(() => {
+          if (!cancelled) setApiResults({});
+        })
+        .finally(() => {
+          if (!cancelled) setSearchLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [query]);
 
   useEffect(() => {
@@ -239,7 +275,9 @@ export function SearchBar() {
                   <span className="flex items-center gap-1"><kbd className="bg-surface-hover border border-border rounded px-1 font-mono">↵</kbd> ouvrir</span>
                   <span className="flex items-center gap-1"><kbd className="bg-surface-hover border border-border rounded px-1 font-mono">Esc</kbd> fermer</span>
                 </div>
-                <span className="text-[10px] text-text-dim">{flat.length} résultat{flat.length > 1 ? "s" : ""}</span>
+                <span className="text-[10px] text-text-dim">
+                  {searchLoading ? "Recherche DW..." : `${flat.length} résultat${flat.length > 1 ? "s" : ""}`}
+                </span>
               </div>
             </>
           ) : (

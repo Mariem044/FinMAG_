@@ -1,12 +1,22 @@
-const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const BASE = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 const TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 8000);
+
+function url(path) {
+  return `${BASE}${path}`;
+}
 
 async function get(path) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(`${BASE}${path}`, { signal: controller.signal });
-    if (!res.ok) throw new Error(`API error ${res.status}`);
+    const res = await fetch(url(path), {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`API error ${res.status}${body ? `: ${body}` : ""}`);
+    }
     return res.json();
   } finally {
     clearTimeout(timeout);
@@ -15,6 +25,27 @@ async function get(path) {
 
 export const api = {
   health: () => get("/api/health"),
+  etl: {
+    status: () => get("/api/etl/status"),
+    run: async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      try {
+        const res = await fetch(url("/api/etl/run"), {
+          method: "POST",
+          headers: { Accept: "application/json" },
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          throw new Error(`API error ${res.status}${body ? `: ${body}` : ""}`);
+        }
+        return res.json();
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+  },
   dashboard: {
     kpis: () => get("/api/dashboard/kpis"),
     caByMonth: () => get("/api/ventes/ca-by-month"),
@@ -38,6 +69,10 @@ export const api = {
   },
   acteurs: {
     clients: () => get("/api/acteurs/clients"),
+    rfm: () => get("/api/acteurs/rfm"),
+    aging: () => get("/api/acteurs/aging"),
+    fournisseurs: () => get("/api/acteurs/fournisseurs"),
+    fournisseurConcentration: () => get("/api/acteurs/fournisseur-concentration"),
   },
   banque: {
     rapprochement: () => get("/api/banque/rapprochement"),
@@ -45,6 +80,7 @@ export const api = {
   caisse: {
     caisses: () => get("/api/caisse/caisses"),
     fluxDaily: () => get("/api/caisse/flux-daily"),
+    mouvementsByType: () => get("/api/caisse/mouvements-by-type"),
   },
   fiscalite: {
     kpis: () => get("/api/fiscalite/kpis"),
@@ -54,7 +90,7 @@ export const api = {
     balanceByMonth: () => get("/api/fiscalite/balance-by-month"),
     ecritures: () => get("/api/fiscalite/ecritures"),
   },
-  search: (query) => get(`/api/search-q=${encodeURIComponent(query)}`),
+  search: (query) => get(`/api/search?q=${encodeURIComponent(query)}`),
   notifications: () => get("/api/notifications"),
   assistantSummary: () => get("/api/assistant/summary"),
 };

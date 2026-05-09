@@ -13,14 +13,19 @@ Fixes applied vs v14.1:
                 non-existent depot FK, giving meaningful data without a schema change.
 """
 import os
+import threading
 
-from fastapi import FastAPI
+from fastapi import BackgroundTasks, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from etl.config import DW_ENGINE
+from etl import pipeline
 
 app = FastAPI(title="FinMAG API")
+_ETL_RUN_LOCK = threading.Lock()
+_ETL_RUNNING = False
+_ETL_LAST_ERROR = None
 
 DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:8080",
@@ -67,9 +72,72 @@ def _date_str(value):
     return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else "")
 
 
+def _run_etl_background():
+    global _ETL_RUNNING, _ETL_LAST_ERROR
+    try:
+        pipeline.run_pipeline()
+        _ETL_LAST_ERROR = None
+    except Exception as exc:
+        _ETL_LAST_ERROR = str(exc)
+    finally:
+        _ETL_RUNNING = False
+        _ETL_RUN_LOCK.release()
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/api/etl/status")
+def get_etl_status():
+    try:
+        last_run = _row(
+            """
+            SELECT TOP 1 run_id, run_date, status, duration_seconds, error_msg
+            FROM ETL_AUDIT
+            WHERE table_name = 'PIPELINE'
+            ORDER BY run_date DESC
+            """
+        )
+        counts = _rows(
+            """
+            SELECT 'clients' AS name, COUNT(*) AS value FROM DIM_CLIENT
+            UNION ALL SELECT 'articles', COUNT(*) FROM DIM_ARTICLE
+            UNION ALL SELECT 'ventes', COUNT(*) FROM FAIT_LIGNES_VENTE
+            UNION ALL SELECT 'reglements', COUNT(*) FROM FAIT_REGLEMENTS
+            UNION ALL SELECT 'ecritures', COUNT(*) FROM FAIT_ECRITURES
+            """
+        )
+    except Exception as exc:
+        return {
+            "running": _ETL_RUNNING,
+            "lastError": str(exc),
+            "lastRun": None,
+            "counts": {},
+        }
+    return {
+        "running": _ETL_RUNNING,
+        "lastError": _ETL_LAST_ERROR,
+        "lastRun": None if not last_run else {
+            "runId": _int(last_run.run_id),
+            "date": _date_str(last_run.run_date),
+            "status": last_run.status,
+            "durationSeconds": _int(last_run.duration_seconds),
+            "error": last_run.error_msg,
+        },
+        "counts": {r.name: _int(r.value) for r in counts},
+    }
+
+
+@app.post("/api/etl/run")
+def run_etl(background_tasks: BackgroundTasks):
+    global _ETL_RUNNING
+    if not _ETL_RUN_LOCK.acquire(blocking=False):
+        return {"started": False, "running": True}
+    _ETL_RUNNING = True
+    background_tasks.add_task(_run_etl_background)
+    return {"started": True, "running": True}
 
 
 @app.get("/api/dashboard/kpis")
@@ -345,21 +413,36 @@ def get_stock_alerts():
 @app.get("/api/produits/articles")
 def get_articles():
     sql = """
+        WITH sales AS (
+            SELECT
+                id_article,
+                COALESCE(SUM(DL_Qte), 0) AS qte_vendue,
+                COALESCE(SUM(DL_MontantHT), 0) AS ca
+            FROM FAIT_LIGNES_VENTE
+            GROUP BY id_article
+        ),
+        stock AS (
+            SELECT
+                e.id_article,
+                MAX(e.AS_QteSto) AS stock,
+                MAX(e.dsi_jours) AS dsi_jours
+            FROM FAIT_ECRITURES e
+            JOIN DIM_TYPE_LIGNE tl
+              ON tl.id_type_ligne = e.id_type_ligne
+             AND tl.type_ligne = 4
+            GROUP BY e.id_article
+        )
         SELECT TOP 100
             a.AR_Ref_code,
             a.id_famille,
             a.AR_PrixAch,
-            COALESCE(SUM(v.DL_Qte), 0) AS qte_vendue,
-            COALESCE(SUM(v.DL_MontantHT), 0) AS ca,
-            MAX(e.AS_QteSto) AS stock,
-            MAX(e.dsi_jours) AS dsi_jours
+            COALESCE(sales.qte_vendue, 0) AS qte_vendue,
+            COALESCE(sales.ca, 0) AS ca,
+            stock.stock,
+            stock.dsi_jours
         FROM DIM_ARTICLE a
-        LEFT JOIN FAIT_LIGNES_VENTE v ON v.id_article = a.id_article
-        LEFT JOIN FAIT_ECRITURES e ON e.id_article = a.id_article
-        LEFT JOIN DIM_TYPE_LIGNE tl
-            ON tl.id_type_ligne = e.id_type_ligne
-            AND tl.type_ligne = 4
-        GROUP BY a.AR_Ref_code, a.id_famille, a.AR_PrixAch
+        LEFT JOIN sales ON sales.id_article = a.id_article
+        LEFT JOIN stock ON stock.id_article = a.id_article
         ORDER BY ca DESC
     """
     return [
@@ -409,6 +492,108 @@ def get_clients():
             "segment": r.segment,
             "actif": _int(r.sommeil) == 0,
             "nouveau": False,
+        }
+        for r in _rows(sql)
+    ]
+
+
+@app.get("/api/acteurs/rfm")
+def get_acteurs_rfm():
+    sql = """
+        SELECT TOP 200
+            c.CT_Num_code,
+            COALESCE(s.libelle_segment, 'Sans segment') AS segment,
+            COUNT(DISTINCT v.DO_Piece_hash) AS frequence,
+            DATEDIFF(DAY, MAX(d.date_val), CAST(GETDATE() AS DATE)) AS recence,
+            COALESCE(SUM(v.DL_MontantHT), 0) AS montant
+        FROM DIM_CLIENT c
+        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+        LEFT JOIN FAIT_LIGNES_VENTE v ON v.id_client = c.id_client
+        LEFT JOIN DIM_DATE d ON d.id_date = v.id_date
+        GROUP BY c.CT_Num_code, s.libelle_segment
+        ORDER BY montant DESC
+    """
+    return [
+        {
+            "code": str(r.CT_Num_code),
+            "name": f"Client {r.CT_Num_code}",
+            "segment": r.segment,
+            "frequence": _int(r.frequence),
+            "recence": _int(r.recence, 999),
+            "montant": _num(r.montant),
+        }
+        for r in _rows(sql)
+    ]
+
+
+@app.get("/api/acteurs/aging")
+def get_acteurs_aging():
+    sql = """
+        SELECT TOP 30
+            COALESCE(CONVERT(VARCHAR(30), c.CT_Num_code), 'Client') AS client,
+            SUM(CASE WHEN r.bucket_impaye = 0 THEN r.RT_Montant ELSE 0 END) AS b0,
+            SUM(CASE WHEN r.bucket_impaye = 1 THEN r.RT_Montant ELSE 0 END) AS b1,
+            SUM(CASE WHEN r.bucket_impaye = 2 THEN r.RT_Montant ELSE 0 END) AS b2,
+            SUM(CASE WHEN r.bucket_impaye = 3 THEN r.RT_Montant ELSE 0 END) AS b3
+        FROM FAIT_REGLEMENTS r
+        LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
+        WHERE r.DR_Regle = 0
+        GROUP BY c.CT_Num_code
+        ORDER BY b3 DESC
+    """
+    return [
+        {
+            "clientCode": str(r.client),
+            "client": f"C{r.client}",
+            "0-30j": _num(r.b0),
+            "31-60j": _num(r.b1),
+            "61-90j": _num(r.b2),
+            ">90j": _num(r.b3),
+        }
+        for r in _rows(sql)
+    ]
+
+
+@app.get("/api/acteurs/fournisseurs")
+def get_acteurs_fournisseurs():
+    sql = """
+        SELECT TOP 100
+            f.CT_Num_code,
+            f.CT_Encours,
+            COUNT(a.id_article) AS nb_articles
+        FROM DIM_FOURNISSEUR f
+        LEFT JOIN DIM_ARTICLE a ON a.id_fournisseur = f.id_fournisseur
+        GROUP BY f.CT_Num_code, f.CT_Encours
+        ORDER BY nb_articles DESC, f.CT_Encours DESC
+    """
+    return [
+        {
+            "code": str(r.CT_Num_code),
+            "nom": f"Fournisseur {r.CT_Num_code}",
+            "encours": _num(r.CT_Encours),
+            "nbArticles": _int(r.nb_articles),
+        }
+        for r in _rows(sql)
+    ]
+
+
+@app.get("/api/acteurs/fournisseur-concentration")
+def get_fournisseur_concentration():
+    sql = """
+        SELECT TOP 20
+            COALESCE(CONVERT(VARCHAR(30), f.CT_Num_code), 'Sans fournisseur') AS fournisseur,
+            COUNT(a.id_article) AS nb_articles,
+            COALESCE(SUM(a.AR_PrixAch), 0) AS valeur_reference
+        FROM DIM_ARTICLE a
+        LEFT JOIN DIM_FOURNISSEUR f ON f.id_fournisseur = a.id_fournisseur
+        GROUP BY f.CT_Num_code
+        ORDER BY nb_articles DESC
+    """
+    return [
+        {
+            "fournisseur": f"Fournisseur {r.fournisseur}",
+            "nbArticles": _int(r.nb_articles),
+            "valeurReference": _num(r.valeur_reference),
         }
         for r in _rows(sql)
     ]
@@ -492,6 +677,22 @@ def get_caisse_flux_daily():
             "cumul": cumul,
         })
     return data
+
+
+@app.get("/api/caisse/mouvements-by-type")
+def get_caisse_mouvements_by_type():
+    sql = """
+        SELECT TOP 10
+            COALESCE(tm.libelle_type_mvt, CONCAT('Mouvement ', e.MC_TypeMvt)) AS name,
+            SUM(ABS(COALESCE(e.MC_Credit, 0)) + ABS(COALESCE(e.MC_Debit, 0))) AS value
+        FROM FAIT_ECRITURES e
+        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
+        LEFT JOIN DIM_TYPE_MVT_CAISSE tm ON tm.id_type_mvt = e.id_type_mvt
+        WHERE tl.type_ligne = 3
+        GROUP BY tm.libelle_type_mvt, e.MC_TypeMvt
+        ORDER BY value DESC
+    """
+    return [{"name": r.name, "value": _num(r.value)} for r in _rows(sql)]
 
 
 @app.get("/api/fiscalite/kpis")
