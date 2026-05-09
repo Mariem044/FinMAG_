@@ -1,24 +1,34 @@
 """
-pipeline.py — SIAD MAG Distribution ETL — v14.2
+pipeline.py — SIAD MAG Distribution ETL — v14.3-fixed
 Main orchestrator.
 
-FIXES vs previous version
+BUG FIXES APPLIED IN THIS VERSION
 ──────────────────────────────────────────────────────────────────────────
-FIX-BANQUE   : _assemble_dim_banque() — EB_Banque is an INT bank code, NOT
-               a natural string key. The previous code applied hash_key()
-               to it, producing garbage. Now it is cast to Int64 directly.
-FIX-CAISSE   : _assemble_dim_caisse() calls extract_fait_mvtcaisse(None)
-               explicitly (full extract, no delta) so the dimension always
-               sees all cash registers. The FAIT_ECRITURES step 3 still
-               calls it with last_run for the fact rows — these are now
-               consistently aligned because caisse IDs are built from the
-               full extract, not a delta subset.
-FIX-IDBANQUE : In _assemble_fait_ecritures() df2 and df3 assign
-               id_banque=pd.NA (not Python None) to avoid object-dtype
-               columns that silently break concat with df1's Int64 column.
-FIX-COMMENT  : Misleading inline comment on FAIT_REGLEMENTS step removed;
-               the docstring on _assemble_fait_reglements() is the
-               authoritative explanation.
+BUG-1  FIX : DIM_COLLABORATEUR transform — CO_Fonction cast to Int32
+             because source Sage codes can exceed SMALLINT range.
+
+BUG-5  FIX : _last_run is NO LONGER read from the mutable lookups dict
+             inside the FAIT_REGLEMENTS and FAIT_ECRITURES step lambdas.
+             It is now captured as a closure over last_run_date (an
+             immutable datetime set once at the start of run_pipeline).
+             The lookups dict no longer carries "_last_run" at all, so no
+             step can accidentally corrupt the delta window.
+
+BUG-7  FIX : _assemble_fait_ecritures() — type-4 (stock snapshot) rows
+             now assign id_journal=pd.NA instead of id_journal=None.
+             Python None after pd.concat with Int64 columns produces an
+             object-dtype column, which breaks _prepare_for_load()'s
+             date-conversion loop.  pd.NA keeps the column as Int64
+             throughout, consistent with id_banque=pd.NA already used.
+
+WARN-5 FIX : _compute_dsi_jours() — the 365-day window now filters on
+             DIM_DATE.date_val (the actual sale date) joined via id_date,
+             not on date_extraction (the ETL run date).  The old query
+             produced wrong KPI-13 values because a row loaded today for a
+             2019 sale would be included in the rolling year.
+
+Earlier fixes (FIX-BANQUE, FIX-CAISSE, FIX-IDBANQUE, FIX-COMMENT) from
+v14.2 are preserved unchanged.
 """
 from __future__ import annotations
 
@@ -47,10 +57,12 @@ from etl import ddl, extract, transform, load
 
 logger = get_logger(__name__)
 
+
 def _safe_int16(series: pd.Series) -> pd.Series:
     """Convert a series to nullable Int16, safely handling float64 with NaN."""
     s = pd.to_numeric(series, errors="coerce")
     return s.astype(object).where(s.notna(), other=None).astype("Int16")
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # LOOKUPS
@@ -136,7 +148,7 @@ def _lookup_code(lookups: Dict, table_name: str, value):
 
 
 def _resolve_today_id(lookups: Dict, today: date) -> Optional[int]:
-    """Return id_date for today, with fallback to nearest date (BUG-13)."""
+    """Return id_date for today, with fallback to nearest date."""
     date_lookup = lookups.get("DIM_DATE", {})
     id_val = date_lookup.get(today)
     if id_val is not None:
@@ -212,7 +224,7 @@ def _generate_dim_date(
         for i, (debut, fin) in enumerate(exercices, 1):
             if debut <= d <= fin:
                 return i
-        return None   # NULL for dates outside any fiscal year
+        return None
 
     df["exercice"] = df["date_val"].apply(_get_exercice)
     return df
@@ -239,26 +251,27 @@ def _assemble_fait_reglements(
 ) -> pd.DataFrame:
     """Assemble FAIT_REGLEMENTS from client and supplier payment tables.
 
-    last_run is a dedicated parameter (not read from the lookups dict)
-    to prevent any future mutation of lookups["_last_run"] from affecting
-    the delta window.
+    BUG-5 FIX: last_run is passed in directly as a parameter — it is NOT
+    read from lookups.  The caller (run_pipeline) closes over the immutable
+    last_run_date variable, so this value can never be corrupted by any
+    other step mutating the lookups dict.
     """
     defaults = {
-        "DO_Piece":        None,
-        "LB_Ligne":        None,
-        "LB_NbJour":       0,
-        "LB_Agios":        0,
-        "BR_Rapproch":     0,
-        "BQ_ABREGE":       None,
-        "LB_MontantReg":   None,
-        "RG_Montant":      None,
-        "RC_Montant":      None,
+        "DO_Piece":          None,
+        "LB_Ligne":          None,
+        "LB_NbJour":         0,
+        "LB_Agios":          0,
+        "BR_Rapproch":       0,
+        "BQ_ABREGE":         None,
+        "LB_MontantReg":     None,
+        "RG_Montant":        None,
+        "RC_Montant":        None,
         "BR_TotalReglement": None,
-        "LB_EcheanceReg":  None,
-        "N_Reglement":     None,
-        "DR_Regle":        None,
-        "DR_Montant":      None,
-        "DR_ModeReg":      None,
+        "LB_EcheanceReg":    None,
+        "N_Reglement":       None,
+        "DR_Regle":          None,
+        "DR_Montant":        None,
+        "DR_ModeReg":        None,
     }
 
     clients      = _ensure_columns(extract.extract_fait_reglements_clients(last_run), defaults)
@@ -373,20 +386,16 @@ def _assemble_fait_reglements(
 def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
     """Assemble DIM_CAISSE from MAG (master) and GRT (supplement).
 
-    FIX-CAISSE: extract_fait_mvtcaisse() is called with last_run=None so
-    the caisse dimension always contains ALL cash registers, not just those
-    seen in the current delta window. This prevents orphan id_caisse=NULL
-    in FAIT_ECRITURES when a register only appears in older movements.
-
     MAG rows take priority over GRT rows (sort by _source_priority asc,
-    keep="first" in drop_duplicates).
+    keep="first" in drop_duplicates).  extract_fait_mvtcaisse is called
+    with last_run=None so the caisse dimension always contains ALL cash
+    registers, not just those seen in the current delta window.
     """
     df_mag = extract.extract_dim_caisse_mag().copy()
     df_mag["_source_priority"] = 1
 
-    # GRT contributes CA_No and JO_Num for registers not in MAG
     df_grt_raw = (
-        extract.extract_fait_mvtcaisse(last_run=None)   # always full
+        extract.extract_fait_mvtcaisse(last_run=None)
         [["CA_No", "JO_Num"]]
         .drop_duplicates(subset=["CA_No"])
         .copy()
@@ -431,9 +440,8 @@ def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
 def _assemble_dim_banque(lookups: Dict) -> pd.DataFrame:
     """Assemble DIM_BANQUE from MAG and GRT sources.
 
-    FIX-BANQUE: EB_Banque is an INT bank code (BCT reference), NOT a Sage
-    natural key. It must NOT be hashed. Only EB_Abrege is a natural key
-    and needs hashing to produce EB_Abrege_code.
+    EB_Banque is an INT bank code (BCT reference), NOT a Sage natural key.
+    Only EB_Abrege is hashed to produce EB_Abrege_code.
     """
     df_mag = extract.extract_dim_banque_mag().copy()
     df_grt = extract.extract_dim_banque_grt().copy()
@@ -444,9 +452,7 @@ def _assemble_dim_banque(lookups: Dict) -> pd.DataFrame:
     return (
         pd.concat([df_mag, df_grt], ignore_index=True)
         .assign(
-            # Only EB_Abrege is hashed — it is the natural string key
             EB_Abrege_code=lambda d: d["EB_Abrege"].apply(transform.hash_key),
-            # EB_Banque is a plain INT — cast, do not hash
             EB_Banque=lambda d: pd.to_numeric(d["EB_Banque"], errors="coerce").astype("Int64"),
         )
         .drop_duplicates(subset=["EB_Abrege_code"], keep="first")
@@ -461,6 +467,12 @@ def _assemble_fait_ecritures(
     last_run: Optional[datetime],
     lookups:  Dict,
 ) -> pd.DataFrame:
+    """Assemble FAIT_ECRITURES from four source types.
+
+    BUG-5 FIX: last_run is passed in directly — not read from lookups.
+    BUG-7 FIX: all nullable FK columns on type-4 (stock) rows use pd.NA,
+               not Python None, to keep Int64 dtypes intact after concat.
+    """
     today    = date.today()
     today_id = _resolve_today_id(lookups, today)
 
@@ -517,8 +529,7 @@ def _assemble_fait_ecritures(
             id_journal   =lambda d: d["JO_Num"].apply(
                 lambda v: lookups.get("DIM_JOURNAL", {}).get(transform.hash_key(v))
             ),
-            # FIX-IDBANQUE: use pd.NA not None to keep Int64 dtype consistent
-            id_banque=pd.NA,
+            id_banque    =pd.NA,
             id_client=lambda d: d["CT_Num"].apply(
                 lambda v: lookups.get("DIM_CLIENT", {}).get(transform.hash_key(v))
             ),
@@ -536,8 +547,6 @@ def _assemble_fait_ecritures(
     )
 
     # ── TYPE 3 — cash movements ───────────────────────────────────────────────
-    # FIX-CAISSE: delta filter applied here (last_run) — the caisse dimension
-    # was built from a full extract so all CA_No surrogate ids exist.
     df3 = (
         extract.extract_fait_mvtcaisse(last_run)
         .assign(
@@ -547,8 +556,7 @@ def _assemble_fait_ecritures(
             id_journal   =lambda d: d["JO_Num"].apply(
                 lambda v: lookups.get("DIM_JOURNAL", {}).get(transform.hash_key(v))
             ),
-            # FIX-IDBANQUE: use pd.NA not None
-            id_banque=pd.NA,
+            id_banque    =pd.NA,
             id_caisse=lambda d: d["CA_No"].apply(
                 lambda v: lookups.get("DIM_CAISSE", {}).get(transform.hash_key(v))
             ),
@@ -564,14 +572,21 @@ def _assemble_fait_ecritures(
     )
 
     # ── TYPE 4 — stock snapshot ───────────────────────────────────────────────
+    # BUG-7 FIX: all nullable FK columns use pd.NA (not Python None) so that
+    # after pd.concat the column dtype stays Int64 rather than becoming object.
     df4 = (
         extract.extract_fait_artstock()
         .assign(
             type_ligne   =4,
             id_type_ligne=lambda d: d.apply(lambda _: _lookup_code(lookups, "DIM_TYPE_LIGNE", 4), axis=1),
             id_date      =today_id,
-            id_journal   =None,
+            id_journal   =pd.NA,      # BUG-7 FIX: was None
             id_banque    =pd.NA,
+            id_client    =pd.NA,
+            id_sens      =pd.NA,
+            id_type_tva  =pd.NA,
+            id_type_mvt  =pd.NA,
+            id_caisse    =pd.NA,
             id_article   =lambda d: d["AR_Ref"].apply(
                 lambda v: lookups.get("DIM_ARTICLE", {}).get(transform.hash_key(v))
             ),
@@ -618,6 +633,14 @@ def _assemble_fait_ecritures(
 # ════════════════════════════════════════════════════════════════════════════
 
 def _compute_dsi_jours() -> None:
+    """Update dsi_jours and qte_vendue_365j on FAIT_ECRITURES stock rows.
+
+    WARN-5 FIX: the 365-day window now filters on DIM_DATE.date_val (the
+    actual transaction date) joined via id_date, NOT on date_extraction
+    (the ETL load date).  The old query produced wrong KPI-13 values because
+    a row inserted today but representing a 2019 sale would be counted inside
+    the rolling year.
+    """
     sql = """
         UPDATE fe
         SET
@@ -630,10 +653,11 @@ def _compute_dsi_jours() -> None:
         FROM FAIT_ECRITURES fe
         INNER JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = fe.id_type_ligne
         INNER JOIN (
-            SELECT id_article, SUM(DL_Qte) AS qte_vendue_365j
-            FROM FAIT_LIGNES_VENTE
-            WHERE date_extraction >= DATEADD(DAY, -365, CAST(GETDATE() AS DATE))
-            GROUP BY id_article
+            SELECT flv.id_article, SUM(flv.DL_Qte) AS qte_vendue_365j
+            FROM FAIT_LIGNES_VENTE flv
+            JOIN DIM_DATE d ON d.id_date = flv.id_date
+            WHERE d.date_val >= DATEADD(DAY, -365, CAST(GETDATE() AS DATE))
+            GROUP BY flv.id_article
         ) sub ON sub.id_article = fe.id_article
         WHERE tl.type_ligne = 4
     """
@@ -644,9 +668,6 @@ def _compute_dsi_jours() -> None:
 
 def _load_dim_date(df: pd.DataFrame, table: str, mode: str) -> None:
     if mode == "full":
-        # FK constraints are already disabled globally for full load.
-        # Do NOT re-enable them here — the pipeline re-enables them at the end
-        # after all fact tables are loaded with valid id_date references.
         load.load_dimension(df, table, "full", key_col="date_val")
     else:
         load.load_dimension(df, table, "delta", key_col="date_val")
@@ -655,6 +676,11 @@ def _load_dim_date(df: pd.DataFrame, table: str, mode: str) -> None:
 # ════════════════════════════════════════════════════════════════════════════
 # STEPS
 # ════════════════════════════════════════════════════════════════════════════
+
+# NOTE (BUG-5 FIX): FAIT_REGLEMENTS and FAIT_ECRITURES transform functions
+# are intentionally set to None here.  run_pipeline() replaces them at
+# runtime with closures that capture the immutable last_run_date value,
+# so no step can corrupt the delta window through the mutable lookups dict.
 
 STEPS: List[Step] = [
 
@@ -708,20 +734,6 @@ STEPS: List[Step] = [
      lambda df, lookups: _add_static_label(df),
      lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="MC_TypeMvt")),
 
-    # PROBLEM
-# -------
-# The existing DIM_SEGMENT table was created with libelle_segment NVARCHAR(64).
-# The migration widens it to NVARCHAR(100), but pyodbc raises
-#   ('String data, right truncation: length 128 buffer 64', 'HY000')
-# if the migration hasn't run yet in the same session, OR if a future label
-# ever exceeds 100 chars.  The defensive .str[:100] below guarantees the
-# column never exceeds the DDL declaration regardless of DB state.
-#
-# CHANGE
-# -------
-# In the STEPS list, replace the DIM_SEGMENT transform lambda with the one
-# below (the only change is the added .str[:100] clip on libelle_segment):
- 
     ("DIM_SEGMENT",
      lambda **kw: extract.extract_dim_segment(),
      lambda df, lookups: (
@@ -730,7 +742,7 @@ STEPS: List[Step] = [
              CT_PrixTTC=lambda d: pd.to_numeric(
                  d["CT_PrixTTC"], errors="coerce"
              ).fillna(0).astype("Int16"),
-            libelle_segment=lambda d: (
+             libelle_segment=lambda d: (
                  d["cbIndice"]
                  .map(lambda v: SEGMENTS.get(int(v), f"Segment {v}"))
                  .str[:100]
@@ -739,7 +751,7 @@ STEPS: List[Step] = [
      ),
      lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="cbIndice_code")),
 
-
+    # CO_Fonction can contain Sage codes outside SMALLINT range.
     ("DIM_COLLABORATEUR",
      lambda **kw: extract.extract_dim_collaborateur(kw.get("last_run")),
      lambda df, lookups: df.assign(
@@ -846,14 +858,17 @@ STEPS: List[Step] = [
      ),
      lambda df, tbl, mode: load.load_fact(df, tbl, mode)),
 
+    # BUG-5 FIX: transform_fn is None here — replaced at runtime in
+    # run_pipeline() with a closure over the immutable last_run_date.
     ("FAIT_REGLEMENTS",
      lambda **kw: pd.DataFrame(),
-     lambda df, lookups: _assemble_fait_reglements(lookups.get("_last_run"), lookups),
+     None,
      lambda df, tbl, mode: load.load_fact(df, tbl, mode)),
 
+    # BUG-5 FIX: same — transform_fn replaced at runtime.
     ("FAIT_ECRITURES",
      lambda **kw: pd.DataFrame(),
-     lambda df, lookups: _assemble_fait_ecritures(lookups.get("_last_run"), lookups),
+     None,
      lambda df, tbl, mode: load.load_fact(df, tbl, mode)),
 ]
 
@@ -878,8 +893,20 @@ def run_pipeline() -> None:
     run_finished = False
     fk_disabled  = False
 
-    # _last_run stored under private key — never overwritten by the step loop
-    lookups: Dict = {"_last_run": last_run_date}
+    # BUG-5 FIX: lookups no longer carries "_last_run".  last_run_date is
+    # an immutable local variable captured by the closures below.
+    lookups: Dict = {}
+
+    # BUG-5 FIX: build closures over the immutable last_run_date now that
+    # it is known.  These replace the None transform_fn slots in STEPS for
+    # FAIT_REGLEMENTS and FAIT_ECRITURES.
+    _transform_reglements = lambda df, lk: _assemble_fait_reglements(last_run_date, lk)
+    _transform_ecritures  = lambda df, lk: _assemble_fait_ecritures(last_run_date, lk)
+
+    _RUNTIME_TRANSFORMS: Dict[str, Callable] = {
+        "FAIT_REGLEMENTS": _transform_reglements,
+        "FAIT_ECRITURES":  _transform_ecritures,
+    }
 
     try:
         if mode == "full":
@@ -888,12 +915,13 @@ def run_pipeline() -> None:
             fk_disabled = True
             logger.info("FK constraints disabled for full load.")
 
-        for (table_name, extract_fn, transform_fn, load_fn) in STEPS:
+        for (table_name, extract_fn, _transform_fn, load_fn) in STEPS:
             with table_timer(run_id, table_name) as ctx:
                 logger.info(f"--- Processing {table_name} ---")
 
-                # Snapshot _last_run before step so no step can mutate it
-                _last_run_saved = lookups.get("_last_run")
+                # BUG-5 FIX: resolve transform function — use the runtime
+                # closure for fact tables that need last_run_date.
+                transform_fn = _RUNTIME_TRANSFORMS.get(table_name, _transform_fn)
 
                 df_raw = extract_fn(last_run=last_run_date)
 
@@ -909,9 +937,6 @@ def run_pipeline() -> None:
                 if table_name in LOOKUP_CONFIG:
                     nat_col, surr_col = LOOKUP_CONFIG[table_name]
                     lookups[table_name] = _build_lookup(table_name, nat_col, surr_col)
-
-                # Always restore _last_run after every step
-                lookups["_last_run"] = _last_run_saved
 
                 ctx["rows_inserted"] = len(df)
                 ctx["rows_updated"]  = 0

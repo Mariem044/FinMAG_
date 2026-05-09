@@ -246,9 +246,14 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
         method="multi",
     )
 
+    def _src_value(c: str) -> str:
+        if c in binary_cols:
+            return f"CONVERT(VARBINARY(32), src.[{c}], 2)"
+        return f"src.[{c}]"
+
     update_cols = [c for c in df.columns if c != key_col]
     update_set  = (
-        ", ".join([f"target.[{c}]=src.[{c}]" for c in update_cols])
+        ", ".join([f"target.[{c}]={_src_value(c)}" for c in update_cols])
         if update_cols
         else f"target.[{key_col}]=target.[{key_col}]"
     )
@@ -257,10 +262,7 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
 
     src_vals = []
     for c in df.columns:
-        if c in binary_cols:
-            src_vals.append(f"CONVERT(VARBINARY(32), src.[{c}], 2)")
-        else:
-            src_vals.append(f"src.[{c}]")
+        src_vals.append(_src_value(c))
     src_cols_sql = ", ".join(src_vals)
 
     if key_col in binary_cols:

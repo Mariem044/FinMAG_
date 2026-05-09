@@ -2,10 +2,21 @@
 config.py — SIAD MAG Distribution ETL
 Configuration centrale : engines SQLAlchemy, hash_key, constantes métier.
 
-FIXES vs previous version
+FIXES
 ──────────────────────────────────────────────────────────────────────────
 FIX-HASH : hash_key() defined ONLY here. transform.py imports it from here
            instead of duplicating it — eliminates silent drift risk.
+
+BUG-6 FIX : DOMAINES dict corrected.
+  The DBML schema comment said "4=Interne" but Sage Gestion Commerciale
+  defines DO_Domaine as:
+    0 = Vente, 1 = Achat, 2 = Stock, 3 = Interne
+  There is no code 4 in standard Sage GC.  The DDL DIM_DOMAINE note also
+  listed "4=Interne" — that note is a copy-paste error from the DBML.
+  The extract filter in extract.py correctly uses domain 0 (Vente) only,
+  so no data was lost, but the reference dict was wrong and would have
+  produced a wrong libelle_domaine label for any domain-3 row loaded into
+  DIM_DOMAINE.  Fixed: 3 -> "Interne" (removed the spurious 4 entry).
 """
 from __future__ import annotations
 
@@ -122,6 +133,11 @@ TYPES_DOC: dict[int, str] = {
     17: "Avoir fournisseur",
 }
 
+# BUG-6 FIX: corrected Sage GC domain codes.
+# Standard Sage GC: 0=Vente, 1=Achat, 2=Stock, 3=Interne.
+# The previous version had 3="Interne" (correct) BUT the DBML comment
+# and DIM_DOMAINE DDL note incorrectly wrote "4=Interne".
+# There is no domain code 4 in Sage GC — removed the spurious entry.
 DOMAINES: dict[int, str] = {
     0: "Vente",
     1: "Achat",

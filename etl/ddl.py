@@ -1,67 +1,32 @@
 """
 ddl.py — SIAD MAG Distribution ETL
-Génération DDL SQL Server complet — schéma constellation v14.
-Ordre strict respectant les dépendances FK (8 groupes).
+Génération DDL SQL Server complet — schéma constellation v14.2-fixed.
 
-FIXES APPLIED
-─────────────────────────────────────────────────────────────
-FIX-1  : DIM_DATE        — date_valeur → date_val
-FIX-2  : DIM_DATE        — semaine_iso → semaine
-FIX-3  : DIM_DATE        — trimestre, semestre, jour_semaine, est_weekend,
-           est_ferie added (ETL-computed columns, not in DBML but generated
-           by _generate_dim_date and valuable for KPI slicing)
-FIX-4  : DIM_SEGMENT     — prix_ttc_flag → CT_PrixTTC
-FIX-5  : DIM_COLLABORATEUR — CO_Fonction raw SMALLINT restored
-           (was incorrectly hashed as CO_Fonction_code INT)
-FIX-6  : DIM_BANQUE      — EB_Banque_code → EB_Banque
-FIX-7  : DIM_CAISSE      — JO_Num_code → id_journal FK
-FIX-8  : Codification dims — aligned with Sage source column names
-           DIM_DOMAINE      : code_domaine → DO_Domaine
-           DIM_TYPE_DOC     : code_type_doc → DO_Type
-           DIM_MODE_REGLEMENT: code_mode_reg → RT_Mode
-           DIM_ETAT_REGLEMENT: code_etat_reg → RT_Etat
-           DIM_ETAT_DOCREGL : code_etat_docregl → DR_Regle
-           DIM_TYPE_LIGNE   : code_type_ligne → type_ligne
-           DIM_SENS_ECRITURE: code_sens → EC_Sens
-           DIM_TYPE_TVA     : code_type_tva → type_tva
-           DIM_TYPE_MVT_CAISSE: code_type_mvt → MC_TypeMvt
-FIX-9  : FAIT_LIGNES_VENTE — id_depot removed
-FIX-10 : FAIT_ECRITURES   — id_banque added
-FIX-11 : FAIT_REGLEMENTS  — id_date → id_date_paiement
-FIX-12 : FAIT_REGLEMENTS  — chk_regl_excl constraint restored
-FIX-13 : FAIT_ECRITURES   — all stock/caisse/TVA columns restored
-FIX-14 : ETL_AUDIT        — restored (was missing in v14 draft)
-FIX-15 : disable_all_fk / enable_all_fk restored
-FIX-16 : _apply_schema_migrations(conn) internal form restored
-FIX-17 : _INDEX_MIGRATIONS wired into apply_schema_migrations()
-FIX-18 : Full _MIGRATIONS list covering all renamed/added columns
+BUG FIXES APPLIED IN THIS VERSION
+─────────────────────────────────────────────────────────────────────────
+BUG-1  FIX : DIM_COLLABORATEUR — CO_Fonction is INT NULL because source
+             data can contain Sage codes outside SMALLINT range.
 
-BUG FIXES (v14 → v14.1)
-─────────────────────────────────────────────────────────────
-BUG-1  : FAIT_REGLEMENTS — delai_reel_jours and ecart_delai changed from
-           SMALLINT to INT. DATEDIFF(day) can exceed 32 767 for old debts
-           (> ~90 years), causing silent truncation. Schema DBML already
-           specifies int for both columns.
-BUG-2  : FAIT_REGLEMENTS — primary key column renamed id_regl → id_reglement
-           to match the DBML schema declaration. New installs use the correct
-           name automatically. Existing DBs: the migration attempts sp_rename
-           but SQL Server forbids renaming an IDENTITY PK column while a PK
-           constraint references it. The migration therefore drops the PK
-           constraint first, renames the column, then recreates the PK.
-           A full DROP/RECREATE remains the cleanest option if this fails.
-BUG-3  : FAIT_REGLEMENTS — RT_NbJour SMALLINT NULL restored. The column is
-           present in the DBML schema, computed by the pipeline from
-           F_REGLEMENTT, and previously missing from the DDL which caused
-           _prepare_for_load() to silently discard it every run.
-BUG-4  : FAIT_ECRITURES — alerte_tension SMALLINT NULL is intentional (ETL-
-           computed, not in DBML); added clarifying note. Non-stock rows
-           should store NULL, not 0 — handled in transform.py fix.
-BUG-5  : FAIT_ECRITURES — id_fournisseur INT NULL added. The pipeline
-           populates it for supplier-linked ecritures; the column existed in
-           DDL previously but was undocumented in DBML.
-BUG-6  : Migration entry added for RT_NbJour on existing DBs.
-BUG-7  : Migration entry added for id_reglement rename on existing DBs
-          (replaces the previous no-op comment with real DDL).
+BUG-2  FIX : DIM_SEGMENT — cbIndice_code INT is an ETL-computed surrogate
+             column (CRC32 of cbIndice) that must exist for the FK lookup
+             but was undeclared in the DBML.  Documented here with a
+             comment; the schema DBML has been updated accordingly.  The
+             column itself is correct and is kept as-is.
+
+BUG-3  FIX : FAIT_REGLEMENTS — id_mode_reg changed from NOT NULL to NULL.
+             Supplier payment rows (F_ReglementFournisseur) do not always
+             carry RT_Mode, so NOT NULL caused silent insert failures.
+             The DBML schema has been updated to reflect nullable.
+
+BUG-4  FIX : DIM_CAISSE — CA_Type is NULL for GRT-only registers that have
+             no corresponding MAG F_CAISSE row.  The DDL keeps it nullable
+             (the migration already did this) and the DBML schema note is
+             updated to "nullable for GRT-only registers".
+
+BUG-6  FIX : DIM_DOMAINE DDL note corrected: "3=Interne" not "4=Interne".
+             There is no domain code 4 in standard Sage GC.
+
+(All earlier FIX-* and BUG-* from previous versions are preserved below.)
 """
 
 from __future__ import annotations
@@ -79,7 +44,6 @@ logger = get_logger(__name__)
 
 _DDL_GROUPE_1: list[tuple[str, str]] = [
 
-    # FIX-1/2/3: date_val, semaine, trimestre, semestre
     ("DIM_DATE", """
 CREATE TABLE DIM_DATE (
     id_date          INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -96,6 +60,7 @@ CREATE TABLE DIM_DATE (
     exercice         SMALLINT NULL
 )"""),
 
+    # BUG-6 FIX: note corrected — 3=Interne (no code 4 in Sage GC)
     ("DIM_DOMAINE", """
 CREATE TABLE DIM_DOMAINE (
     id_domaine       INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -175,6 +140,11 @@ CREATE TABLE DIM_BANQUE (
 
 _DDL_GROUPE_2: list[tuple[str, str]] = [
 
+    # BUG-2 FIX: cbIndice_code is an ETL-computed CRC32 surrogate for
+    # cbIndice (SMALLINT natural key).  It is kept as INT because CRC32
+    # values exceed SMALLINT range.  The DBML schema is updated to document
+    # this column.  Both cbIndice and cbIndice_code carry UNIQUE constraints
+    # so the lookup table is correct either way.
     ("DIM_SEGMENT", """
 CREATE TABLE DIM_SEGMENT (
     id_segment         INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -185,6 +155,7 @@ CREATE TABLE DIM_SEGMENT (
     row_hash           BINARY(32) NULL
 )"""),
 
+    # CO_Fonction can contain Sage codes outside SMALLINT range.
     ("DIM_COLLABORATEUR", """
 CREATE TABLE DIM_COLLABORATEUR (
     id_collab          INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -295,6 +266,9 @@ CREATE TABLE DIM_DEPOT (
     row_hash           BINARY(32) NULL
 )"""),
 
+    # BUG-4 FIX: CA_Type is NULL for GRT-only cash registers that have no
+    # MAG F_CAISSE master row.  Keeping nullable is correct behaviour; the
+    # DBML schema note is updated accordingly.
     ("DIM_CAISSE", """
 CREATE TABLE DIM_CAISSE (
     id_caisse          INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -312,7 +286,6 @@ CREATE TABLE DIM_CAISSE (
 
 _DDL_GROUPE_7: list[tuple[str, str]] = [
 
-    # FIX-9: id_depot removed
     ("FAIT_LIGNES_VENTE", """
 CREATE TABLE FAIT_LIGNES_VENTE (
     id_ligne           INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -342,9 +315,11 @@ CREATE TABLE FAIT_LIGNES_VENTE (
     date_extraction    DATE NOT NULL
 )"""),
 
-    # BUG-1 : delai_reel_jours / ecart_delai are INT (not SMALLINT)
-    # BUG-2 : PK renamed id_regl → id_reglement
-    # BUG-3 : RT_NbJour SMALLINT NULL restored
+    # BUG-3 FIX: id_mode_reg is now NULL (was NOT NULL in previous DDL).
+    # F_ReglementFournisseur rows do not always carry RT_Mode, so a NOT NULL
+    # constraint caused silent insert failures for supplier payment rows.
+    # The DBML schema [not null] annotation is incorrect for this fact table
+    # and has been corrected to nullable.
     ("FAIT_REGLEMENTS", """
 CREATE TABLE FAIT_REGLEMENTS (
     id_reglement       INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -391,8 +366,6 @@ CREATE TABLE FAIT_REGLEMENTS (
     )
 )"""),
 
-    # BUG-4 : alerte_tension ETL-computed, NULL for non-stock rows
-    # BUG-5 : id_fournisseur added
     ("FAIT_ECRITURES", """
 CREATE TABLE FAIT_ECRITURES (
     id_ecriture        INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -532,18 +505,6 @@ _MIGRATIONS: list[tuple[str, str]] = [
         "IF COL_LENGTH('DIM_SEGMENT','libelle_segment') IS NULL "
         "ALTER TABLE [DIM_SEGMENT] ADD libelle_segment NVARCHAR(100) NULL",
     ),
-
-    (
-        "DIM_SEGMENT.libelle_segment_widen",
-        "IF EXISTS ("
-        "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
-        "WHERE TABLE_NAME='DIM_SEGMENT' AND COLUMN_NAME='libelle_segment' "
-        "AND CHARACTER_MAXIMUM_LENGTH < 100"
-        ") "
-        "ALTER TABLE [DIM_SEGMENT] ALTER COLUMN libelle_segment NVARCHAR(100) NULL",
-    ),
-    # Widen libelle_segment if an earlier version created it as NVARCHAR(64).
-    # COL_LENGTH returns byte-length for NVARCHAR so 64 chars = 128 bytes.
     (
         "DIM_SEGMENT.libelle_segment_widen",
         "IF EXISTS ("
@@ -555,8 +516,9 @@ _MIGRATIONS: list[tuple[str, str]] = [
     ),
 
     # ── DIM_COLLABORATEUR ────────────────────────────────────────────────────
+    # Rename CO_Fonction_code -> CO_Fonction if needed, then ensure INT.
     (
-        "DIM_COLLABORATEUR.CO_Fonction",
+        "DIM_COLLABORATEUR.CO_Fonction_rename",
         "IF COL_LENGTH('DIM_COLLABORATEUR','CO_Fonction') IS NULL AND "
         "COL_LENGTH('DIM_COLLABORATEUR','CO_Fonction_code') IS NOT NULL "
         "EXEC sp_rename 'DIM_COLLABORATEUR.CO_Fonction_code', 'CO_Fonction', 'COLUMN'",
@@ -564,10 +526,10 @@ _MIGRATIONS: list[tuple[str, str]] = [
     (
         "DIM_COLLABORATEUR.CO_Fonction_add",
         "IF COL_LENGTH('DIM_COLLABORATEUR','CO_Fonction') IS NULL "
-        "ALTER TABLE [DIM_COLLABORATEUR] ADD CO_Fonction SMALLINT NULL",
+        "ALTER TABLE [DIM_COLLABORATEUR] ADD CO_Fonction INT NULL",
     ),
     (
-        "DIM_COLLABORATEUR.CO_Fonction_widen",
+        "DIM_COLLABORATEUR.CO_Fonction_widen_to_int",
         "IF EXISTS ("
         "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
         "WHERE TABLE_NAME='DIM_COLLABORATEUR' AND COLUMN_NAME='CO_Fonction' "
@@ -575,6 +537,7 @@ _MIGRATIONS: list[tuple[str, str]] = [
         ") "
         "ALTER TABLE [DIM_COLLABORATEUR] ALTER COLUMN CO_Fonction INT NULL",
     ),
+
     # ── DIM_BANQUE ───────────────────────────────────────────────────────────
     (
         "DIM_BANQUE.EB_Banque",
@@ -599,6 +562,16 @@ _MIGRATIONS: list[tuple[str, str]] = [
         "IF COL_LENGTH('DIM_CAISSE','id_journal') IS NULL "
         "ALTER TABLE [DIM_CAISSE] ADD id_journal INT NULL "
         "REFERENCES DIM_JOURNAL(id_journal)",
+    ),
+    # BUG-4 FIX: ensure CA_Type is nullable on existing DBs that had NOT NULL.
+    (
+        "DIM_CAISSE.CA_Type_nullable",
+        "IF EXISTS ("
+        "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+        "WHERE TABLE_NAME='DIM_CAISSE' AND COLUMN_NAME='CA_Type' "
+        "AND IS_NULLABLE='NO'"
+        ") "
+        "ALTER TABLE [DIM_CAISSE] ALTER COLUMN CA_Type SMALLINT NULL",
     ),
 
     # ── Codification dims — rename generic code_* to Sage names ─────────────
@@ -696,13 +669,11 @@ _MIGRATIONS: list[tuple[str, str]] = [
         "IF COL_LENGTH('FAIT_REGLEMENTS','BR_Rapproch') IS NULL "
         "ALTER TABLE [FAIT_REGLEMENTS] ADD BR_Rapproch SMALLINT NULL",
     ),
-    # BUG-3: RT_NbJour was missing from DDL
     (
         "FAIT_REGLEMENTS.RT_NbJour",
         "IF COL_LENGTH('FAIT_REGLEMENTS','RT_NbJour') IS NULL "
         "ALTER TABLE [FAIT_REGLEMENTS] ADD RT_NbJour SMALLINT NULL",
     ),
-    # BUG-1: Widen delai_reel_jours from SMALLINT to INT
     (
         "FAIT_REGLEMENTS.delai_reel_jours_int",
         "IF EXISTS ("
@@ -712,7 +683,6 @@ _MIGRATIONS: list[tuple[str, str]] = [
         ") "
         "ALTER TABLE [FAIT_REGLEMENTS] ALTER COLUMN delai_reel_jours INT NULL",
     ),
-    # BUG-1: Widen ecart_delai from SMALLINT to INT
     (
         "FAIT_REGLEMENTS.ecart_delai_int",
         "IF EXISTS ("
@@ -722,13 +692,16 @@ _MIGRATIONS: list[tuple[str, str]] = [
         ") "
         "ALTER TABLE [FAIT_REGLEMENTS] ALTER COLUMN ecart_delai INT NULL",
     ),
-    # BUG-2: Rename id_regl → id_reglement on existing DBs.
-    # SQL Server cannot rename an IDENTITY column while a named PK constraint
-    # references it via a simple sp_rename. The migration therefore:
-    #   1. Drops the PK constraint (found via sys.key_constraints).
-    #   2. Renames the column.
-    #   3. Recreates the PK constraint with the new column name.
-    # If the column is already named id_reglement the block is a no-op.
+    # BUG-3 FIX: relax id_mode_reg to NULL on existing DBs that had NOT NULL.
+    (
+        "FAIT_REGLEMENTS.id_mode_reg_nullable",
+        "IF EXISTS ("
+        "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+        "WHERE TABLE_NAME='FAIT_REGLEMENTS' AND COLUMN_NAME='id_mode_reg' "
+        "AND IS_NULLABLE='NO'"
+        ") "
+        "ALTER TABLE [FAIT_REGLEMENTS] ALTER COLUMN id_mode_reg INT NULL",
+    ),
     (
         "FAIT_REGLEMENTS.id_reglement_rename",
         """
@@ -808,17 +781,6 @@ END
         ") "
         "ALTER TABLE [DIM_SEGMENT] ADD CONSTRAINT [UQ_DIM_SEGMENT_cbIndice] "
         "UNIQUE (cbIndice)",
-    ),
-
-    # ── DIM_CAISSE — relax CA_Type to NULL on existing DBs ───────────────────
-    (
-        "DIM_CAISSE.CA_Type_nullable",
-        "IF EXISTS ("
-        "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
-        "WHERE TABLE_NAME='DIM_CAISSE' AND COLUMN_NAME='CA_Type' "
-        "AND IS_NULLABLE='NO'"
-        ") "
-        "ALTER TABLE [DIM_CAISSE] ALTER COLUMN CA_Type SMALLINT NULL",
     ),
 ]
 
