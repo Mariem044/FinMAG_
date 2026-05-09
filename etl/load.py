@@ -107,9 +107,9 @@ def _prepare_for_load(df: pd.DataFrame, table: str) -> pd.DataFrame:
     return df
 
 
-def _sha256_row(row: pd.Series) -> bytearray:
+def _sha256_row(row: pd.Series) -> bytes:
     parts = ["<NULL>" if pd.isna(v) else str(v) for v in row.tolist()]
-    return bytearray(hashlib.sha256("|".join(parts).encode("utf-8")).digest())
+    return hashlib.sha256("|".join(parts).encode("utf-8")).digest()
 
 
 def _detect_binary_cols(df: pd.DataFrame) -> list[str]:
@@ -167,7 +167,8 @@ def _bulk_insert(df: pd.DataFrame, table: str) -> None:
         return
 
     # Hex-encode any binary columns that survived _prepare_for_load
-    binary_cols = _detect_binary_cols(df)
+    # Hex-encode binary columns by name — dtype sniffing is unreliable for bytearray
+    binary_cols = [c for c in df.columns if c in _BINARY_COLS]
     if binary_cols:
         df = _hex_encode_binary_cols(df, binary_cols)
 
@@ -195,7 +196,7 @@ def _bulk_insert(df: pd.DataFrame, table: str) -> None:
     with DW_ENGINE.begin() as conn:
         raw_conn = conn.connection
         cursor = raw_conn.cursor()
-        cursor.fast_executemany = True
+        cursor.fast_executemany = not bool(binary_cols)
         for i in range(0, len(rows), CHUNK_SIZE):
             cursor.executemany(sql, rows[i:i + CHUNK_SIZE])
         cursor.close()
@@ -230,7 +231,7 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
     with DW_ENGINE.begin() as conn:
         conn.execute(text(_DROP_IF_EXISTS.format(name=temp_name)))
 
-    binary_cols = _detect_binary_cols(df)
+    binary_cols = [c for c in df.columns if c in _BINARY_COLS]
     df_staging  = _hex_encode_binary_cols(df, binary_cols) if binary_cols else df
 
     n_cols = len(df_staging.columns)

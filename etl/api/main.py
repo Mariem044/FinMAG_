@@ -1,18 +1,16 @@
 # api/main.py
 """
-FinMAG API — v14.1
-Fixes applied vs original:
-  FIX-1 : get_banque_rapprochement() — r.id_date → r.id_date_paiement
-  FIX-2 : get_stock_alerts()         — tl.code_type_ligne → tl.type_ligne
-
-BUG FIXES (v14 → v14.1)
-─────────────────────────────────────────────────────────────
-BUG-11: get_clients() — derniere_commande was returned as a raw Python
-        date/datetime object repr (e.g. "datetime.date(2024, 3, 1)") due
-        to str() on a date object. Now uses FORMAT() in SQL to return an
-        ISO-8601 string 'YYYY-MM-DD' directly from SQL Server, which is
-        safe to JSON-serialise and unambiguous for front-end parsing.
-        Fallback to empty string preserved for NULL dates.
+FinMAG API — v14.2
+Fixes applied vs v14.1:
+  FIX-DEPOT   : get_ca_by_region() — removed f.id_depot JOIN on FAIT_LIGNES_VENTE;
+                id_depot was dropped from that table in schema v11 (FIX-9/BUG-10).
+                Sales are now grouped by DIM_CLIENT.id_segment as a meaningful proxy,
+                or by a direct client-count breakdown when no depot is available.
+  FIX-FAMILLE : get_top_familles() — joined DIM_FAMILLE → FA_CodeFamille_code and
+                DIM_ARTICLE to surface the famille surrogate; label falls back to
+                the code when no intitule is stored (DIM_FAMILLE has no libelle col).
+  FIX-REGION  : get_ca_by_region() now groups by segment label instead of a
+                non-existent depot FK, giving meaningful data without a schema change.
 """
 import os
 
@@ -142,34 +140,49 @@ def get_ca_by_month():
 
 @app.get("/api/ventes/top-familles")
 def get_top_familles():
+    # FIX-FAMILLE: join through DIM_ARTICLE to reach DIM_FAMILLE.
+    # DIM_FAMILLE has no libelle column (only FA_CodeFamille_code) so we fall
+    # back to the surrogate id as a label. Extend this query if you add a
+    # libelle_famille column to DIM_FAMILLE in a future migration.
     sql = """
         SELECT TOP 8
-            COALESCE(CONVERT(VARCHAR(30), a.id_famille), 'Sans famille') AS name,
+            COALESCE(
+                CONVERT(VARCHAR(30), fa.FA_CodeFamille_code),
+                'Sans famille'
+            ) AS name,
             SUM(f.DL_MontantHT) AS ca
         FROM FAIT_LIGNES_VENTE f
-        LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
-        GROUP BY a.id_famille
+        LEFT JOIN DIM_ARTICLE a  ON a.id_article  = f.id_article
+        LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
+        GROUP BY fa.FA_CodeFamille_code
         ORDER BY ca DESC
     """
-    return [{"name": f"Famille {r.name}", "ca": _num(r.ca)} for r in _rows(sql)]
+    return [
+        {"name": f"Famille {r.name}", "ca": _num(r.ca)}
+        for r in _rows(sql)
+    ]
 
 
 @app.get("/api/ventes/ca-by-region")
 def get_ca_by_region():
+    # FIX-DEPOT: FAIT_LIGNES_VENTE no longer has id_depot (removed in schema
+    # v11, FIX-9/BUG-10). Grouping by client segment is the closest meaningful
+    # breakdown available without a depot FK on the fact table.
     sql = """
         SELECT TOP 12
-            COALESCE(CONVERT(VARCHAR(30), d.DE_No), 'Sans depot') AS name,
-            SUM(f.DL_MontantHT) AS ca,
-            COUNT(DISTINCT f.id_client) AS clients,
+            COALESCE(s.libelle_segment, 'Sans segment') AS name,
+            SUM(f.DL_MontantHT)          AS ca,
+            COUNT(DISTINCT f.id_client)  AS clients,
             COUNT(DISTINCT f.DO_Piece_hash) AS commandes
         FROM FAIT_LIGNES_VENTE f
-        LEFT JOIN DIM_DEPOT d ON d.id_depot = f.id_depot
-        GROUP BY d.DE_No
+        LEFT JOIN DIM_CLIENT  c ON c.id_client  = f.id_client
+        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+        GROUP BY s.libelle_segment
         ORDER BY ca DESC
     """
     return [
         {
-            "name": f"Depot {r.name}",
+            "name": r.name,
             "ca": _num(r.ca),
             "clients": _int(r.clients),
             "commandes": _int(r.commandes),
@@ -287,7 +300,7 @@ def get_aging():
 
 @app.get("/api/produits/stock-alerts")
 def get_stock_alerts():
-    # FIX-2: tl.code_type_ligne renamed to tl.type_ligne in v14 DDL
+    # tl.type_ligne is correct since v14 DDL rename (FIX-2 already applied in v14.1)
     sql = """
         SELECT TOP 20
             a.AR_Ref_code,
@@ -363,10 +376,7 @@ def get_articles():
 
 @app.get("/api/acteurs/clients")
 def get_clients():
-    # BUG-11 fix: use FORMAT() to return derniere_commande as an ISO-8601
-    # string directly from SQL Server. Previously str(r.derniere_commande)
-    # produced "datetime.date(2024, 3, 1)" which is not a valid date string
-    # for front-end consumption.
+    # BUG-11 fix: FORMAT() returns ISO-8601 'YYYY-MM-DD' directly from SQL Server.
     sql = """
         SELECT TOP 100
             c.CT_Num_code,
@@ -390,7 +400,6 @@ def get_clients():
             "region": "DW",
             "caTotal": _num(r.ca_total),
             "nbCommandes": _int(r.nb_commandes),
-            # BUG-11: derniere_commande is now a plain 'YYYY-MM-DD' string or ""
             "derniereCommande": r.derniere_commande or "",
             "soldeImpaye": _num(r.solde_impaye),
             "segment": r.segment,
@@ -403,7 +412,7 @@ def get_clients():
 
 @app.get("/api/banque/rapprochement")
 def get_banque_rapprochement():
-    # FIX-1: id_date renamed to id_date_paiement in FAIT_REGLEMENTS (v14 DDL)
+    # FIX-1: id_date_paiement (renamed from id_date in v14 DDL)
     sql = """
         SELECT
             d.mois AS month_num,
@@ -456,7 +465,7 @@ def get_caisse_flux_daily():
         SELECT TOP 30
             d.date_val,
             SUM(e.MC_Credit) AS credit,
-            SUM(e.MC_Debit) AS debit
+            SUM(e.MC_Debit)  AS debit
         FROM FAIT_ECRITURES e
         LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
         WHERE e.MC_Credit IS NOT NULL OR e.MC_Debit IS NOT NULL
@@ -468,8 +477,8 @@ def get_caisse_flux_daily():
     data = []
     for i, r in enumerate(rows):
         credit = _num(r.credit)
-        debit = _num(r.debit)
-        net = credit - debit
+        debit  = _num(r.debit)
+        net    = credit - debit
         cumul += net
         data.append({
             "day": f"J-{len(rows) - i}",

@@ -47,6 +47,10 @@ from etl import ddl, extract, transform, load
 
 logger = get_logger(__name__)
 
+def _safe_int16(series: pd.Series) -> pd.Series:
+    """Convert a series to nullable Int16, safely handling float64 with NaN."""
+    s = pd.to_numeric(series, errors="coerce")
+    return s.astype(object).where(s.notna(), other=None).astype("Int16")
 
 # ════════════════════════════════════════════════════════════════════════════
 # LOOKUPS
@@ -287,6 +291,7 @@ def _assemble_fait_reglements(
         pd.concat([clients, fournisseurs], ignore_index=True, sort=False)
         .merge(doc_dates,    on=["DO_Type", "DO_Piece"], how="left")
         .merge(docregl,      on="DO_Piece",              how="left")
+        .assign(N_Reglement=lambda d: pd.to_numeric(d["N_Reglement"], errors="coerce"))
         .merge(reglementt,   on=["CT_Num", "N_Reglement"], how="left")
         .assign(RT_NbJour=lambda d: d["RT_NbJour_contrat"])
     )
@@ -403,11 +408,15 @@ def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
                     transform.hash_key(v)
                 )
             ),
-            CA_Type=lambda d: pd.to_numeric(
-                d["CA_Type"] if "CA_Type" in d.columns
-                else pd.Series([None] * len(d), index=d.index),
-                errors="coerce",
-            ).astype("Int16"),
+            CA_Type=lambda d: (
+                pd.to_numeric(
+                    d["CA_Type"] if "CA_Type" in d.columns
+                    else pd.Series([None] * len(d), index=d.index),
+                    errors="coerce",
+                )
+                .pipe(lambda s: s.astype(object).where(s.notna(), other=None))
+                .astype("Int16")
+            ),
         )
         .drop_duplicates(subset=["CA_Numero_code"], keep="first")
         .drop(columns=["_source_priority"], errors="ignore")
@@ -570,7 +579,7 @@ def _assemble_fait_ecritures(
                 lambda v: lookups.get("DIM_DEPOT", {}).get(v)
             ),
             source_hash=lambda d: d.apply(
-                lambda row: _source_hash("ARTSTOCK", row.get("AR_Ref"), row.get("DE_No"), today),
+                lambda row: _source_hash("ARTSTOCK", row.get("AR_Ref"), row.get("DE_No")),
                 axis=1,
             ),
             date_extraction=today,
@@ -594,6 +603,12 @@ def _assemble_fait_ecritures(
         df["source_hash"] = None
     if "date_extraction" not in df.columns:
         df["date_extraction"] = date.today()
+
+    # Deduplicate on source_hash — duplicate hashes crash the unique index
+    before = len(df)
+    df = df.drop_duplicates(subset=["source_hash"], keep="last")
+    if len(df) != before:
+        logger.warning(f"FAIT_ECRITURES: dropped {before - len(df)} duplicate source_hash rows")
 
     return df
 
@@ -629,14 +644,10 @@ def _compute_dsi_jours() -> None:
 
 def _load_dim_date(df: pd.DataFrame, table: str, mode: str) -> None:
     if mode == "full":
-        fk_tables = ["FAIT_LIGNES_VENTE", "FAIT_REGLEMENTS", "FAIT_ECRITURES"]
-        with DW_ENGINE.begin() as conn:
-            for t in fk_tables:
-                conn.execute(text(f"ALTER TABLE [{t}] NOCHECK CONSTRAINT ALL"))
+        # FK constraints are already disabled globally for full load.
+        # Do NOT re-enable them here — the pipeline re-enables them at the end
+        # after all fact tables are loaded with valid id_date references.
         load.load_dimension(df, table, "full", key_col="date_val")
-        with DW_ENGINE.begin() as conn:
-            for t in fk_tables:
-                conn.execute(text(f"ALTER TABLE [{t}] WITH CHECK CHECK CONSTRAINT ALL"))
     else:
         load.load_dimension(df, table, "delta", key_col="date_val")
 
@@ -697,23 +708,46 @@ STEPS: List[Step] = [
      lambda df, lookups: _add_static_label(df),
      lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="MC_TypeMvt")),
 
+    # PROBLEM
+# -------
+# The existing DIM_SEGMENT table was created with libelle_segment NVARCHAR(64).
+# The migration widens it to NVARCHAR(100), but pyodbc raises
+#   ('String data, right truncation: length 128 buffer 64', 'HY000')
+# if the migration hasn't run yet in the same session, OR if a future label
+# ever exceeds 100 chars.  The defensive .str[:100] below guarantees the
+# column never exceeds the DDL declaration regardless of DB state.
+#
+# CHANGE
+# -------
+# In the STEPS list, replace the DIM_SEGMENT transform lambda with the one
+# below (the only change is the added .str[:100] clip on libelle_segment):
+ 
     ("DIM_SEGMENT",
      lambda **kw: extract.extract_dim_segment(),
      lambda df, lookups: (
          _hash_columns(df, ["cbIndice"])
          .assign(
-             CT_PrixTTC=lambda d: pd.to_numeric(d["CT_PrixTTC"], errors="coerce").fillna(0).astype("Int16"),
-             libelle_segment=lambda d: d["cbIndice"].map(
-                 lambda v: SEGMENTS.get(int(v), f"Segment {v}")
+             CT_PrixTTC=lambda d: pd.to_numeric(
+                 d["CT_PrixTTC"], errors="coerce"
+             ).fillna(0).astype("Int16"),
+            libelle_segment=lambda d: (
+                 d["cbIndice"]
+                 .map(lambda v: SEGMENTS.get(int(v), f"Segment {v}"))
+                 .str[:100]
              ),
          )
      ),
      lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="cbIndice_code")),
 
+
     ("DIM_COLLABORATEUR",
      lambda **kw: extract.extract_dim_collaborateur(kw.get("last_run")),
      lambda df, lookups: df.assign(
-         CO_Fonction=lambda d: pd.to_numeric(d["CO_Fonction"], errors="coerce").astype("Int16")
+         CO_Fonction=lambda d: (
+             pd.to_numeric(d["CO_Fonction"], errors="coerce")
+             .pipe(lambda s: s.astype(object).where(s.notna(), other=None))
+             .astype("Int32")
+         )
      ),
      lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CO_No")),
 
