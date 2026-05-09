@@ -265,9 +265,13 @@ def _assemble_fait_reglements(
         "BQ_ABREGE": None,
         "LB_MontantReg": None,
         "RG_Montant": None,
+        "RC_Montant": None,
         "BR_TotalReglement": None,
         "LB_EcheanceReg": None,
         "N_Reglement": None,
+        "DR_Regle": None,
+        "DR_Montant": None,
+        "DR_ModeReg": None,
     }
 
     clients = _ensure_columns(
@@ -287,16 +291,21 @@ def _assemble_fait_reglements(
         .drop_duplicates(subset=["DO_Type", "DO_Piece"], keep="last")
     )
 
-    docregl = (
-        extract.extract_docregl_grt(last_run)
-        .drop_duplicates(subset=["DO_Piece"], keep="last")
-    )
+    _docregl_raw = extract.extract_docregl_grt(last_run)
+    if _docregl_raw.empty or "DO_Piece" not in _docregl_raw.columns:
+        docregl = pd.DataFrame(columns=["DO_Piece", "DR_Montant", "DR_Regle", "DR_ModeReg"])
+    else:
+        docregl = _docregl_raw.drop_duplicates(subset=["DO_Piece"], keep="last")
 
     # FIX-10: source RT_NbJour from F_REGLEMENTT (contractual delay)
-    reglementt = (
-        extract.extract_reglementt()[["CT_Num", "N_Reglement", "RT_NbJour"]]
-        .rename(columns={"RT_NbJour": "RT_NbJour_contrat"})
-    )
+    _reglementt_raw = extract.extract_reglementt()
+    if _reglementt_raw.empty or "CT_Num" not in _reglementt_raw.columns:
+        reglementt = pd.DataFrame(columns=["CT_Num", "N_Reglement", "RT_NbJour_contrat"])
+    else:
+        reglementt = (
+            _reglementt_raw[["CT_Num", "N_Reglement", "RT_NbJour"]]
+            .rename(columns={"RT_NbJour": "RT_NbJour_contrat"})
+        )
 
     df = (
         pd.concat([clients, fournisseurs], ignore_index=True, sort=False)
@@ -305,6 +314,20 @@ def _assemble_fait_reglements(
         .merge(reglementt, on=["CT_Num", "N_Reglement"], how="left")
         .assign(RT_NbJour=lambda d: d["RT_NbJour_contrat"])
     )
+
+    # Guarantee all columns exist after merges — GRT tables may return
+    # no rows, leaving join columns absent from the DataFrame entirely
+    for _col, _default in {
+        "DR_Regle":    None,
+        "DR_Montant":  None,
+        "DR_ModeReg":  None,
+        "RC_Montant":  None,
+        "RG_Montant":  None,
+        "DO_Date":     None,
+        "RT_NbJour_contrat": None,
+    }.items():
+        if _col not in df.columns:
+            df[_col] = _default
 
     df = transform.add_fact_reglements_bucket(
         transform.add_fact_reglements_calcs(df)
@@ -605,7 +628,16 @@ def _assemble_fait_ecritures(
     )
     df4 = transform.add_fact_ecritures_calcs(df4)
 
-    return pd.concat([df1, df2, df3, df4], ignore_index=True)
+    df = pd.concat([df1, df2, df3, df4], ignore_index=True)
+
+    # Ensure source_hash and date_extraction survive concat — pandas may drop
+    # binary/all-NA columns when one of the sub-DataFrames is empty
+    if "source_hash" not in df.columns:
+        df["source_hash"] = None
+    if "date_extraction" not in df.columns:
+        df["date_extraction"] = date.today()
+
+    return df
 
 
 # ===========================================================================

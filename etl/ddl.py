@@ -681,6 +681,30 @@ _MIGRATIONS: list[tuple[str, str]] = [
         "IF COL_LENGTH('FAIT_ECRITURES','source_hash') IS NULL "
         "ALTER TABLE [FAIT_ECRITURES] ADD source_hash BINARY(32) NULL",
     ),
+    
+    # ── DIM_SEGMENT — ensure cbIndice unique constraint on existing DBs ──────
+    (
+        "DIM_SEGMENT.cbIndice_unique",
+        "IF NOT EXISTS ("
+        "SELECT 1 FROM sys.indexes "
+        "WHERE name='UQ_DIM_SEGMENT_cbIndice' "
+        "AND object_id=OBJECT_ID('DIM_SEGMENT')"
+        ") "
+        "ALTER TABLE [DIM_SEGMENT] ADD CONSTRAINT [UQ_DIM_SEGMENT_cbIndice] "
+        "UNIQUE (cbIndice)",
+    ),
+
+    # ── DIM_CAISSE — relax CA_Type to NULL on existing DBs ───────────────────
+    (
+        "DIM_CAISSE.CA_Type_nullable",
+        "IF EXISTS ("
+        "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+        "WHERE TABLE_NAME='DIM_CAISSE' AND COLUMN_NAME='CA_Type' "
+        "AND IS_NULLABLE='NO'"
+        ") "
+        "ALTER TABLE [DIM_CAISSE] ALTER COLUMN CA_Type SMALLINT NULL",
+    ),
+
 ]
 
 # ── Unique indexes on source_hash ────────────────────────────────────────────

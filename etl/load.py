@@ -180,9 +180,9 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
     # _prepare_for_load strips IDENTITY columns — df.columns has no PK after this
     df = _prepare_for_load(df, table)
 
-    # FIX: drop BINARY columns before to_sql — pandas cannot infer BINARY(32) type
-    # and creates varchar(max) in the staging table causing MERGE type mismatch
-    df = df.drop(columns=["row_hash", "source_hash"], errors="ignore")
+    # FIX: drop BINARY columns before to_sql — but never drop the key column
+    cols_to_drop = [c for c in ["row_hash", "source_hash"] if c != key_col]
+    df = df.drop(columns=cols_to_drop, errors="ignore")
 
     if key_col not in df.columns:
         raise ValueError(
@@ -191,6 +191,9 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
 
     before_dedupe = len(df)
     df = df.drop_duplicates(subset=[key_col], keep="last")
+
+    
+
     if len(df) != before_dedupe:
         logger.warning(
             f"[LOAD] {table} - dropped {before_dedupe - len(df)} "
@@ -219,6 +222,8 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
         method="multi",
     )
 
+    
+
     # FIX-NEW: identity col already gone — just exclude key_col from SET
     update_cols = [c for c in df.columns if c != key_col]
     update_set = (
@@ -230,10 +235,21 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
     all_cols_sql = ", ".join([f"[{c}]" for c in df.columns])
     src_cols_sql = ", ".join([f"src.[{c}]" for c in df.columns])
 
+    # If key_col is source_hash, cast the staging varchar(max) to BINARY(32)
+    # — pandas.to_sql creates varchar(max) for bytes columns, but the DW
+    # target column is BINARY(32), causing implicit conversion failure.
+    if key_col == "source_hash":
+        on_clause = (
+            f"CONVERT(VARBINARY(32), target.[{key_col}]) = "
+            f"CONVERT(VARBINARY(32), src.[{key_col}])"
+        )
+    else:
+        on_clause = f"target.[{key_col}] = src.[{key_col}]"
+
     merge_sql = f"""
         MERGE INTO [{table}] AS target
         USING [{temp_name}] AS src
-        ON target.[{key_col}] = src.[{key_col}]
+        ON {on_clause}
         WHEN MATCHED THEN UPDATE SET
             {update_set}
         WHEN NOT MATCHED THEN INSERT ({all_cols_sql})

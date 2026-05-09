@@ -279,15 +279,37 @@ def extract_dim_banque_grt() -> pd.DataFrame:
 
 # FIX-2: added CA_Type to SELECT
 def extract_dim_caisse_mag() -> pd.DataFrame:
-    sql = """
-        SELECT
-            CA_No,
-            JO_Num,
-            DE_No,
-            CO_No,
-            CA_Type
-        FROM F_CAISSE
+    # Check if CA_Type exists in F_CAISSE before selecting it
+    check_sql = """
+        SELECT COUNT(*) 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_NAME = 'F_CAISSE' 
+        AND COLUMN_NAME = 'CA_Type'
     """
+    with MAG_ENGINE.connect() as conn:
+        has_ca_type = conn.execute(text(check_sql)).scalar() > 0
+
+    if has_ca_type:
+        sql = """
+            SELECT
+                CA_No,
+                JO_Num,
+                DE_No,
+                CO_No,
+                CA_Type
+            FROM F_CAISSE
+        """
+    else:
+        logger.warning("F_CAISSE.CA_Type not found in MAG source — defaulting to NULL")
+        sql = """
+            SELECT
+                CA_No,
+                JO_Num,
+                DE_No,
+                CO_No,
+                NULL AS CA_Type
+            FROM F_CAISSE
+        """
     return _read(MAG_ENGINE, sql)
 
 
@@ -476,7 +498,7 @@ def extract_docentete_dates() -> pd.DataFrame:
 def extract_fait_reglements_clients(
     last_run: Optional[datetime] = None,
 ) -> pd.DataFrame:
-    delta_clause, params = _delta_filter("rc.cbModification", last_run)
+    delta_clause, params = _delta_filter("rc.RT_Date", last_run)
     sql = f"""
         SELECT
             rc.RT_Num,
@@ -518,7 +540,8 @@ def extract_fait_reglements_clients(
 def extract_fait_reglements_fournisseurs(
     last_run: Optional[datetime] = None,
 ) -> pd.DataFrame:
-    sql = """
+    delta_clause, params = _delta_filter("RT_Date", last_run)
+    sql = f"""
         SELECT
             RT_Num,
             CT_Num,
@@ -530,6 +553,23 @@ def extract_fait_reglements_fournisseurs(
             RT_Etat,
             BQ_Num
         FROM F_ReglementFournisseur
+        WHERE 1=1
+        {delta_clause}
+    """
+    return _read(GRT_ENGINE, sql, params)
+
+
+def extract_docregl_grt(
+    last_run: Optional[datetime] = None,
+) -> pd.DataFrame:
+    # F_DOCREGL in GRT has no cbModification — no delta filter available
+    sql = """
+        SELECT
+            DO_Piece,
+            DR_Montant,
+            DR_EtatRegle AS DR_Regle,
+            DR_ModeReg
+        FROM F_DOCREGL
     """
     return _read(GRT_ENGINE, sql)
 
