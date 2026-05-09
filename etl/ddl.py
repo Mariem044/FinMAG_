@@ -225,9 +225,9 @@ CREATE TABLE DIM_CLIENT (
     CT_Num_code             INT NOT NULL UNIQUE,
     CT_Sommeil              SMALLINT NOT NULL DEFAULT 0,
     id_segment              INT NULL REFERENCES DIM_SEGMENT(id_segment)
-                                ON DELETE SET NULL,
+                                ON DELETE NO ACTION,
     id_collab               INT NULL REFERENCES DIM_COLLABORATEUR(id_collab)
-                                ON DELETE SET NULL,
+                                ON DELETE NO ACTION,
     CT_Encours              NUMERIC(18,4) NULL,
     CT_SvCA                 NUMERIC(18,4) NULL,
     CT_SoldeActuel          NUMERIC(18,4) NULL,
@@ -254,9 +254,9 @@ CREATE TABLE DIM_ARTICLE (
     id_article         INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     AR_Ref_code        INT NOT NULL UNIQUE,
     id_famille         INT NULL REFERENCES DIM_FAMILLE(id_famille)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_fournisseur     INT NULL REFERENCES DIM_FOURNISSEUR(id_fournisseur)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     AR_Sommeil         SMALLINT NOT NULL DEFAULT 0,
     AR_PrixAch         NUMERIC(18,4) NULL,
     AR_SuiviStock      SMALLINT NOT NULL DEFAULT 0,
@@ -285,7 +285,7 @@ CREATE TABLE DIM_CAISSE (
     CA_Numero_code     INT NOT NULL UNIQUE,
     CA_Type            SMALLINT NULL,
     id_journal         INT NULL REFERENCES DIM_JOURNAL(id_journal)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     row_hash           BINARY(32) NULL
 )"""),
 ]
@@ -296,20 +296,20 @@ CREATE TABLE DIM_CAISSE (
 
 _DDL_GROUPE_7: list[tuple[str, str]] = [
 
-    # FIX-9: id_depot removed
+    # FIX-9: id_depot removed — FIX-CASCADE: ON DELETE NO ACTION throughout
     ("FAIT_LIGNES_VENTE", """
 CREATE TABLE FAIT_LIGNES_VENTE (
     id_ligne           INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     id_date            INT NULL REFERENCES DIM_DATE(id_date)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_type_doc        INT NULL REFERENCES DIM_TYPE_DOC(id_type_doc)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_domaine         INT NULL REFERENCES DIM_DOMAINE(id_domaine)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_client          INT NULL REFERENCES DIM_CLIENT(id_client)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_article         INT NULL REFERENCES DIM_ARTICLE(id_article)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     DL_Qte             NUMERIC(18,4) NULL,
     DL_PrixUnitaire    NUMERIC(18,4) NULL,
     DL_Taxe1           NUMERIC(18,4) NULL,
@@ -326,28 +326,28 @@ CREATE TABLE FAIT_LIGNES_VENTE (
     date_extraction    DATE NOT NULL
 )"""),
 
-    # FIX-11/12: id_date_paiement + chk_regl_excl
+    # FIX-11/12: id_date_paiement + chk_regl_excl — FIX-CASCADE: ON DELETE NO ACTION
     ("FAIT_REGLEMENTS", """
 CREATE TABLE FAIT_REGLEMENTS (
     id_regl            INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     id_date_paiement   INT NULL REFERENCES DIM_DATE(id_date)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_date_echeance   INT NULL REFERENCES DIM_DATE(id_date)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_client          INT NULL REFERENCES DIM_CLIENT(id_client)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_fournisseur     INT NULL REFERENCES DIM_FOURNISSEUR(id_fournisseur)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_banque          INT NULL REFERENCES DIM_BANQUE(id_banque)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_mode_reg        INT NULL REFERENCES DIM_MODE_REGLEMENT(id_mode_reg)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_etat_reg        INT NULL REFERENCES DIM_ETAT_REGLEMENT(id_etat_reg)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_etat_docregl    INT NULL REFERENCES DIM_ETAT_DOCREGL(id_etat_docregl)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_type_doc        INT NULL REFERENCES DIM_TYPE_DOC(id_type_doc)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     RT_Montant         NUMERIC(18,4) NULL,
     DR_Montant         NUMERIC(18,4) NULL,
     RC_Montant         NUMERIC(18,4) NULL,
@@ -372,34 +372,34 @@ CREATE TABLE FAIT_REGLEMENTS (
     )
 )"""),
 
-    # FIX-10/13: id_banque added; all stock/caisse/TVA columns restored
+    # FIX-10/13: id_banque added; all stock/caisse/TVA columns restored — FIX-CASCADE: ON DELETE NO ACTION
     ("FAIT_ECRITURES", """
 CREATE TABLE FAIT_ECRITURES (
     id_ecriture        INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     id_date            INT NULL REFERENCES DIM_DATE(id_date)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_type_ligne      INT NULL REFERENCES DIM_TYPE_LIGNE(id_type_ligne)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_journal         INT NULL REFERENCES DIM_JOURNAL(id_journal)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_banque          INT NULL REFERENCES DIM_BANQUE(id_banque)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_client          INT NULL REFERENCES DIM_CLIENT(id_client)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_fournisseur     INT NULL REFERENCES DIM_FOURNISSEUR(id_fournisseur)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_article         INT NULL REFERENCES DIM_ARTICLE(id_article)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_depot           INT NULL REFERENCES DIM_DEPOT(id_depot)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_type_tva        INT NULL REFERENCES DIM_TYPE_TVA(id_type_tva)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_type_mvt        INT NULL REFERENCES DIM_TYPE_MVT_CAISSE(id_type_mvt)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_sens            INT NULL REFERENCES DIM_SENS_ECRITURE(id_sens)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     id_caisse          INT NULL REFERENCES DIM_CAISSE(id_caisse)
-                           ON DELETE SET NULL,
+                           ON DELETE NO ACTION,
     EC_Montant         NUMERIC(18,4) NULL,
     CG_Num             INT NULL,
     TA_Taux01          NUMERIC(18,4) NULL,
@@ -426,7 +426,6 @@ CREATE TABLE FAIT_ECRITURES (
     date_extraction    DATE NOT NULL
 )"""),
 ]
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # GROUP 8
 # ═══════════════════════════════════════════════════════════════════════════════

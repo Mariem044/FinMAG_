@@ -34,8 +34,15 @@ import sys
 from datetime import datetime, date
 from typing import Callable, Dict, List, Tuple, Optional
 
+import warnings
 import pandas as pd
 from sqlalchemy import text
+
+warnings.filterwarnings(
+    "ignore",
+    message="The behavior of DataFrame concatenation with empty or all-NA entries",
+    category=FutureWarning,
+)
 
 from etl.config import DW_ENGINE
 from etl.utils.logger import get_logger
@@ -628,6 +635,16 @@ def _assemble_fait_ecritures(
     )
     df4 = transform.add_fact_ecritures_calcs(df4)
 
+
+    # Align columns across all sub-DataFrames before concat to avoid FutureWarning
+    _all_cols = list(dict.fromkeys(
+        list(df1.columns) + list(df2.columns) +
+        list(df3.columns) + list(df4.columns)
+    ))
+    for _sub in (df1, df2, df3, df4):
+        for _col in _all_cols:
+            if _col not in _sub.columns:
+                _sub[_col] = pd.NA
     df = pd.concat([df1, df2, df3, df4], ignore_index=True)
 
     # Ensure source_hash and date_extraction survive concat — pandas may drop
@@ -671,19 +688,30 @@ def _compute_dsi_jours() -> None:
         conn.execute(text(sql))
     logger.info("dsi_jours computed successfully.")
 
-def _load_dim_date_full(df: pd.DataFrame, table: str) -> None:
-    """Full reload of DIM_DATE with FK constraints disabled to avoid lock waits."""
-    fk_tables = ["FAIT_LIGNES_VENTE", "FAIT_REGLEMENTS", "FAIT_ECRITURES"]
 
-    with DW_ENGINE.begin() as conn:
-        for t in fk_tables:
-            conn.execute(text(f"ALTER TABLE [{t}] NOCHECK CONSTRAINT ALL"))
+def _load_dim_date(df: pd.DataFrame, table: str, mode: str) -> None:
+    """
+    DIM_DATE load strategy:
+    - full mode : disable FK on fact tables, DELETE all, bulk insert, re-enable FK.
+    - delta mode: MERGE on date_val — only insert missing dates, never delete.
+                  This preserves existing id_date surrogate keys that fact tables reference.
+    """
+    if mode == "full":
+        fk_tables = ["FAIT_LIGNES_VENTE", "FAIT_REGLEMENTS", "FAIT_ECRITURES"]
+        with DW_ENGINE.begin() as conn:
+            for t in fk_tables:
+                conn.execute(text(f"ALTER TABLE [{t}] NOCHECK CONSTRAINT ALL"))
+        load.load_dimension(df, table, "full", key_col="date_val")
+        with DW_ENGINE.begin() as conn:
+            for t in fk_tables:
+                conn.execute(text(
+                    f"ALTER TABLE [{t}] WITH CHECK CHECK CONSTRAINT ALL"
+                ))
+    else:
+        # Delta: only add new dates, never touch existing rows
+        load.load_dimension(df, table, "delta", key_col="date_val")
 
-    load.load_dimension(df, table, "full", key_col="date_val")
 
-    with DW_ENGINE.begin() as conn:
-        for t in fk_tables:
-            conn.execute(text(f"ALTER TABLE [{t}] WITH CHECK CHECK CONSTRAINT ALL"))
 # ===========================================================================
 # STEPS
 # ===========================================================================
@@ -691,10 +719,10 @@ def _load_dim_date_full(df: pd.DataFrame, table: str) -> None:
 STEPS: List[Step] = [
 
     (
-    "DIM_DATE",
-    lambda **kw: pd.DataFrame(),
-    None,
-    lambda df, tbl, mode: _load_dim_date_full(df, tbl),
+        "DIM_DATE",
+        lambda **kw: pd.DataFrame(),
+        None,
+        lambda df, tbl, mode: _load_dim_date(df, tbl, mode),
     ),
 
     (

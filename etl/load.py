@@ -5,6 +5,16 @@ All operations are wrapped in a transaction per table.
 
 FIXES APPLIED
 ─────────────────────────────────────────────────────────────
+FIX-BINARY : _merge_upsert() — binary columns (source_hash, row_hash)
+             are now serialised to hex strings before pandas.to_sql so the
+             staging table gets VARCHAR(64) instead of varchar(max).
+             The MERGE ON clause and INSERT VALUES use
+             CONVERT(VARBINARY(32), src.[col], 2)  (style 2 = hex, no 0x)
+             so SQL Server re-materialises them as BINARY(32) correctly.
+             This fixes:
+               Implicit conversion from data type varchar(max) to binary
+               is not allowed. (Error 257)
+
 FIX-NEW : _merge_upsert() — removed broken pk_col name inference
            (f"id_{table.lower()}") which was always wrong for fact tables
            and multi-word table names. Since _prepare_for_load() already
@@ -36,6 +46,9 @@ logger = get_logger(__name__)
 Mode = Literal["full", "delta"]
 
 _DROP_IF_EXISTS = "IF OBJECT_ID(N'[dbo].[{name}]', N'U') IS NOT NULL DROP TABLE [{name}]"
+
+# Columns that carry raw bytes and must be hex-encoded for pandas.to_sql
+_BINARY_COLS = {"source_hash", "row_hash"}
 
 
 def _target_columns(table: str) -> tuple[list[str], set[str]]:
@@ -90,7 +103,7 @@ def _prepare_for_load(df: pd.DataFrame, table: str) -> pd.DataFrame:
 
     df = df.loc[:, kept_cols].copy()
 
-    # ✅ FIX: convert datetime.date objects to ISO string 'YYYY-MM-DD'
+    # Convert datetime.date objects to ISO string 'YYYY-MM-DD'
     # so pyodbc sends DATE not DATETIME to SQL Server DATE columns.
     import datetime as _dt
     for col in df.columns:
@@ -112,6 +125,31 @@ def _sha256_row(row: pd.Series) -> bytearray:
         else:
             parts.append(str(value))
     return bytearray(hashlib.sha256("|".join(parts).encode("utf-8")).digest())
+
+
+def _detect_binary_cols(df: pd.DataFrame) -> list[str]:
+    """Return column names in *df* that contain bytes/bytearray values."""
+    found = []
+    for col in df.columns:
+        if col in _BINARY_COLS:
+            sample = df[col].dropna()
+            if not sample.empty and isinstance(sample.iloc[0], (bytes, bytearray)):
+                found.append(col)
+    return found
+
+
+def _hex_encode_binary_cols(df: pd.DataFrame, binary_cols: list[str]) -> pd.DataFrame:
+    """Return a copy of *df* with binary columns converted to hex strings.
+
+    Uses uppercase hex without '0x' prefix so SQL Server
+    CONVERT(VARBINARY(32), value, 2) can re-materialise them correctly.
+    """
+    df = df.copy()
+    for col in binary_cols:
+        df[col] = df[col].apply(
+            lambda v: v.hex().upper() if isinstance(v, (bytes, bytearray)) else v
+        )
+    return df
 
 
 def _bulk_insert(df: pd.DataFrame, table: str) -> None:
@@ -164,12 +202,17 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
     """Perform a MERGE (upsert) on the DW table.
 
     *key_col* is the natural-key hash column used to match rows
-    (e.g. ``CT_Num_code``).
+    (e.g. ``CT_Num_code`` or ``source_hash``).
 
-    FIX-NEW: the IDENTITY PK is already stripped by _prepare_for_load()
+    FIX-BINARY: Binary columns (source_hash, row_hash) are hex-encoded
+    before pandas.to_sql so the staging table gets a VARCHAR column rather
+    than varchar(max) with raw byte representation. The MERGE ON clause and
+    INSERT VALUES clause use CONVERT(VARBINARY(32), src.[col], 2) to
+    re-materialise them as BINARY(32), matching the DW column type exactly.
+
+    FIX-NEW: The IDENTITY PK is already stripped by _prepare_for_load()
     before this function builds its column list. There is therefore no need
-    to guess the PK column name (the old f"id_{table.lower()}" pattern was
-    always wrong for fact tables). The UPDATE SET clause simply excludes
+    to guess the PK column name. The UPDATE SET clause simply excludes
     key_col; the identity column is already absent from df.columns.
     """
     if df.empty:
@@ -177,10 +220,9 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
         return
 
     # _prepare_for_load strips IDENTITY columns — df.columns has no PK after this
-    # _prepare_for_load strips IDENTITY columns — df.columns has no PK after this
     df = _prepare_for_load(df, table)
 
-    # FIX: drop BINARY columns before to_sql — but never drop the key column
+    # Drop binary hash cols that are NOT the merge key (they go into _bulk_insert path)
     cols_to_drop = [c for c in ["row_hash", "source_hash"] if c != key_col]
     df = df.drop(columns=cols_to_drop, errors="ignore")
 
@@ -191,8 +233,6 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
 
     before_dedupe = len(df)
     df = df.drop_duplicates(subset=[key_col], keep="last")
-
-    
 
     if len(df) != before_dedupe:
         logger.warning(
@@ -207,13 +247,20 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
     with DW_ENGINE.begin() as conn:
         conn.execute(text(_DROP_IF_EXISTS.format(name=temp_name)))
 
+    # FIX-BINARY: detect binary columns still present in df (only key_col
+    # could be source_hash at this point; row_hash was dropped above).
+    binary_cols = _detect_binary_cols(df)
+
+    # Write a hex-encoded copy to the staging table so pandas.to_sql creates
+    # a proper VARCHAR column instead of varchar(max) with raw byte data.
+    df_staging = _hex_encode_binary_cols(df, binary_cols) if binary_cols else df
+
     logger.debug(f"[LOAD] {table} – création table temporaire {temp_name}")
     # SQL Server limit: 2100 parameters per statement
-    # Calculate max rows per chunk: floor(2100 / number of columns)
-    n_cols = len(df.columns)
+    n_cols = len(df_staging.columns)
     sql_server_chunk = max(1, 2099 // n_cols)
 
-    df.to_sql(
+    df_staging.to_sql(
         name=temp_name,
         con=DW_ENGINE,
         if_exists="replace",
@@ -222,9 +269,8 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
         method="multi",
     )
 
-    
-
-    # FIX-NEW: identity col already gone — just exclude key_col from SET
+    # Build MERGE clauses
+    # UPDATE SET excludes key_col (FIX-NEW)
     update_cols = [c for c in df.columns if c != key_col]
     update_set = (
         ", ".join([f"target.[{c}]=src.[{c}]" for c in update_cols])
@@ -233,15 +279,21 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
     )
 
     all_cols_sql = ", ".join([f"[{c}]" for c in df.columns])
-    src_cols_sql = ", ".join([f"src.[{c}]" for c in df.columns])
 
-    # If key_col is source_hash, cast the staging varchar(max) to BINARY(32)
-    # — pandas.to_sql creates varchar(max) for bytes columns, but the DW
-    # target column is BINARY(32), causing implicit conversion failure.
-    if key_col == "source_hash":
+    # FIX-BINARY: INSERT VALUES must convert hex strings back to VARBINARY
+    src_vals = []
+    for c in df.columns:
+        if c in binary_cols:
+            src_vals.append(f"CONVERT(VARBINARY(32), src.[{c}], 2)")
+        else:
+            src_vals.append(f"src.[{c}]")
+    src_cols_sql = ", ".join(src_vals)
+
+    # FIX-BINARY: ON clause — if key_col is binary, convert hex staging value
+    if key_col in binary_cols:
+        # Staging col is hex VARCHAR; target col is BINARY(32)
         on_clause = (
-            f"CONVERT(VARBINARY(32), target.[{key_col}]) = "
-            f"CONVERT(VARBINARY(32), src.[{key_col}])"
+            f"target.[{key_col}] = CONVERT(VARBINARY(32), src.[{key_col}], 2)"
         )
     else:
         on_clause = f"target.[{key_col}] = src.[{key_col}]"
