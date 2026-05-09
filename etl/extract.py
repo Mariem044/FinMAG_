@@ -1,21 +1,30 @@
 """
-extract.py — SIAD MAG Distribution ETL — v14
+extract.py — SIAD MAG Distribution ETL — v14.1
 Extraction depuis MAG_2020 (Sage Gestion Commerciale)
 et GRT_MAG (Sage Trésorerie).
 
-FIXES APPLIED
+FIXES APPLIED (original v14)
 ─────────────────────────────────────────────────────────────
 FIX-1 : extract_static_dims() — all DataFrames now use Sage column names
-         to match v14 DDL:
-           DIM_DOMAINE       : DO_Domaine, libelle_domaine
-           DIM_TYPE_DOC      : DO_Type, libelle_type_doc
-           DIM_MODE_REGLEMENT: RT_Mode, libelle_mode_reg
-           DIM_ETAT_REGLEMENT: RT_Etat, libelle_etat_reg
-           DIM_ETAT_DOCREGL  : DR_Regle, libelle_etat_docregl
-           DIM_TYPE_LIGNE    : type_ligne, libelle_type_ligne
-           DIM_SENS_ECRITURE : EC_Sens, libelle_sens
-           DIM_TYPE_TVA      : type_tva, libelle_type_tva
-FIX-2 : extract_dim_caisse_mag() — added CA_Type column from F_CAISSE
+         to match v14 DDL.
+FIX-2 : extract_dim_caisse_mag() — added CA_Type column from F_CAISSE.
+
+BUG FIXES (v14 → v14.1)
+─────────────────────────────────────────────────────────────
+BUG-4 : extract_docregl_grt() was defined TWICE. Python used the second
+         (last) definition silently, discarding the first version's
+         last_run parameter. The duplicate has been removed; a single
+         correct definition is kept (full reload — GRT F_DOCREGL has no
+         cbModification column).
+BUG-7 : extract_dim_client_grt() — CT_EchustTroisMois (Sage typo with
+         lowercase 't') is now selected with a runtime column-existence
+         check. If the source column uses the standard spelling
+         CT_EchusTroisMois it is used directly; the Sage-typo variant
+         is tried as a fallback. This prevents a hard crash when the
+         source DB uses the correct spelling.
+BUG-10: extract_fait_lignes_vente() — dl.DE_No was extracted but never
+         used (id_depot was removed from FAIT_LIGNES_VENTE in v11).
+         Removed from the SELECT to avoid dead weight and confusion.
 """
 
 from __future__ import annotations
@@ -81,6 +90,16 @@ def _validate_columns(
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
         raise ValueError(f"{source_name} missing columns: {missing}")
+
+
+def _column_exists(engine, table: str, column: str) -> bool:
+    """Return True if *column* exists in *table* in the given engine's DB."""
+    sql = (
+        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+        "WHERE TABLE_NAME = :tbl AND COLUMN_NAME = :col"
+    )
+    with engine.connect() as conn:
+        return conn.execute(text(sql), {"tbl": table, "col": column}).scalar() > 0
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -214,7 +233,30 @@ def extract_dim_client_mag(
 
 
 def extract_dim_client_grt() -> pd.DataFrame:
-    sql = """
+    """Extract client financial data from GRT_MAG (Sage Trésorerie).
+
+    BUG-7 fix: The Sage source column for 2-to-3-month overdue amounts is
+    named CT_EchustTroisMois (lowercase 't') in some Sage versions and
+    CT_EchusTroisMois (correct spelling) in others. We detect which variant
+    exists at runtime and alias it to the canonical name CT_EchusTroisMois
+    used by the DDL and DIM_CLIENT.
+    """
+    # Detect which spelling the source DB uses
+    if _column_exists(GRT_ENGINE, "F_COMPTET", "CT_EchustTroisMois"):
+        echust_col = "CT_EchustTroisMois AS CT_EchusTroisMois"
+        logger.debug("GRT F_COMPTET: using CT_EchustTroisMois (Sage typo variant)")
+    elif _column_exists(GRT_ENGINE, "F_COMPTET", "CT_EchusTroisMois"):
+        echust_col = "CT_EchusTroisMois"
+        logger.debug("GRT F_COMPTET: using CT_EchusTroisMois (standard spelling)")
+    else:
+        # Column absent in this Sage version — emit NULL so the pipeline continues
+        echust_col = "NULL AS CT_EchusTroisMois"
+        logger.warning(
+            "GRT F_COMPTET: neither CT_EchustTroisMois nor CT_EchusTroisMois "
+            "found — defaulting to NULL"
+        )
+
+    sql = f"""
         SELECT
             CT_NUM AS CT_Num,
             CT_SoldeActuel,
@@ -222,7 +264,7 @@ def extract_dim_client_grt() -> pd.DataFrame:
             CT_ChiffreAffaire,
             CT_EchusUnMois,
             CT_EchusDeuxMois,
-            CT_EchustTroisMois AS CT_EchusTroisMois,
+            {echust_col},
             CT_EchusPlusTroisMois,
             CT_MoyenneDelaiPayement,
             CT_MoyenneDelaiImpaye
@@ -277,13 +319,16 @@ def extract_dim_banque_grt() -> pd.DataFrame:
     return pd.DataFrame(columns=["EB_Abrege", "EB_Banque"])
 
 
-# FIX-2: added CA_Type to SELECT
 def extract_dim_caisse_mag() -> pd.DataFrame:
-    # Check if CA_Type exists in F_CAISSE before selecting it
+    """Extract DIM_CAISSE base data from MAG.
+
+    FIX-2: CA_Type is included with a runtime existence check to handle
+    Sage versions where the column may be absent.
+    """
     check_sql = """
-        SELECT COUNT(*) 
-        FROM INFORMATION_SCHEMA.COLUMNS 
-        WHERE TABLE_NAME = 'F_CAISSE' 
+        SELECT COUNT(*)
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_NAME = 'F_CAISSE'
         AND COLUMN_NAME = 'CA_Type'
     """
     with MAG_ENGINE.connect() as conn:
@@ -316,6 +361,12 @@ def extract_dim_caisse_mag() -> pd.DataFrame:
 def extract_fait_lignes_vente(
     last_run: Optional[datetime] = None,
 ) -> pd.DataFrame:
+    """Extract sales lines from MAG_2020.
+
+    BUG-10 fix: dl.DE_No removed from SELECT — id_depot was dropped from
+    FAIT_LIGNES_VENTE in schema v11 and the column was dead weight that
+    _prepare_for_load() silently discarded every run.
+    """
     delta_clause, params = _delta_filter("dl.cbModification", last_run)
     sql = f"""
         SELECT
@@ -326,7 +377,6 @@ def extract_fait_lignes_vente(
             dl.DL_Ligne,
             dl.DO_Date,
             dl.AR_Ref,
-            dl.DE_No,
             dl.DL_Qte,
             dl.DL_PrixUnitaire,
             dl.DL_Taxe1,
@@ -562,21 +612,15 @@ def extract_fait_reglements_fournisseurs(
 def extract_docregl_grt(
     last_run: Optional[datetime] = None,
 ) -> pd.DataFrame:
-    # F_DOCREGL in GRT has no cbModification — no delta filter available
-    sql = """
-        SELECT
-            DO_Piece,
-            DR_Montant,
-            DR_EtatRegle AS DR_Regle,
-            DR_ModeReg
-        FROM F_DOCREGL
+    """Extract document règlement data from GRT_MAG.
+
+    BUG-4 fix: the previous file had this function defined TWICE. Python
+    silently used the second (last) definition, which had no delta filter
+    and no last_run parameter. The duplicate has been removed; a single
+    definition is kept here. GRT F_DOCREGL has no cbModification column
+    so delta filtering is not possible — this is always a full reload.
+    The last_run parameter is accepted for API compatibility but ignored.
     """
-    return _read(GRT_ENGINE, sql)
-
-
-def extract_docregl_grt(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
     sql = """
         SELECT
             DO_Piece,
@@ -672,5 +716,4 @@ def extract_static_dims() -> dict[str, pd.DataFrame]:
 
         # FIX-1: type_tva replaces code_type_tva
         "DIM_TYPE_TVA": _df(TYPES_TVA, "type_tva", "libelle_type_tva"),
-
     }

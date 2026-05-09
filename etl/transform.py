@@ -1,14 +1,23 @@
 # etl/transform.py
 """Transformations for SIAD MAG Distribution ETL.
-All functions are pure, typed and unit‑testable.
+All functions are pure, typed and unit-testable.
 The module expects pandas DataFrames as input and returns transformed DataFrames.
+
+BUG FIXES (v14 → v14.1)
+─────────────────────────────────────────────────────────────
+BUG-8 : add_fact_ecritures_calcs() — alerte_tension is now NULL (pd.NA)
+         for rows where ratio_tension is NULL, instead of 0.
+         DDL declares alerte_tension SMALLINT NULL and the schema intent is
+         that non-stock rows (type_ligne ≠ 4) carry NULL, not a false 0.
+         Using pandas nullable Int8 avoids the silent 0 that (NaN > 0.8)
+         previously produced.
 """
 import zlib
 from typing import Dict, Any, Optional
 import pandas as pd
 
 # ---------------------------------------------------------------------------
-# Hashing helper – CRC32 → positive 31‑bit int (as required by spec)
+# Hashing helper – CRC32 → positive 31-bit int (as required by spec)
 # ---------------------------------------------------------------------------
 def hash_key(value: str) -> int:
     """Return deterministic positive int hash for a natural key.
@@ -55,16 +64,16 @@ def resolve_fk(
 
 
 # ---------------------------------------------------------------------------
-# KPI‑specific calculated columns
+# KPI-specific calculated columns
 # ---------------------------------------------------------------------------
 def add_fact_lignes_vente_calcs(df: pd.DataFrame) -> pd.DataFrame:
-    """Add DO_Piece_hash for RFM KPI‑18."""
+    """Add DO_Piece_hash for RFM KPI-18."""
     df["DO_Piece_hash"] = df["DO_Piece"].apply(hash_key)
     return df
 
 
 def add_fact_ecritures_calcs(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculate stock‑related columns for FACT_ECRITURES.
+    """Calculate stock-related columns for FAIT_ECRITURES.
 
     Expects columns AS_QteSto, AS_QteRes, AS_QteMini already present in *df*
     (the pipeline merges the artstock snapshot into the fact DataFrame before
@@ -75,6 +84,9 @@ def add_fact_ecritures_calcs(df: pd.DataFrame) -> pd.DataFrame:
     * Removed unused ``stock_df`` parameter (Bug 2).
     * ``ratio_tension`` is now fully vectorised — no ``apply`` with a Series
       denominator compared as a scalar (Bug 1).
+    * BUG-8: ``alerte_tension`` is now NULL (pd.NA) when ``ratio_tension``
+      is NULL instead of silently emitting 0. DDL declares SMALLINT NULL;
+      non-stock rows must be NULL, not 0.
     """
     df["qte_disponible"] = df["AS_QteSto"] - df["AS_QteRes"]
     denominator = df["AS_QteSto"] - df["AS_QteRes"]
@@ -82,19 +94,34 @@ def add_fact_ecritures_calcs(df: pd.DataFrame) -> pd.DataFrame:
     df["ratio_tension"] = (df["AS_QteRes"] / denominator).where(
         denominator > 0, other=None
     )
-    df["alerte_tension"] = (df["ratio_tension"] > 0.8).astype(int)
-    df["en_rupture"] = (df["AS_QteSto"] <= df["AS_QteMini"]).astype(int)
+    df["en_rupture"] = (df["AS_QteSto"] <= df["AS_QteMini"]).astype("Int8")
+
+    # BUG-8 fix: use nullable Int8 so rows where ratio_tension is NaN/None
+    # receive pd.NA (→ SQL NULL) rather than 0.
+    # (NaN > 0.8) evaluates to False in numpy, producing a misleading 0.
+    tension_flag = df["ratio_tension"].where(df["ratio_tension"].notna())
+    df["alerte_tension"] = (
+        (tension_flag > 0.8)
+        .where(tension_flag.notna())        # NaN rows stay NaN
+        .astype("Int8")                     # converts True→1, False→0, NaN→pd.NA
+    )
+
     return df
 
 
 def add_fact_reglements_calcs(df: pd.DataFrame) -> pd.DataFrame:
     """Calculate delay columns for FAIT_REGLEMENTS.
     Expects RT_Date (datetime), DO_Date (datetime), RT_NbJour (int).
+
+    Note: delai_reel_jours and ecart_delai are stored as INT in the DDL
+    (not SMALLINT) to avoid truncation for debts older than ~90 years.
     """
     df = df.copy()
     df["RT_Date"] = pd.to_datetime(df["RT_Date"], errors="coerce")
     df["DO_Date"] = pd.to_datetime(df["DO_Date"], errors="coerce")
     df["RT_NbJour"] = pd.to_numeric(df["RT_NbJour"], errors="coerce")
+    # Use plain Python int (not int16/int32) — pandas will cast to nullable
+    # Int64 via _prepare_for_load when writing to SQL Server INT column.
     df["delai_reel_jours"] = (df["RT_Date"] - df["DO_Date"]).dt.days
     df["ecart_delai"] = df["delai_reel_jours"] - df["RT_NbJour"]
     return df

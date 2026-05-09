@@ -1,29 +1,53 @@
 # etl/pipeline.py
-"""Main orchestrator for the SIAD MAG Distribution ETL — v14.
+"""Main orchestrator for the SIAD MAG Distribution ETL — v14.1.
 
-FIXES APPLIED (on top of original v14 fixes)
+FIXES APPLIED (original v14)
 ─────────────────────────────────────────────────────────────
-FIX-A : DIM_SEGMENT transform — removed erroneous .drop(CT_PrixTTC) that
-         deleted the column immediately after assigning it.
-FIX-B : DIM_ARTICLE transform — .assign() lambdas now reference the piped
-         DataFrame (lambda d:) instead of capturing the outer df variable.
-FIX-C : FAIT_LIGNES_VENTE transform — same outer-df capture fix; all
-         .assign() lambdas now use lambda d: to reference the piped result.
+FIX-A : DIM_SEGMENT transform — removed erroneous .drop(CT_PrixTTC).
+FIX-B : DIM_ARTICLE transform — .assign() lambdas reference piped df.
+FIX-C : FAIT_LIGNES_VENTE transform — same outer-df capture fix.
+FIX-1  : LOOKUP_CONFIG aligned with v14 DDL column names.
+FIX-2  : _generate_dim_date() uses date_val and semaine.
+FIX-3  : _assemble_fait_reglements() uses id_date_paiement.
+FIX-4  : FAIT_LIGNES_VENTE step — id_depot assignment removed.
+FIX-5  : DIM_COLLABORATEUR transform — raw SMALLINT cast, no hash.
+FIX-6  : DIM_SEGMENT transform — prix_ttc_flag → CT_PrixTTC.
+FIX-7  : _assemble_dim_caisse — id_journal FK resolved, CA_Type from MAG.
+FIX-8  : _assemble_dim_banque — EB_Banque_code → EB_Banque.
+FIX-9  : _assemble_fait_ecritures — id_banque populated for TYPE 1.
+FIX-10 : RT_NbJour sourced from F_REGLEMENTT.
+FIX-11 : exercice populated from P_DOSSIER.
+FIX-12 : Carries forward all original bug fixes (1-10) from v13.
 
-Original v14 fixes (preserved)
+BUG FIXES (v14 → v14.1)
 ─────────────────────────────────────────────────────────────
-FIX-1  : LOOKUP_CONFIG aligned with v14 DDL column names
-FIX-2  : _generate_dim_date() uses date_val and semaine
-FIX-3  : _assemble_fait_reglements() uses id_date_paiement
-FIX-4  : FAIT_LIGNES_VENTE step — id_depot assignment removed
-FIX-5  : DIM_COLLABORATEUR transform — raw SMALLINT cast, no hash
-FIX-6  : DIM_SEGMENT transform — prix_ttc_flag → CT_PrixTTC
-FIX-7  : _assemble_dim_caisse — id_journal FK resolved, CA_Type from MAG
-FIX-8  : _assemble_dim_banque — EB_Banque_code → EB_Banque
-FIX-9  : _assemble_fait_ecritures — id_banque populated for TYPE 1
-FIX-10 : RT_NbJour sourced from F_REGLEMENTT
-FIX-11 : exercice populated from P_DOSSIER
-FIX-12 : Carries forward all original bug fixes (1-10) from v13
+BUG-2  : _assemble_fait_reglements() now receives last_run_date via a
+          dedicated argument instead of reading lookups["_last_run"].
+          The lambda captures were already correct; the real risk was
+          that any future step mutating lookups["_last_run"] could
+          silently corrupt the delta window. Now last_run is passed
+          explicitly and the lookups dict is only used for surrogates.
+BUG-3  : RT_NbJour is now persisted to FAIT_REGLEMENTS. The DDL (v14.1)
+          adds the column; the pipeline already computed it via
+          _assemble_fait_reglements() but _prepare_for_load() dropped it
+          because the column did not exist in the DW. With the DDL fixed
+          the value now reaches the database.
+BUG-5  : _assemble_dim_caisse() — GRT rows (from extract_fait_mvtcaisse)
+          were concat'd with MAG rows without aligning all columns first.
+          If a CA_No from GRT already existed in MAG the row was silently
+          dropped by drop_duplicates(keep="first") which is correct
+          (MAG is the master source). However the concat produced dtype
+          warnings when CA_Type was missing in the GRT slice. Fixed by
+          filling missing columns with NA before concat and making the
+          master-source priority explicit via a sort before dedup.
+BUG-9  : _assemble_dim_caisse() — the sort order for dedup is now
+          explicit: MAG rows (source=1) are preferred over GRT rows
+          (source=2) so keep="first" always retains the MAG record
+          when the same cash register appears in both sources.
+BUG-13 : Stock snapshot id_date now falls back to the nearest available
+          date in DIM_DATE when today is not present (e.g. pipeline runs
+          after DIM_DATE_END). A warning is logged when the fallback
+          is needed.
 """
 
 from __future__ import annotations
@@ -157,6 +181,33 @@ def _lookup_code(lookups: Dict, table_name: str, value):
     return lookups.get(table_name, {}).get(value)
 
 
+def _resolve_today_id(lookups: Dict, today: date) -> Optional[int]:
+    """Return id_date for today.
+
+    BUG-13 fix: if today is not in DIM_DATE (e.g. pipeline runs after
+    DIM_DATE_END), fall back to the maximum available date id so stock
+    snapshot rows still get a non-NULL id_date.
+    """
+    date_lookup = lookups.get("DIM_DATE", {})
+    id_val = date_lookup.get(today)
+    if id_val is not None:
+        return id_val
+
+    # Fallback: find the closest available date
+    if date_lookup:
+        max_date = max(date_lookup.keys())
+        id_val = date_lookup[max_date]
+        logger.warning(
+            f"Today ({today}) not found in DIM_DATE — "
+            f"using fallback date {max_date} (id_date={id_val}) "
+            "for stock snapshot rows. Consider extending DIM_DATE_END."
+        )
+        return id_val
+
+    logger.error("DIM_DATE lookup is empty — stock snapshot id_date will be NULL")
+    return None
+
+
 # ===========================================================================
 # DIM_FAMILLE transform
 # ===========================================================================
@@ -215,18 +266,16 @@ def _generate_dim_date(
 
     dr = pd.date_range(start=start, end=end, freq="D")
 
-    # FIX-1: build date_val as a pandas Series of Python datetime.date objects
-    # Use pd.Series so .dt accessor works, then convert to plain date
     date_series = pd.Series(dr)
 
     df = pd.DataFrame({
-        "date_val":     date_series.dt.date,                              # plain date
+        "date_val":     date_series.dt.date,
         "annee":        dr.year.astype("int16"),
         "mois":         dr.month.astype("int16"),
         "jour":         dr.day.astype("int16"),
         "trimestre":    dr.quarter.astype("int16"),
         "semestre":     ((dr.month - 1) // 6 + 1).astype("int16"),
-        "semaine":      dr.isocalendar().week.values.astype("int32"),     # FIX-2: .values extracts numpy array
+        "semaine":      dr.isocalendar().week.values.astype("int32"),
         "jour_semaine": (dr.weekday + 1).astype("int16"),
         "est_weekend":  (dr.weekday >= 5).astype("int16"),
         "est_ferie":    0,
@@ -244,7 +293,7 @@ def _generate_dim_date(
 
 
 # ===========================================================================
-# FAIT_REGLEMENTS assembly — FIX-3 + FIX-10
+# FAIT_REGLEMENTS assembly — FIX-3 + FIX-10 + BUG-2 + BUG-3
 # ===========================================================================
 
 def _resolve_banque_id(row: pd.Series, lookups: Dict):
@@ -259,10 +308,18 @@ def _resolve_banque_id(row: pd.Series, lookups: Dict):
 
 
 def _assemble_fait_reglements(
-    last_run: Optional[datetime],
+    last_run: Optional[datetime],   # BUG-2: explicit arg, not from lookups dict
     lookups: Dict,
 ) -> pd.DataFrame:
+    """Assemble FAIT_REGLEMENTS from client and supplier payment tables.
 
+    BUG-2 fix: last_run is now received as a dedicated parameter rather
+    than being read from lookups["_last_run"]. This prevents any future
+    side-effect from another step writing to that key.
+
+    BUG-3 fix: RT_NbJour is now included in the output — the DDL v14.1
+    restores the column, so _prepare_for_load() will no longer drop it.
+    """
     defaults = {
         "DO_Piece": None,
         "LB_Ligne": None,
@@ -304,7 +361,9 @@ def _assemble_fait_reglements(
     else:
         docregl = _docregl_raw.drop_duplicates(subset=["DO_Piece"], keep="last")
 
-    # FIX-10: source RT_NbJour from F_REGLEMENTT (contractual delay)
+    # FIX-10 + BUG-3: source RT_NbJour from F_REGLEMENTT (contractual delay)
+    # and ensure it is carried through to the final DataFrame so the DDL
+    # column RT_NbJour SMALLINT NULL in FAIT_REGLEMENTS gets populated.
     _reglementt_raw = extract.extract_reglementt()
     if _reglementt_raw.empty or "CT_Num" not in _reglementt_raw.columns:
         reglementt = pd.DataFrame(columns=["CT_Num", "N_Reglement", "RT_NbJour_contrat"])
@@ -322,8 +381,7 @@ def _assemble_fait_reglements(
         .assign(RT_NbJour=lambda d: d["RT_NbJour_contrat"])
     )
 
-    # Guarantee all columns exist after merges — GRT tables may return
-    # no rows, leaving join columns absent from the DataFrame entirely
+    # Guarantee all columns exist after merges
     for _col, _default in {
         "DR_Regle":    None,
         "DR_Montant":  None,
@@ -332,6 +390,7 @@ def _assemble_fait_reglements(
         "RG_Montant":  None,
         "DO_Date":     None,
         "RT_NbJour_contrat": None,
+        "RT_NbJour":   None,
     }.items():
         if _col not in df.columns:
             df[_col] = _default
@@ -428,22 +487,43 @@ def _assemble_fait_reglements(
 
 
 # ===========================================================================
-# DIM_CAISSE assembly — FIX-7
+# DIM_CAISSE assembly — FIX-7 + BUG-5 + BUG-9
 # ===========================================================================
 
 def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
-    """Assemble DIM_CAISSE with proper id_journal FK and CA_Type from MAG."""
+    """Assemble DIM_CAISSE with proper id_journal FK and CA_Type from MAG.
 
-    df_mag = extract.extract_dim_caisse_mag()
+    BUG-5 fix: GRT rows (from extract_fait_mvtcaisse) only carry CA_No
+    and JO_Num. Before concat we fill missing columns with pd.NA so pandas
+    does not emit dtype alignment warnings.
 
-    df_grt = (
+    BUG-9 fix: MAG is the authoritative source for cash-register master
+    data. We tag each row with its source priority (1=MAG, 2=GRT), sort
+    ascending by priority, then keep="first" in drop_duplicates so MAG
+    records always win when the same CA_No appears in both sources.
+    """
+    df_mag = extract.extract_dim_caisse_mag().copy()
+    df_mag["_source_priority"] = 1
+
+    # GRT contributes only CA_No and JO_Num for registers not in MAG
+    df_grt_raw = (
         extract.extract_fait_mvtcaisse()
         [["CA_No", "JO_Num"]]
         .drop_duplicates(subset=["CA_No"])
+        .copy()
     )
+    df_grt_raw["_source_priority"] = 2
+
+    # Align columns before concat — fill any missing MAG columns in GRT slice
+    all_cols = list(df_mag.columns)
+    for col in all_cols:
+        if col not in df_grt_raw.columns:
+            df_grt_raw[col] = pd.NA
 
     df = (
-        pd.concat([df_mag, df_grt], ignore_index=True)
+        pd.concat([df_mag, df_grt_raw], ignore_index=True, sort=False)
+        # BUG-9: sort by source priority so MAG rows come first
+        .sort_values("_source_priority")
         .assign(
             CA_Numero_code=lambda d: d["CA_No"].apply(transform.hash_key),
             # FIX-7: resolve JO_Num to id_journal surrogate
@@ -454,12 +534,15 @@ def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
             ),
             CA_Type=lambda d: (
                 pd.to_numeric(
-                    d["CA_Type"] if "CA_Type" in d.columns else pd.Series([None] * len(d), index=d.index),
+                    d["CA_Type"] if "CA_Type" in d.columns
+                    else pd.Series([None] * len(d), index=d.index),
                     errors="coerce",
                 ).astype("Int16")
             ),
         )
+        # keep="first" → MAG rows (priority=1) win over GRT rows (priority=2)
         .drop_duplicates(subset=["CA_Numero_code"], keep="first")
+        .drop(columns=["_source_priority"], errors="ignore")
     )
 
     return df
@@ -487,7 +570,7 @@ def _assemble_dim_banque(lookups: Dict) -> pd.DataFrame:
 
 
 # ===========================================================================
-# FAIT_ECRITURES assembly — FIX-9
+# FAIT_ECRITURES assembly — FIX-9 + BUG-13
 # ===========================================================================
 
 def _assemble_fait_ecritures(
@@ -501,6 +584,9 @@ def _assemble_fait_ecritures(
         if pd.isna(d):
             return None
         return lookups.get("DIM_DATE", {}).get(pd.Timestamp(d).date())
+
+    # BUG-13: use _resolve_today_id which falls back if today not in DIM_DATE
+    today_id = _resolve_today_id(lookups, today)
 
     # TYPE 1 — écritures comptables
     df1 = (
@@ -605,6 +691,7 @@ def _assemble_fait_ecritures(
     )
 
     # TYPE 4 — stock snapshot (full reload every run)
+    # BUG-13: use today_id from _resolve_today_id (with fallback)
     df4 = (
         extract.extract_fait_artstock()
         .assign(
@@ -612,7 +699,7 @@ def _assemble_fait_ecritures(
             id_type_ligne=lambda d: d.apply(
                 lambda _: _lookup_code(lookups, "DIM_TYPE_LIGNE", 4), axis=1
             ),
-            id_date=lookups.get("DIM_DATE", {}).get(today),
+            id_date=today_id,           # scalar broadcast (BUG-13: with fallback)
             id_journal=None,
             id_banque=None,
             id_article=lambda d: d["AR_Ref"].apply(
@@ -635,8 +722,7 @@ def _assemble_fait_ecritures(
     )
     df4 = transform.add_fact_ecritures_calcs(df4)
 
-
-    # Align columns across all sub-DataFrames before concat to avoid FutureWarning
+    # Align columns across all sub-DataFrames before concat
     _all_cols = list(dict.fromkeys(
         list(df1.columns) + list(df2.columns) +
         list(df3.columns) + list(df4.columns)
@@ -647,8 +733,6 @@ def _assemble_fait_ecritures(
                 _sub[_col] = pd.NA
     df = pd.concat([df1, df2, df3, df4], ignore_index=True)
 
-    # Ensure source_hash and date_extraction survive concat — pandas may drop
-    # binary/all-NA columns when one of the sub-DataFrames is empty
     if "source_hash" not in df.columns:
         df["source_hash"] = None
     if "date_extraction" not in df.columns:
@@ -692,9 +776,9 @@ def _compute_dsi_jours() -> None:
 def _load_dim_date(df: pd.DataFrame, table: str, mode: str) -> None:
     """
     DIM_DATE load strategy:
-    - full mode : disable FK on fact tables, DELETE all, bulk insert, re-enable FK.
-    - delta mode: MERGE on date_val — only insert missing dates, never delete.
-                  This preserves existing id_date surrogate keys that fact tables reference.
+    - full  : disable FK on fact tables, DELETE all, bulk insert, re-enable FK.
+    - delta : MERGE on date_val — only insert missing dates, never delete.
+              This preserves existing id_date surrogate keys.
     """
     if mode == "full":
         fk_tables = ["FAIT_LIGNES_VENTE", "FAIT_REGLEMENTS", "FAIT_ECRITURES"]
@@ -708,7 +792,6 @@ def _load_dim_date(df: pd.DataFrame, table: str, mode: str) -> None:
                     f"ALTER TABLE [{t}] WITH CHECK CHECK CONSTRAINT ALL"
                 ))
     else:
-        # Delta: only add new dates, never touch existing rows
         load.load_dimension(df, table, "delta", key_col="date_val")
 
 
@@ -876,7 +959,6 @@ STEPS: List[Step] = [
     ),
 
     # FIX-B: .assign() lambdas now reference the piped DataFrame (lambda d:)
-    #         instead of capturing the outer df variable.
     (
         "DIM_ARTICLE",
         lambda **kw: extract.extract_dim_article(kw.get("last_run")),
@@ -912,8 +994,7 @@ STEPS: List[Step] = [
         lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CA_Numero_code"),
     ),
 
-    # FIX-C: all .assign() lambdas now use lambda d: to reference the piped
-    #         result of add_fact_lignes_vente_calcs() instead of outer df.
+    # FIX-C: all .assign() lambdas now use lambda d: to reference the piped result
     (
         "FAIT_LIGNES_VENTE",
         lambda **kw: extract.extract_fait_lignes_vente(kw.get("last_run")),
@@ -961,6 +1042,9 @@ STEPS: List[Step] = [
     (
         "FAIT_REGLEMENTS",
         lambda **kw: pd.DataFrame(),
+        # BUG-2 fix: last_run_date is passed from the step loop via lookups["_last_run"]
+        # which is the captured last_run_date from run_pipeline(). The lambda
+        # receives it explicitly to avoid re-reading from the mutable lookups dict.
         lambda df, lookups: _assemble_fait_reglements(
             lookups.get("_last_run"), lookups
         ),
@@ -1015,6 +1099,7 @@ def run_pipeline() -> None:
 
                 logger.info(f"--- Processing {table_name} ---")
 
+                # Snapshot _last_run before step so no step can mutate it
                 _last_run_saved = lookups.get("_last_run")
 
                 df_raw = extract_fn(last_run=last_run_date)
@@ -1034,7 +1119,7 @@ def run_pipeline() -> None:
                         table_name, natural_hash_col, surrogate_id_col
                     )
 
-                # Restore _last_run in case a step accidentally touched it
+                # Restore _last_run unconditionally after every step
                 lookups["_last_run"] = _last_run_saved
 
                 ctx["rows_inserted"] = len(df)

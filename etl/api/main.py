@@ -1,9 +1,18 @@
 # api/main.py
 """
-FinMAG API — v14
+FinMAG API — v14.1
 Fixes applied vs original:
   FIX-1 : get_banque_rapprochement() — r.id_date → r.id_date_paiement
   FIX-2 : get_stock_alerts()         — tl.code_type_ligne → tl.type_ligne
+
+BUG FIXES (v14 → v14.1)
+─────────────────────────────────────────────────────────────
+BUG-11: get_clients() — derniere_commande was returned as a raw Python
+        date/datetime object repr (e.g. "datetime.date(2024, 3, 1)") due
+        to str() on a date object. Now uses FORMAT() in SQL to return an
+        ISO-8601 string 'YYYY-MM-DD' directly from SQL Server, which is
+        safe to JSON-serialise and unambiguous for front-end parsing.
+        Fallback to empty string preserved for NULL dates.
 """
 import os
 
@@ -354,13 +363,17 @@ def get_articles():
 
 @app.get("/api/acteurs/clients")
 def get_clients():
+    # BUG-11 fix: use FORMAT() to return derniere_commande as an ISO-8601
+    # string directly from SQL Server. Previously str(r.derniere_commande)
+    # produced "datetime.date(2024, 3, 1)" which is not a valid date string
+    # for front-end consumption.
     sql = """
         SELECT TOP 100
             c.CT_Num_code,
             COALESCE(s.libelle_segment, 'Sans segment') AS segment,
             SUM(v.DL_MontantHT) AS ca_total,
             COUNT(DISTINCT v.DO_Piece_hash) AS nb_commandes,
-            MAX(d.date_val) AS derniere_commande,
+            FORMAT(MAX(d.date_val), 'yyyy-MM-dd') AS derniere_commande,
             c.CT_SoldeActuel AS solde_impaye,
             c.CT_Sommeil AS sommeil
         FROM DIM_CLIENT c
@@ -377,7 +390,8 @@ def get_clients():
             "region": "DW",
             "caTotal": _num(r.ca_total),
             "nbCommandes": _int(r.nb_commandes),
-            "derniereCommande": str(r.derniere_commande or ""),
+            # BUG-11: derniere_commande is now a plain 'YYYY-MM-DD' string or ""
+            "derniereCommande": r.derniere_commande or "",
             "soldeImpaye": _num(r.solde_impaye),
             "segment": r.segment,
             "actif": _int(r.sommeil) == 0,
