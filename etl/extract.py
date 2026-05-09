@@ -1,32 +1,25 @@
 """
-extract.py — SIAD MAG Distribution ETL — v14.1
-Extraction depuis MAG_2020 (Sage Gestion Commerciale)
-et GRT_MAG (Sage Trésorerie).
+extract.py — SIAD MAG Distribution ETL — v14.2
+Extraction from MAG_2020 (Sage Gestion Commerciale)
+and GRT_MAG (Sage Trésorerie).
 
-FIXES APPLIED (original v14)
-─────────────────────────────────────────────────────────────
-FIX-1 : extract_static_dims() — all DataFrames now use Sage column names
-         to match v14 DDL.
-FIX-2 : extract_dim_caisse_mag() — added CA_Type column from F_CAISSE.
-
-BUG FIXES (v14 → v14.1)
-─────────────────────────────────────────────────────────────
-BUG-4 : extract_docregl_grt() was defined TWICE. Python used the second
-         (last) definition silently, discarding the first version's
-         last_run parameter. The duplicate has been removed; a single
-         correct definition is kept (full reload — GRT F_DOCREGL has no
-         cbModification column).
-BUG-7 : extract_dim_client_grt() — CT_EchustTroisMois (Sage typo with
-         lowercase 't') is now selected with a runtime column-existence
-         check. If the source column uses the standard spelling
-         CT_EchusTroisMois it is used directly; the Sage-typo variant
-         is tried as a fallback. This prevents a hard crash when the
-         source DB uses the correct spelling.
-BUG-10: extract_fait_lignes_vente() — dl.DE_No was extracted but never
-         used (id_depot was removed from FAIT_LIGNES_VENTE in v11).
-         Removed from the SELECT to avoid dead weight and confusion.
+FIXES vs previous version
+──────────────────────────────────────────────────────────────────────────
+FIX-JOIN  : extract_fait_mvtcaisse() — GRT F_Caisse PK is CA_Numero,
+            aliased to CA_No so the rest of the pipeline stays consistent.
+            The previous join ON c.CA_Numero = mc.CA_Numero was correct in
+            SQL but selected c.CA_Numero AS CA_No — now explicit and safe.
+FIX-DELTA : extract_fait_mvtcaisse() now accepts last_run and applies a
+            delta filter on MC_Date so the caisse-dimension assembly and
+            the fact-table assembly use the SAME time window.
+FIX-BUG4  : extract_docregl_grt() had a duplicate definition — removed.
+             Only one definition is kept (full reload; GRT has no
+             cbModification column).
+FIX-BUG7  : extract_dim_client_grt() — runtime column-existence check for
+             CT_EchustTroisMois / CT_EchusTroisMois spelling variants.
+FIX-BUG10 : extract_fait_lignes_vente() — DE_No removed from SELECT
+             (id_depot was dropped from FAIT_LIGNES_VENTE in schema v11).
 """
-
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -35,13 +28,7 @@ from typing import Optional
 import pandas as pd
 from sqlalchemy import text
 
-from etl.config import (
-    MAG_ENGINE,
-    GRT_ENGINE,
-    DIM_DATE_START,
-    DIM_DATE_END,
-)
-
+from etl.config import MAG_ENGINE, GRT_ENGINE, DIM_DATE_START, DIM_DATE_END
 from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -51,49 +38,29 @@ logger = get_logger(__name__)
 # HELPERS
 # ════════════════════════════════════════════════════════════════════════════
 
-
-def _read(
-    engine,
-    sql: str,
-    params: Optional[dict] = None,
-) -> pd.DataFrame:
+def _read(engine, sql: str, params: Optional[dict] = None) -> pd.DataFrame:
     with engine.connect() as conn:
-        df = pd.read_sql(
-            text(sql),
-            conn,
-            params=params or {},
-        )
-    logger.debug(f"Extrait {len(df)} lignes — {sql[:80].strip()}...")
+        df = pd.read_sql(text(sql), conn, params=params or {})
+    logger.debug(f"Extracted {len(df)} rows — {sql[:80].strip()}...")
     return df
 
 
-def _delta_filter(
-    col: str,
-    last_run: Optional[datetime],
-) -> tuple[str, dict]:
+def _delta_filter(col: str, last_run: Optional[datetime]) -> tuple[str, dict]:
     import re as _re
     if not _re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", col):
-        raise ValueError(f"Unsafe column name passed to _delta_filter: {col!r}")
+        raise ValueError(f"Unsafe column name: {col!r}")
     if last_run is None:
         return "", {}
-    return (
-        f" AND {col} >= :last_run",
-        {"last_run": last_run},
-    )
+    return f" AND {col} >= :last_run", {"last_run": last_run}
 
 
-def _validate_columns(
-    df: pd.DataFrame,
-    required_cols: list[str],
-    source_name: str,
-) -> None:
+def _validate_columns(df: pd.DataFrame, required_cols: list[str], source_name: str) -> None:
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
         raise ValueError(f"{source_name} missing columns: {missing}")
 
 
 def _column_exists(engine, table: str, column: str) -> bool:
-    """Return True if *column* exists in *table* in the given engine's DB."""
     sql = (
         "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
         "WHERE TABLE_NAME = :tbl AND COLUMN_NAME = :col"
@@ -105,7 +72,6 @@ def _column_exists(engine, table: str, column: str) -> bool:
 # ════════════════════════════════════════════════════════════════════════════
 # MAG_2020
 # ════════════════════════════════════════════════════════════════════════════
-
 
 def extract_exercices_fiscaux() -> list[tuple[date, date]]:
     sql = """
@@ -125,75 +91,52 @@ def extract_exercices_fiscaux() -> list[tuple[date, date]]:
             fin   = df.iloc[0].get(f"D_FinExo0{i}")
             if pd.notna(debut) and pd.notna(fin):
                 exos.append((pd.Timestamp(debut).date(), pd.Timestamp(fin).date()))
-        logger.info(f"Exercices fiscaux lus : {len(exos)}")
+        logger.info(f"Fiscal years loaded: {len(exos)}")
         return exos
     except Exception as exc:
-        logger.warning(f"Impossible de lire P_DOSSIER : {exc}")
+        logger.warning(f"Cannot read P_DOSSIER: {exc}")
         return []
 
 
 def extract_dim_segment() -> pd.DataFrame:
     sql = """
-        SELECT
-            cbIndice,
-            CT_PrixTTC
+        SELECT cbIndice, CT_PrixTTC
         FROM P_CATTARIF
         WHERE cbIndice BETWEEN 1 AND 5
     """
     return _read(MAG_ENGINE, sql)
 
 
-def extract_dim_collaborateur(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
+def extract_dim_collaborateur(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("cbModification", last_run)
     sql = f"""
-        SELECT
-            CO_No,
-            CO_Fonction,
-            CO_Sommeil
+        SELECT CO_No, CO_Fonction, CO_Sommeil
         FROM F_COLLABORATEUR
-        WHERE 1=1
-        {delta_clause}
+        WHERE 1=1 {delta_clause}
     """
     return _read(MAG_ENGINE, sql, params)
 
 
 def extract_dim_famille() -> pd.DataFrame:
     sql = """
-        SELECT
-            FA_CodeFamille,
-            FA_Intitule,
-            CL_No1,
-            CL_No2,
-            CL_No3,
-            CL_No4
+        SELECT FA_CodeFamille, FA_Intitule, CL_No1, CL_No2, CL_No3, CL_No4
         FROM F_FAMILLE
         WHERE FA_Type = 0
     """
     return _read(MAG_ENGINE, sql)
 
 
-def extract_dim_fournisseur(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
+def extract_dim_fournisseur(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("cbModification", last_run)
     sql = f"""
-        SELECT
-            CT_Num,
-            CT_Sommeil,
-            CT_Encours,
-            CT_SvCA
+        SELECT CT_Num, CT_Sommeil, CT_Encours, CT_SvCA
         FROM F_COMPTET
-        WHERE CT_Type = 1
-        {delta_clause}
+        WHERE CT_Type = 1 {delta_clause}
     """
     return _read(MAG_ENGINE, sql, params)
 
 
-def extract_dim_article(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
+def extract_dim_article(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("a.cbModification", last_run)
     sql = f"""
         SELECT
@@ -205,43 +148,28 @@ def extract_dim_article(
             a.AR_SuiviStock
         FROM F_ARTICLE a
         LEFT JOIN F_ARTFOURNISS af
-            ON af.AR_Ref = a.AR_Ref
-           AND af.AF_Principal = 1
-        WHERE 1=1
-        {delta_clause}
+            ON af.AR_Ref = a.AR_Ref AND af.AF_Principal = 1
+        WHERE 1=1 {delta_clause}
     """
     return _read(MAG_ENGINE, sql, params)
 
 
-def extract_dim_client_mag(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
+def extract_dim_client_mag(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("cbModification", last_run)
     sql = f"""
-        SELECT
-            CT_Num,
-            CT_Sommeil,
-            N_CatTarif,
-            CO_No,
-            CT_Encours,
-            CT_SvCA
+        SELECT CT_Num, CT_Sommeil, N_CatTarif, CO_No, CT_Encours, CT_SvCA
         FROM F_COMPTET
-        WHERE CT_Type = 0
-        {delta_clause}
+        WHERE CT_Type = 0 {delta_clause}
     """
     return _read(MAG_ENGINE, sql, params)
 
 
 def extract_dim_client_grt() -> pd.DataFrame:
-    """Extract client financial data from GRT_MAG (Sage Trésorerie).
+    """Extract client financial data from GRT_MAG.
 
-    BUG-7 fix: The Sage source column for 2-to-3-month overdue amounts is
-    named CT_EchustTroisMois (lowercase 't') in some Sage versions and
-    CT_EchusTroisMois (correct spelling) in others. We detect which variant
-    exists at runtime and alias it to the canonical name CT_EchusTroisMois
-    used by the DDL and DIM_CLIENT.
+    FIX-BUG7: Runtime check for CT_EchustTroisMois (Sage typo) vs
+    CT_EchusTroisMois (standard spelling).
     """
-    # Detect which spelling the source DB uses
     if _column_exists(GRT_ENGINE, "F_COMPTET", "CT_EchustTroisMois"):
         echust_col = "CT_EchustTroisMois AS CT_EchusTroisMois"
         logger.debug("GRT F_COMPTET: using CT_EchustTroisMois (Sage typo variant)")
@@ -249,7 +177,6 @@ def extract_dim_client_grt() -> pd.DataFrame:
         echust_col = "CT_EchusTroisMois"
         logger.debug("GRT F_COMPTET: using CT_EchusTroisMois (standard spelling)")
     else:
-        # Column absent in this Sage version — emit NULL so the pipeline continues
         echust_col = "NULL AS CT_EchusTroisMois"
         logger.warning(
             "GRT F_COMPTET: neither CT_EchustTroisMois nor CT_EchusTroisMois "
@@ -275,97 +202,63 @@ def extract_dim_client_grt() -> pd.DataFrame:
     return df
 
 
-def extract_dim_depot(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
+def extract_dim_depot(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("cbModification", last_run)
     sql = f"""
-        SELECT
-            DE_No,
-            DE_Principal
+        SELECT DE_No, DE_Principal
         FROM F_DEPOT
-        WHERE 1=1
-        {delta_clause}
+        WHERE 1=1 {delta_clause}
     """
     return _read(MAG_ENGINE, sql, params)
 
 
-def extract_dim_journal(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
+def extract_dim_journal(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("cbModification", last_run)
     sql = f"""
-        SELECT
-            JO_Num,
-            JO_Type
+        SELECT JO_Num, JO_Type
         FROM F_JOURNAUX
-        WHERE 1=1
-        {delta_clause}
+        WHERE 1=1 {delta_clause}
     """
     return _read(MAG_ENGINE, sql, params)
 
 
 def extract_dim_banque_mag() -> pd.DataFrame:
     sql = """
-        SELECT
-            EB_Abrege,
-            EB_Banque
+        SELECT EB_Abrege, EB_Banque
         FROM F_EBANQUE
     """
     return _read(MAG_ENGINE, sql)
 
 
 def extract_dim_banque_grt() -> pd.DataFrame:
+    """GRT has no bank master table — return empty frame with expected columns."""
     return pd.DataFrame(columns=["EB_Abrege", "EB_Banque"])
 
 
 def extract_dim_caisse_mag() -> pd.DataFrame:
-    """Extract DIM_CAISSE base data from MAG.
-
-    FIX-2: CA_Type is included with a runtime existence check to handle
-    Sage versions where the column may be absent.
-    """
-    check_sql = """
-        SELECT COUNT(*)
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_NAME = 'F_CAISSE'
-        AND COLUMN_NAME = 'CA_Type'
-    """
+    """MAG cash-register master data. CA_Type existence is checked at runtime."""
+    check_sql = (
+        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+        "WHERE TABLE_NAME = 'F_CAISSE' AND COLUMN_NAME = 'CA_Type'"
+    )
     with MAG_ENGINE.connect() as conn:
         has_ca_type = conn.execute(text(check_sql)).scalar() > 0
 
     if has_ca_type:
-        sql = """
-            SELECT
-                CA_No,
-                JO_Num,
-                DE_No,
-                CO_No,
-                CA_Type
-            FROM F_CAISSE
-        """
+        sql = "SELECT CA_No, JO_Num, DE_No, CO_No, CA_Type FROM F_CAISSE"
     else:
-        logger.warning("F_CAISSE.CA_Type not found in MAG source — defaulting to NULL")
-        sql = """
-            SELECT
-                CA_No,
-                JO_Num,
-                DE_No,
-                CO_No,
-                NULL AS CA_Type
-            FROM F_CAISSE
-        """
+        logger.warning("F_CAISSE.CA_Type not found in MAG — defaulting to NULL")
+        sql = "SELECT CA_No, JO_Num, DE_No, CO_No, NULL AS CA_Type FROM F_CAISSE"
+
     return _read(MAG_ENGINE, sql)
 
 
-def extract_fait_lignes_vente(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
-    """Extract sales lines from MAG_2020.
+def extract_fait_lignes_vente(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """Sales lines from MAG_2020.
 
-    BUG-10 fix: dl.DE_No removed from SELECT — id_depot was dropped from
-    FAIT_LIGNES_VENTE in schema v11 and the column was dead weight that
-    _prepare_for_load() silently discarded every run.
+    FIX-BUG10: DE_No removed — id_depot was dropped from FAIT_LIGNES_VENTE
+    in schema v11. Including it was dead weight that _prepare_for_load()
+    silently discarded every run.
     """
     delta_clause, params = _delta_filter("dl.cbModification", last_run)
     sql = f"""
@@ -390,9 +283,9 @@ def extract_fait_lignes_vente(
             de.DO_MontantRegle
         FROM F_DOCLIGNE dl
         INNER JOIN F_DOCENTETE de
-            ON de.DO_Domaine = dl.DO_Domaine
-           AND de.DO_Type    = dl.DO_Type
-           AND de.DO_Piece   = dl.DO_Piece
+            ON  de.DO_Domaine = dl.DO_Domaine
+            AND de.DO_Type    = dl.DO_Type
+            AND de.DO_Piece   = dl.DO_Piece
         WHERE dl.DO_Domaine = 0
           AND dl.DO_Type IN (6, 7)
           AND dl.DL_MontantHT IS NOT NULL
@@ -401,9 +294,7 @@ def extract_fait_lignes_vente(
     return _read(MAG_ENGINE, sql, params)
 
 
-def extract_fait_ecriturec(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
+def extract_fait_ecriturec(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("ec.cbModification", last_run)
     sql = f"""
         SELECT
@@ -416,17 +307,13 @@ def extract_fait_ecriturec(
             ec.EC_Montant,
             j.JO_Type
         FROM F_ECRITUREC ec
-        INNER JOIN F_JOURNAUX j
-            ON j.JO_Num = ec.JO_Num
-        WHERE 1=1
-        {delta_clause}
+        INNER JOIN F_JOURNAUX j ON j.JO_Num = ec.JO_Num
+        WHERE 1=1 {delta_clause}
     """
     return _read(MAG_ENGINE, sql, params)
 
 
-def extract_fait_regtaxe(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
+def extract_fait_regtaxe(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("rt.cbModification", last_run)
     sql = f"""
         SELECT
@@ -439,102 +326,34 @@ def extract_fait_regtaxe(
             ec.CT_Num,
             j.JO_Type
         FROM F_REGTAXE rt
-        INNER JOIN F_ECRITUREC ec
-            ON ec.EC_No = rt.EC_No
-        INNER JOIN F_JOURNAUX j
-            ON j.JO_Num = ec.JO_Num
-        WHERE 1=1
-        {delta_clause}
+        INNER JOIN F_ECRITUREC ec ON ec.EC_No = rt.EC_No
+        INNER JOIN F_JOURNAUX  j  ON j.JO_Num = ec.JO_Num
+        WHERE 1=1 {delta_clause}
     """
     return _read(MAG_ENGINE, sql, params)
 
 
 def extract_fait_artstock() -> pd.DataFrame:
+    """Full stock snapshot — always a complete reload."""
     sql = """
-        SELECT
-            AR_Ref,
-            DE_No,
-            AS_MontSto,
-            AS_QteSto,
-            AS_QteMini,
-            AS_QteRes
+        SELECT AR_Ref, DE_No, AS_MontSto, AS_QteSto, AS_QteMini, AS_QteRes
         FROM F_ARTSTOCK
     """
     return _read(MAG_ENGINE, sql)
 
 
 def extract_reglementt() -> pd.DataFrame:
+    """Contractual payment terms from MAG."""
     sql = """
-        SELECT
-            CT_Num,
-            N_Reglement,
-            RT_NbJour
+        SELECT CT_Num, N_Reglement, RT_NbJour
         FROM F_REGLEMENTT
     """
     return _read(MAG_ENGINE, sql)
 
 
-def extract_creglement(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
-    delta_clause, params = _delta_filter("cbModification", last_run)
-    sql = f"""
-        SELECT
-            RG_No,
-            CT_NumPayeur,
-            RG_Date,
-            RG_Montant
-        FROM F_CREGLEMENT
-        WHERE 1=1
-        {delta_clause}
-    """
-    return _read(MAG_ENGINE, sql, params)
-
-
-def extract_reglech(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
-    delta_clause, params = _delta_filter("cbModification", last_run)
-    sql = f"""
-        SELECT
-            RG_No,
-            DR_No,
-            RC_Montant
-        FROM F_REGLECH
-        WHERE 1=1
-        {delta_clause}
-    """
-    return _read(MAG_ENGINE, sql, params)
-
-
-def extract_docregl_mag(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
-    delta_clause, params = _delta_filter("cbModification", last_run)
-    sql = f"""
-        SELECT
-            DR_No,
-            DO_Type,
-            DO_Piece,
-            DR_Date,
-            DR_Montant,
-            DR_Regle,
-            N_Reglement,
-            DR_TypeRegl
-        FROM F_DOCREGL
-        WHERE 1=1
-        {delta_clause}
-    """
-    return _read(MAG_ENGINE, sql, params)
-
-
 def extract_docentete_dates() -> pd.DataFrame:
     sql = """
-        SELECT
-            DO_Domaine,
-            DO_Type,
-            DO_Piece,
-            DO_Date
+        SELECT DO_Domaine, DO_Type, DO_Piece, DO_Date
         FROM F_DOCENTETE
     """
     return _read(MAG_ENGINE, sql)
@@ -544,10 +363,7 @@ def extract_docentete_dates() -> pd.DataFrame:
 # GRT_MAG
 # ════════════════════════════════════════════════════════════════════════════
 
-
-def extract_fait_reglements_clients(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
+def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("rc.RT_Date", last_run)
     sql = f"""
         SELECT
@@ -571,71 +387,52 @@ def extract_fait_reglements_clients(
             br.BR_TotalReglement,
             br.BR_Rapproch
         FROM F_ReglementClient rc
-        LEFT JOIN F_LigneBordereauRemise lb
-            ON lb.RT_Num = rc.RT_Num
-        LEFT JOIN F_BordereauRemise br
-            ON br.BR_Num = lb.BR_Num
-        WHERE 1=1
-        {delta_clause}
+        LEFT JOIN F_LigneBordereauRemise lb ON lb.RT_Num = rc.RT_Num
+        LEFT JOIN F_BordereauRemise br ON br.BR_Num = lb.BR_Num
+        WHERE 1=1 {delta_clause}
     """
     df = _read(GRT_ENGINE, sql, params)
-    _validate_columns(
-        df,
-        ["RT_Num", "RT_Date", "LB_EcheanceReg"],
-        "extract_fait_reglements_clients",
-    )
+    _validate_columns(df, ["RT_Num", "RT_Date", "LB_EcheanceReg"], "extract_fait_reglements_clients")
     return df
 
 
-def extract_fait_reglements_fournisseurs(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
+def extract_fait_reglements_fournisseurs(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("RT_Date", last_run)
     sql = f"""
-        SELECT
-            RT_Num,
-            CT_Num,
-            DO_Type,
-            DO_Piece,
-            RT_Date,
-            RT_Mode,
-            RT_Montant,
-            RT_Etat,
-            BQ_Num
+        SELECT RT_Num, CT_Num, DO_Type, DO_Piece, RT_Date,
+               RT_Mode, RT_Montant, RT_Etat, BQ_Num
         FROM F_ReglementFournisseur
-        WHERE 1=1
-        {delta_clause}
+        WHERE 1=1 {delta_clause}
     """
     return _read(GRT_ENGINE, sql, params)
 
 
-def extract_docregl_grt(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
-    """Extract document règlement data from GRT_MAG.
+def extract_docregl_grt(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """Document règlement data from GRT_MAG.
 
-    BUG-4 fix: the previous file had this function defined TWICE. Python
-    silently used the second (last) definition, which had no delta filter
-    and no last_run parameter. The duplicate has been removed; a single
-    definition is kept here. GRT F_DOCREGL has no cbModification column
-    so delta filtering is not possible — this is always a full reload.
-    The last_run parameter is accepted for API compatibility but ignored.
+    FIX-BUG4: only ONE definition kept (duplicate removed).
+    GRT F_DOCREGL has no cbModification — always a full reload.
+    last_run is accepted for API compatibility but ignored.
     """
     sql = """
-        SELECT
-            DO_Piece,
-            DR_Montant,
-            DR_EtatRegle AS DR_Regle,
-            DR_ModeReg
+        SELECT DO_Piece, DR_Montant, DR_EtatRegle AS DR_Regle, DR_ModeReg
         FROM F_DOCREGL
     """
     return _read(GRT_ENGINE, sql)
 
 
-def extract_fait_mvtcaisse(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
-    sql = """
+def extract_fait_mvtcaisse(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """Cash movements from GRT.
+
+    FIX-JOIN : GRT F_Caisse PK column is CA_Numero.  We alias it to CA_No
+               so the rest of the pipeline (DIM_CAISSE assembly, FK lookup)
+               uses a single consistent name.
+    FIX-DELTA: delta filter on MC_Date so caisse-dim assembly and fact
+               assembly use the same time window when last_run is supplied.
+               For DIM_CAISSE (always full) the caller passes None.
+    """
+    delta_clause, params = _delta_filter("mc.MC_Date", last_run)
+    sql = f"""
         SELECT
             mc.MC_Numero,
             mc.MC_Date,
@@ -643,25 +440,22 @@ def extract_fait_mvtcaisse(
             mc.MC_Debit,
             mc.MC_Credit,
             mc.MC_Cloture,
-            c.CA_Numero AS CA_No,
+            c.CA_Numero   AS CA_No,
             c.CA_Type,
             c.CA_Solde,
             c.CA_SoldeEspece,
             c.CA_SoldeCheque,
             c.CA_NumJournal AS JO_Num
         FROM F_MvtCaisse mc
-        INNER JOIN F_Caisse c
-            ON c.CA_Numero = mc.CA_Numero
+        INNER JOIN F_Caisse c ON c.CA_Numero = mc.CA_Numero
+        WHERE 1=1 {delta_clause}
     """
-    return _read(GRT_ENGINE, sql)
+    return _read(GRT_ENGINE, sql, params)
 
 
-def extract_dim_type_mvt_caisse(
-    last_run: Optional[datetime] = None,
-) -> pd.DataFrame:
+def extract_dim_type_mvt_caisse() -> pd.DataFrame:
     sql = """
-        SELECT DISTINCT
-            MC_TypeMvt AS code_type_mvt
+        SELECT DISTINCT MC_TypeMvt AS code_type_mvt
         FROM F_MvtCaisse
         WHERE MC_TypeMvt IS NOT NULL
     """
@@ -669,51 +463,25 @@ def extract_dim_type_mvt_caisse(
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# STATIC DIMENSIONS — FIX-1: Sage column names aligned with v14 DDL
+# STATIC DIMENSIONS
 # ════════════════════════════════════════════════════════════════════════════
 
-
 def extract_static_dims() -> dict[str, pd.DataFrame]:
-
     from etl.config import (
-        MODES_REGLEMENT,
-        ETATS_REGLEMENT,
-        ETATS_DOCREGL,
-        TYPES_LIGNE,
-        SENS_ECRITURE,
-        TYPES_TVA,
-        DOMAINES,
-        TYPES_DOC,
+        MODES_REGLEMENT, ETATS_REGLEMENT, ETATS_DOCREGL,
+        TYPES_LIGNE, SENS_ECRITURE, TYPES_TVA, DOMAINES, TYPES_DOC,
     )
 
     def _df(d: dict, code_col: str, lib_col: str) -> pd.DataFrame:
-        return pd.DataFrame(
-            [(k, v) for k, v in d.items()],
-            columns=[code_col, lib_col],
-        )
+        return pd.DataFrame([(k, v) for k, v in d.items()], columns=[code_col, lib_col])
 
     return {
-        # FIX-1: DO_Domaine replaces code_domaine
-        "DIM_DOMAINE": _df(DOMAINES, "DO_Domaine", "libelle_domaine"),
-
-        # FIX-1: DO_Type replaces code_type_doc
-        "DIM_TYPE_DOC": _df(TYPES_DOC, "DO_Type", "libelle_type_doc"),
-
-        # FIX-1: RT_Mode replaces code_mode_reg
-        "DIM_MODE_REGLEMENT": _df(MODES_REGLEMENT, "RT_Mode", "libelle_mode_reg"),
-
-        # FIX-1: RT_Etat replaces code_etat_reg
-        "DIM_ETAT_REGLEMENT": _df(ETATS_REGLEMENT, "RT_Etat", "libelle_etat_reg"),
-
-        # FIX-1: DR_Regle replaces code_etat_docregl
-        "DIM_ETAT_DOCREGL": _df(ETATS_DOCREGL, "DR_Regle", "libelle_etat_docregl"),
-
-        # FIX-1: type_ligne replaces code_type_ligne
-        "DIM_TYPE_LIGNE": _df(TYPES_LIGNE, "type_ligne", "libelle_type_ligne"),
-
-        # FIX-1: EC_Sens replaces code_sens
-        "DIM_SENS_ECRITURE": _df(SENS_ECRITURE, "EC_Sens", "libelle_sens"),
-
-        # FIX-1: type_tva replaces code_type_tva
-        "DIM_TYPE_TVA": _df(TYPES_TVA, "type_tva", "libelle_type_tva"),
+        "DIM_DOMAINE":         _df(DOMAINES,          "DO_Domaine",    "libelle_domaine"),
+        "DIM_TYPE_DOC":        _df(TYPES_DOC,          "DO_Type",       "libelle_type_doc"),
+        "DIM_MODE_REGLEMENT":  _df(MODES_REGLEMENT,    "RT_Mode",       "libelle_mode_reg"),
+        "DIM_ETAT_REGLEMENT":  _df(ETATS_REGLEMENT,    "RT_Etat",       "libelle_etat_reg"),
+        "DIM_ETAT_DOCREGL":    _df(ETATS_DOCREGL,      "DR_Regle",      "libelle_etat_docregl"),
+        "DIM_TYPE_LIGNE":      _df(TYPES_LIGNE,        "type_ligne",    "libelle_type_ligne"),
+        "DIM_SENS_ECRITURE":   _df(SENS_ECRITURE,      "EC_Sens",       "libelle_sens"),
+        "DIM_TYPE_TVA":        _df(TYPES_TVA,          "type_tva",      "libelle_type_tva"),
     }

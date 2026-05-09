@@ -1,43 +1,31 @@
-# etl/load.py
-"""Loading module for SIAD MAG Distribution ETL.
-Provides bulk load for dimensions (full) and MERGE-based upserts for delta.
-All operations are wrapped in a transaction per table.
-
-FIXES APPLIED
-─────────────────────────────────────────────────────────────
-FIX-BINARY : _merge_upsert() — binary columns (source_hash, row_hash)
-             are now serialised to hex strings before pandas.to_sql so the
-             staging table gets VARCHAR(64) instead of varchar(max).
-             The MERGE ON clause and INSERT VALUES use
-             CONVERT(VARBINARY(32), src.[col], 2)  (style 2 = hex, no 0x)
-             so SQL Server re-materialises them as BINARY(32) correctly.
-             This fixes:
-               Implicit conversion from data type varchar(max) to binary
-               is not allowed. (Error 257)
-
-FIX-NEW : _merge_upsert() — removed broken pk_col name inference
-           (f"id_{table.lower()}") which was always wrong for fact tables
-           and multi-word table names. Since _prepare_for_load() already
-           strips all IDENTITY columns before _merge_upsert() builds its
-           column list, the pk_col exclusion was redundant. The fix simply
-           excludes key_col from the UPDATE SET clause; the identity column
-           is already absent from df.columns at that point.
-
-Original fixes (preserved)
-─────────────────────────────────────────────────────────────
-Bug 5  – SET clause now excludes the IDENTITY PK column (id_<table>).
-Bug 6  – DROP TABLE executed as a separate statement, not inside MERGE body.
-Bug 7  – Temp table uses _etl_tmp_ prefix (no #); dropped before and
-          after use so pandas.to_sql can create a regular permanent staging
-          table without name collisions.
-Bug 8  – load_dimension now accepts an explicit key_col parameter;
-          the broken automatic inference is removed.
 """
-import logging
+load.py — SIAD MAG Distribution ETL
+Bulk load for dimensions (full) and MERGE-based upserts for delta.
+
+FIXES vs previous version
+──────────────────────────────────────────────────────────────────────────
+FIX-HASH-BULK : _bulk_insert() no longer drops source_hash before
+                inserting. On full loads, source_hash is now written to
+                the table so the unique index UX_*_source_hash provides
+                real dedup protection. row_hash is still kept (used for
+                SCD row comparison). Binary columns are hex-encoded via
+                the same path as _merge_upsert().
+FIX-BINARY    : _merge_upsert() hex-encodes BINARY cols so SQL Server
+                receives VARCHAR that it re-casts via CONVERT(VARBINARY).
+FIX-PK        : _merge_upsert() no longer tries to guess the PK column
+                name. _prepare_for_load() already strips IDENTITY columns
+                so the PK is absent from df.columns by the time the MERGE
+                is built.
+"""
+from __future__ import annotations
+
 import hashlib
+import datetime as _dt
 from typing import Literal, Optional
+
 import pandas as pd
 from sqlalchemy import text
+
 from etl.config import DW_ENGINE, CHUNK_SIZE
 from etl.utils.logger import get_logger
 
@@ -45,11 +33,15 @@ logger = get_logger(__name__)
 
 Mode = Literal["full", "delta"]
 
-_DROP_IF_EXISTS = "IF OBJECT_ID(N'[dbo].[{name}]', N'U') IS NOT NULL DROP TABLE [{name}]"
+_DROP_IF_EXISTS = (
+    "IF OBJECT_ID(N'[dbo].[{name}]', N'U') IS NOT NULL DROP TABLE [{name}]"
+)
 
-# Columns that carry raw bytes and must be hex-encoded for pandas.to_sql
+# Columns that carry raw bytes and need hex-encoding for pandas.to_sql
 _BINARY_COLS = {"source_hash", "row_hash"}
 
+
+# ── Schema helpers ────────────────────────────────────────────────────────────
 
 def _target_columns(table: str) -> tuple[list[str], set[str]]:
     """Return (all_columns, identity_columns) for *table* in the DW."""
@@ -62,13 +54,12 @@ def _target_columns(table: str) -> tuple[list[str], set[str]]:
                 'IsIdentity'
             ) AS IS_IDENTITY
         FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = 'dbo'
-          AND TABLE_NAME = :table
+        WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = :table
         ORDER BY ORDINAL_POSITION
     """
     with DW_ENGINE.connect() as conn:
         rows = conn.execute(text(sql), {"table": table}).fetchall()
-    columns = [row[0] for row in rows]
+    columns      = [row[0] for row in rows]
     identity_cols = {row[0] for row in rows if row[1] == 1}
     if not columns:
         raise ValueError(f"DW table '{table}' does not exist or has no columns")
@@ -76,36 +67,35 @@ def _target_columns(table: str) -> tuple[list[str], set[str]]:
 
 
 def _prepare_for_load(df: pd.DataFrame, table: str) -> pd.DataFrame:
-    """Align DataFrame columns to the writable (non-identity) DW columns."""
+    """Align DataFrame columns to the writable (non-identity) DW columns.
+
+    Also auto-computes row_hash if the table has the column and the df does not.
+    Converts date objects to ISO strings for pyodbc compatibility.
+    """
     if df.empty:
         return df
 
     target_cols, identity_cols = _target_columns(table)
     writable_cols = [c for c in target_cols if c not in identity_cols]
 
+    # Auto-compute row_hash if needed
     if "row_hash" in writable_cols and "row_hash" not in df.columns:
         hash_cols = [c for c in writable_cols if c != "row_hash" and c in df.columns]
         df = df.copy()
         df["row_hash"] = df[hash_cols].apply(_sha256_row, axis=1)
 
-    kept_cols = [c for c in writable_cols if c in df.columns]
+    kept_cols    = [c for c in writable_cols if c in df.columns]
     dropped_cols = [c for c in df.columns if c not in kept_cols]
 
     if dropped_cols:
-        logger.debug(
-            f"[LOAD] {table} - dropping non-DW columns: {', '.join(dropped_cols)}"
-        )
+        logger.debug(f"[LOAD] {table} - dropping non-DW cols: {', '.join(dropped_cols)}")
 
     if not kept_cols:
-        raise ValueError(
-            f"No writable DW columns remain for {table} after schema alignment"
-        )
+        raise ValueError(f"No writable DW columns remain for {table} after schema alignment")
 
     df = df.loc[:, kept_cols].copy()
 
-    # Convert datetime.date objects to ISO string 'YYYY-MM-DD'
-    # so pyodbc sends DATE not DATETIME to SQL Server DATE columns.
-    import datetime as _dt
+    # Convert date objects → ISO string so pyodbc sends DATE not DATETIME
     for col in df.columns:
         if df[col].dtype == object:
             sample = df[col].dropna()
@@ -118,12 +108,7 @@ def _prepare_for_load(df: pd.DataFrame, table: str) -> pd.DataFrame:
 
 
 def _sha256_row(row: pd.Series) -> bytearray:
-    parts = []
-    for value in row.tolist():
-        if pd.isna(value):
-            parts.append("<NULL>")
-        else:
-            parts.append(str(value))
+    parts = ["<NULL>" if pd.isna(v) else str(v) for v in row.tolist()]
     return bytearray(hashlib.sha256("|".join(parts).encode("utf-8")).digest())
 
 
@@ -139,11 +124,7 @@ def _detect_binary_cols(df: pd.DataFrame) -> list[str]:
 
 
 def _hex_encode_binary_cols(df: pd.DataFrame, binary_cols: list[str]) -> pd.DataFrame:
-    """Return a copy of *df* with binary columns converted to hex strings.
-
-    Uses uppercase hex without '0x' prefix so SQL Server
-    CONVERT(VARBINARY(32), value, 2) can re-materialise them correctly.
-    """
+    """Hex-encode binary columns for pandas.to_sql (no 0x prefix, uppercase)."""
     df = df.copy()
     for col in binary_cols:
         df[col] = df[col].apply(
@@ -152,43 +133,65 @@ def _hex_encode_binary_cols(df: pd.DataFrame, binary_cols: list[str]) -> pd.Data
     return df
 
 
+def _to_python(v):
+    """Convert a DataFrame cell to a plain Python scalar for executemany."""
+    if v is None:
+        return None
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if hasattr(v, "item"):
+        return v.item()
+    return v
+
+
+# ── Insert strategies ─────────────────────────────────────────────────────────
+
 def _bulk_insert(df: pd.DataFrame, table: str) -> None:
+    """Fast bulk insert via pyodbc executemany.
+
+    FIX-HASH-BULK: source_hash and row_hash are NO LONGER dropped before
+    insert. They are hex-encoded and written to the table so the unique
+    indexes UX_*_source_hash work on full loads too.
+    """
     if df.empty:
-        logger.info(f"[LOAD] {table} – DataFrame vide, rien à insérer")
+        logger.info(f"[LOAD] {table} – empty DataFrame, nothing to insert")
         return
 
     df = _prepare_for_load(df, table)
-    df = df.drop(columns=["row_hash", "source_hash"], errors="ignore")
 
     if df.empty or len(df.columns) == 0:
-        logger.info(f"[LOAD] {table} – DataFrame vide après préparation")
+        logger.info(f"[LOAD] {table} – empty after schema alignment")
         return
 
-    cols = list(df.columns)
-    placeholders = ", ".join(["?" for _ in cols])
-    col_names = ", ".join([f"[{c}]" for c in cols])
-    sql = f"INSERT INTO [{table}] ({col_names}) VALUES ({placeholders})"
+    # Hex-encode any binary columns that survived _prepare_for_load
+    binary_cols = _detect_binary_cols(df)
+    if binary_cols:
+        df = _hex_encode_binary_cols(df, binary_cols)
 
-    def _to_python(v):
-        if v is None:
-            return None
-        try:
-            if pd.isna(v):
-                return None
-        except (TypeError, ValueError):
-            pass
-        if hasattr(v, "item"):
-            return v.item()
-        return v
+    cols = list(df.columns)
+    col_names    = ", ".join([f"[{c}]" for c in cols])
+    placeholders = ", ".join(["?" for _ in cols])
+
+    # For binary cols the placeholder becomes CONVERT(VARBINARY(32), ?, 2)
+    value_exprs = []
+    for c in cols:
+        if c in binary_cols:
+            value_exprs.append("CONVERT(VARBINARY(32), ?, 2)")
+        else:
+            value_exprs.append("?")
+    values_sql = ", ".join(value_exprs)
+
+    sql = f"INSERT INTO [{table}] ({col_names}) VALUES ({values_sql})"
 
     rows = [
         tuple(_to_python(v) for v in row)
         for row in df.itertuples(index=False, name=None)
     ]
 
-    logger.info(
-        f"[LOAD] {table} – Insertion bulk ({len(df)} lignes via fast_executemany)"
-    )
+    logger.info(f"[LOAD] {table} – bulk insert {len(df)} rows")
     with DW_ENGINE.begin() as conn:
         raw_conn = conn.connection
         cursor = raw_conn.cursor()
@@ -199,64 +202,37 @@ def _bulk_insert(df: pd.DataFrame, table: str) -> None:
 
 
 def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
-    """Perform a MERGE (upsert) on the DW table.
+    """MERGE (upsert) on the DW table keyed by *key_col*.
 
-    *key_col* is the natural-key hash column used to match rows
-    (e.g. ``CT_Num_code`` or ``source_hash``).
+    Binary columns are hex-encoded for staging; the MERGE ON clause and
+    INSERT VALUES use CONVERT(VARBINARY(32), src.[col], 2) to re-materialise
+    them as BINARY(32).
 
-    FIX-BINARY: Binary columns (source_hash, row_hash) are hex-encoded
-    before pandas.to_sql so the staging table gets a VARCHAR column rather
-    than varchar(max) with raw byte representation. The MERGE ON clause and
-    INSERT VALUES clause use CONVERT(VARBINARY(32), src.[col], 2) to
-    re-materialise them as BINARY(32), matching the DW column type exactly.
-
-    FIX-NEW: The IDENTITY PK is already stripped by _prepare_for_load()
-    before this function builds its column list. There is therefore no need
-    to guess the PK column name. The UPDATE SET clause simply excludes
-    key_col; the identity column is already absent from df.columns.
+    IDENTITY PK is already stripped by _prepare_for_load() so we never need
+    to guess the PK column name — it simply isn't in df.columns.
     """
     if df.empty:
-        logger.info(f"[LOAD] {table} – DataFrame vide, rien à MERGE")
+        logger.info(f"[LOAD] {table} – empty DataFrame, nothing to MERGE")
         return
 
-    # _prepare_for_load strips IDENTITY columns — df.columns has no PK after this
     df = _prepare_for_load(df, table)
 
-    # Drop binary hash cols that are NOT the merge key (they go into _bulk_insert path)
-    cols_to_drop = [c for c in ["row_hash", "source_hash"] if c != key_col]
-    df = df.drop(columns=cols_to_drop, errors="ignore")
-
     if key_col not in df.columns:
-        raise ValueError(
-            f"MERGE key column '{key_col}' is missing from {table} load"
-        )
+        raise ValueError(f"MERGE key column '{key_col}' missing from {table} load")
 
-    before_dedupe = len(df)
+    before = len(df)
     df = df.drop_duplicates(subset=[key_col], keep="last")
+    if len(df) != before:
+        logger.warning(f"[LOAD] {table} - dropped {before - len(df)} duplicate {key_col} rows")
 
-    if len(df) != before_dedupe:
-        logger.warning(
-            f"[LOAD] {table} - dropped {before_dedupe - len(df)} "
-            f"duplicate {key_col} rows"
-        )
-
-    # Bug 7: plain permanent staging table (no # prefix)
     temp_name = f"_etl_tmp_{table}"
 
-    # Drop any leftover staging table from a previous failed run
     with DW_ENGINE.begin() as conn:
         conn.execute(text(_DROP_IF_EXISTS.format(name=temp_name)))
 
-    # FIX-BINARY: detect binary columns still present in df (only key_col
-    # could be source_hash at this point; row_hash was dropped above).
     binary_cols = _detect_binary_cols(df)
+    df_staging  = _hex_encode_binary_cols(df, binary_cols) if binary_cols else df
 
-    # Write a hex-encoded copy to the staging table so pandas.to_sql creates
-    # a proper VARCHAR column instead of varchar(max) with raw byte data.
-    df_staging = _hex_encode_binary_cols(df, binary_cols) if binary_cols else df
-
-    logger.debug(f"[LOAD] {table} – création table temporaire {temp_name}")
-    # SQL Server limit: 2100 parameters per statement
     n_cols = len(df_staging.columns)
     sql_server_chunk = max(1, 2099 // n_cols)
 
@@ -269,10 +245,8 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
         method="multi",
     )
 
-    # Build MERGE clauses
-    # UPDATE SET excludes key_col (FIX-NEW)
     update_cols = [c for c in df.columns if c != key_col]
-    update_set = (
+    update_set  = (
         ", ".join([f"target.[{c}]=src.[{c}]" for c in update_cols])
         if update_cols
         else f"target.[{key_col}]=target.[{key_col}]"
@@ -280,7 +254,6 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
 
     all_cols_sql = ", ".join([f"[{c}]" for c in df.columns])
 
-    # FIX-BINARY: INSERT VALUES must convert hex strings back to VARBINARY
     src_vals = []
     for c in df.columns:
         if c in binary_cols:
@@ -289,12 +262,8 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
             src_vals.append(f"src.[{c}]")
     src_cols_sql = ", ".join(src_vals)
 
-    # FIX-BINARY: ON clause — if key_col is binary, convert hex staging value
     if key_col in binary_cols:
-        # Staging col is hex VARCHAR; target col is BINARY(32)
-        on_clause = (
-            f"target.[{key_col}] = CONVERT(VARBINARY(32), src.[{key_col}], 2)"
-        )
+        on_clause = f"target.[{key_col}] = CONVERT(VARBINARY(32), src.[{key_col}], 2)"
     else:
         on_clause = f"target.[{key_col}] = src.[{key_col}]"
 
@@ -308,15 +277,16 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
             VALUES ({src_cols_sql});
     """
 
-    # Bug 6: DROP TABLE as a separate statement after MERGE
     drop_sql = _DROP_IF_EXISTS.format(name=temp_name)
 
     with DW_ENGINE.begin() as conn:
         conn.execute(text(merge_sql))
         conn.execute(text(drop_sql))
 
-    logger.info(f"[LOAD] {table} – MERGE upsert complet ({len(df)} lignes)")
+    logger.info(f"[LOAD] {table} – MERGE upsert complete ({len(df)} rows)")
 
+
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def load_dimension(
     df: pd.DataFrame,
@@ -326,10 +296,8 @@ def load_dimension(
 ) -> None:
     """Load a dimension table.
 
-    - full  : DELETE all rows then bulk insert.
-    - delta : MERGE based on *key_col* (the natural-key hash column).
-
-    Bug 8: key_col must be supplied explicitly for delta mode.
+    full  → DELETE all rows, then bulk insert.
+    delta → MERGE on *key_col* (must be supplied explicitly).
     """
     if mode == "full":
         with DW_ENGINE.begin() as conn:
@@ -338,8 +306,7 @@ def load_dimension(
     else:
         if key_col is None:
             raise ValueError(
-                f"key_col must be provided explicitly for delta load of '{table}'. "
-                "Pass the natural-key hash column name (e.g. 'CT_Num_code')."
+                f"key_col must be provided for delta load of '{table}'."
             )
         _merge_upsert(df, table, key_col)
 
@@ -352,9 +319,9 @@ def load_fact(
 ) -> None:
     """Load a fact table.
 
-    - full  : disable FK, DELETE all rows, bulk insert, re-enable FK.
-    - delta : MERGE on source_hash (idempotent upsert) or append-only
-    fallback if source_hash column is absent.
+    full  → disable FK, DELETE all rows, bulk insert (source_hash included),
+            re-enable FK.
+    delta → MERGE on source_hash (idempotent) or append if column absent.
     """
     if mode == "full":
         with DW_ENGINE.begin() as conn:
@@ -362,19 +329,12 @@ def load_fact(
             conn.execute(text(f"DELETE FROM [{table}]"))
         _bulk_insert(df, table)
         with DW_ENGINE.begin() as conn:
-            conn.execute(
-                text(f"ALTER TABLE [{table}] WITH CHECK CHECK CONSTRAINT ALL")
-            )
+            conn.execute(text(f"ALTER TABLE [{table}] WITH CHECK CHECK CONSTRAINT ALL"))
     else:
         if key_col and key_col in df.columns:
             _merge_upsert(df, table, key_col)
         else:
             logger.warning(
-                f"[LOAD] {table} - no {key_col} column, "
-                "falling back to append-only fact load"
+                f"[LOAD] {table} - no {key_col} column; falling back to append-only"
             )
             _bulk_insert(df, table)
-
-
-if __name__ == "__main__":
-    logger.info("module load.py exécuté en mode script – aucune action définie.")

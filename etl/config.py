@@ -1,6 +1,11 @@
 """
 config.py — SIAD MAG Distribution ETL
-Configuration centrale : engines SQLAlchemy, constantes KPI, utilitaires globaux.
+Configuration centrale : engines SQLAlchemy, hash_key, constantes métier.
+
+FIXES vs previous version
+──────────────────────────────────────────────────────────────────────────
+FIX-HASH : hash_key() defined ONLY here. transform.py imports it from here
+           instead of duplicating it — eliminates silent drift risk.
 """
 from __future__ import annotations
 
@@ -9,24 +14,20 @@ import zlib
 from pathlib import Path
 from typing import Optional
 
-from dotenv import load_dotenv
 import logging
 logging.getLogger("pyodbc").setLevel(logging.WARNING)
+
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, Engine, event
 from sqlalchemy.pool import QueuePool
 
-# ── Chargement .env ─────────────────────────────────────────────────────────
+# ── .env loading ─────────────────────────────────────────────────────────────
 _ENV_PATH = Path(__file__).parent / ".env"
 load_dotenv(_ENV_PATH)
 
-# ── Connexions ───────────────────────────────────────────────────────────────
+# ── Engine factory ────────────────────────────────────────────────────────────
 def _make_engine(conn_str: str, pool_size: int = 5) -> Engine:
-    """Crée un engine SQLAlchemy Core avec pool configurable.
-
-    Bug 20 fix: ``fast_executemany`` is a pyodbc connection-level setting and
-    must be passed inside ``connect_args``, not as a top-level keyword to
-    ``create_engine`` (where SQLAlchemy silently ignores unknown kwargs).
-    """
+    """SQLAlchemy engine with pyodbc fast_executemany and pool."""
     engine = create_engine(
         conn_str,
         poolclass=QueuePool,
@@ -35,10 +36,10 @@ def _make_engine(conn_str: str, pool_size: int = 5) -> Engine:
         pool_pre_ping=True,
         connect_args={
             "timeout": 30,
-            "fast_executemany": True,   # pyodbc bulk-insert optimisation
+            "fast_executemany": True,
         },
     )
-    # Désactiver autocommit — contrôle explicite des transactions
+
     @event.listens_for(engine, "connect")
     def _set_options(dbapi_conn, _rec):
         cursor = dbapi_conn.cursor()
@@ -52,13 +53,12 @@ DW_ENGINE:  Engine = _make_engine(os.environ["DW_CONN"],  pool_size=5)
 MAG_ENGINE: Engine = _make_engine(os.environ["MAG_CONN"], pool_size=3)
 GRT_ENGINE: Engine = _make_engine(os.environ["GRT_CONN"], pool_size=3)
 
-# ── Paramètres ETL ───────────────────────────────────────────────────────────
+# ── ETL parameters ────────────────────────────────────────────────────────────
 CHUNK_SIZE:     int = int(os.getenv("ETL_CHUNK_SIZE", "10000"))
 DIM_DATE_START: str = os.getenv("DIM_DATE_START", "2015-01-01")
 DIM_DATE_END:   str = os.getenv("DIM_DATE_END",   "2030-12-31")
 
-# ── Constantes métier ────────────────────────────────────────────────────────
-# Valeurs connues DIM_SEGMENT (P_CATTARIF.cbIndice)
+# ── Business constants ────────────────────────────────────────────────────────
 SEGMENTS: dict[int, str] = {
     1: "DÉTAILLANTS",
     2: "GROSSISTES",
@@ -67,7 +67,6 @@ SEGMENTS: dict[int, str] = {
     5: "DISTRIBUTEUR",
 }
 
-# Valeurs DIM_MODE_REGLEMENT
 MODES_REGLEMENT: dict[int, str] = {
     1: "Espèces",
     2: "Chèque",
@@ -78,20 +77,17 @@ MODES_REGLEMENT: dict[int, str] = {
     8: "Autre",
 }
 
-# Valeurs DIM_ETAT_REGLEMENT
 ETATS_REGLEMENT: dict[int, str] = {
     0: "En cours",
     1: "Soldé",
     2: "Payé",
 }
 
-# Valeurs DIM_ETAT_DOCREGL
 ETATS_DOCREGL: dict[int, str] = {
     0: "Non réglé",
     1: "Réglé",
 }
 
-# Valeurs DIM_TYPE_LIGNE (discriminant FAIT_ECRITURES)
 TYPES_LIGNE: dict[int, str] = {
     1: "Ecriture comptable",
     2: "TVA",
@@ -99,19 +95,16 @@ TYPES_LIGNE: dict[int, str] = {
     4: "Stock snapshot",
 }
 
-# Valeurs DIM_SENS_ECRITURE
 SENS_ECRITURE: dict[int, str] = {
     0: "Débit",
     1: "Crédit",
 }
 
-# Valeurs DIM_TYPE_TVA
 TYPES_TVA: dict[int, str] = {
     1: "TVA collectée",
     2: "TVA déductible",
 }
 
-# Valeurs DIM_TYPE_DOC (DO_Type Sage communs)
 TYPES_DOC: dict[int, str] = {
     1:  "Devis",
     2:  "Bon de commande",
@@ -129,7 +122,6 @@ TYPES_DOC: dict[int, str] = {
     17: "Avoir fournisseur",
 }
 
-# Domaines DO_Domaine Sage
 DOMAINES: dict[int, str] = {
     0: "Vente",
     1: "Achat",
@@ -137,43 +129,41 @@ DOMAINES: dict[int, str] = {
     3: "Interne",
 }
 
-# Seuil alerte tension stock KPI-14
 SEUIL_TENSION_STOCK: float = 0.8
+FENETRE_RFM_JOURS:   int   = 365
+BUCKETS_IMPAYE:      list[int] = [0, 30, 60, 90]
 
-# Fenêtre RFM glissante (jours) KPI-18
-FENETRE_RFM_JOURS: int = 365
-
-# Buckets ancienneté impayés KPI-08 (jours)
-BUCKETS_IMPAYE: list[int] = [0, 30, 60, 90]   # bornes inférieures
-
-
-# ── Fonction de hashage clés naturelles ─────────────────────────────────────
-_CRC32_MOD: int = 2**31 - 1   # max INT SQL Server signé
+# ── Canonical hash function (SINGLE definition for the whole project) ─────────
+_CRC32_MOD: int = 2**31 - 1   # max signed SQL Server INT
 
 
-def hash_key(value: Optional[str | int | float]) -> int:
+def hash_key(value: Optional[str | int | float]) -> Optional[int]:
     """
-    Convertit une clé naturelle nvarchar Sage en INT surrogate CRC32.
+    CRC32-based surrogate for Sage natural keys.
 
-    Règles :
-    - strip + upper pour normaliser
-    - abs + modulo pour rester dans INT SQL Server signé
-    - None / NaN → 0 (clé inconnue)
+    Rules:
+      - strip + upper to normalise
+      - abs + modulo to stay within signed SQL Server INT
+      - None / NaN / empty string → None  (unknown key, not 0)
 
-    >>> hash_key("ART-001")
-    1234567890  # exemple
+    Returns None instead of 0 so FK joins stay NULL-safe.
     """
     if value is None:
-        return 0
+        return None
+    import pandas as pd
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
     normalized = str(value).strip().upper()
     if not normalized:
-        return 0
+        return None
     return abs(zlib.crc32(normalized.encode("utf-8"))) % _CRC32_MOD
 
 
-# ── Noms des tables DW ───────────────────────────────────────────────────────
+# ── DW table creation order ───────────────────────────────────────────────────
 DW_TABLES_ORDER: list[str] = [
-    # Groupe 1 — sans FK sortante
     "DIM_DATE",
     "DIM_DOMAINE",
     "DIM_TYPE_DOC",
@@ -185,24 +175,17 @@ DW_TABLES_ORDER: list[str] = [
     "DIM_TYPE_TVA",
     "DIM_TYPE_MVT_CAISSE",
     "DIM_BANQUE",
-    # Groupe 2
     "DIM_SEGMENT",
     "DIM_COLLABORATEUR",
     "DIM_JOURNAL",
     "DIM_FOURNISSEUR",
-    # Groupe 3
     "DIM_FAMILLE",
-    # Groupe 4
     "DIM_CLIENT",
-    # Groupe 5
     "DIM_ARTICLE",
-    # Groupe 6
     "DIM_DEPOT",
     "DIM_CAISSE",
-    # Groupe 7 — Faits
     "FAIT_LIGNES_VENTE",
     "FAIT_REGLEMENTS",
     "FAIT_ECRITURES",
-    # Groupe 8
     "ETL_AUDIT",
 ]
