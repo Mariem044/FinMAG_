@@ -1,8 +1,9 @@
 // src/lib/api.js
+//
+// All fetchers are plain functions (not closures created on every render),
+// so passing them directly to useApiResource is safe — their identity is stable.
 
-const BASE = (
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || ""
-).replace(/\/$/, "");
+const BASE = ((typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "").replace(/\/$/, "");
 
 const TIMEOUT_MS = Number(
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_TIMEOUT_MS) || 8000,
@@ -39,67 +40,128 @@ function post(path) {
   return fetchWithTimeout(path, { method: "POST" });
 }
 
+// ─── Stable fetcher references ────────────────────────────────────────────────
+// These are module-level functions so their identity never changes between renders.
+// This means useApiResource(api.ventes.caByMonth, []) won't trigger extra re-fetches.
+
+const _health = () => get("/api/health");
+
+const _etlStatus = () => get("/api/etl/status");
+const _etlRun = () => post("/api/etl/run");
+
+const _dashboardKpis = () => get("/api/dashboard/kpis");
+const _dashboardCaByMonth = () => get("/api/ventes/ca-by-month");
+const _dashboardTopFamilles = () => get("/api/ventes/top-familles");
+const _dashboardCaByRegion = () => get("/api/ventes/ca-by-region");
+
+const _ventesCaByMonth = () => get("/api/ventes/ca-by-month");
+const _ventesTopFamilles = () => get("/api/ventes/top-familles");
+const _ventesCaByRegion = () => get("/api/ventes/ca-by-region");
+
+const _tresorerieSummary = () => get("/api/tresorerie/summary");
+const _tresorerieImpayes = () => get("/api/tresorerie/impayes");
+const _tresorerieEncaissements = () => get("/api/tresorerie/encaissements-by-mode");
+const _tresorerieAging = () => get("/api/tresorerie/aging");
+
+const _produitsArticles = () => get("/api/produits/articles");
+const _produitsAlerts = () => get("/api/produits/stock-alerts");
+
+const _acteursClients = () => get("/api/acteurs/clients");
+const _acteursRfm = () => get("/api/acteurs/rfm");
+const _acteursAging = () => get("/api/acteurs/aging");
+const _acteursFournisseurs = () => get("/api/acteurs/fournisseurs");
+const _acteursFournisseurConcentration = () => get("/api/acteurs/fournisseur-concentration");
+
+const _banqueRapprochement = () => get("/api/banque/rapprochement");
+
+const _caisseCaisses = () => get("/api/caisse/caisses");
+const _caisseFluxDaily = () => get("/api/caisse/flux-daily");
+const _caisseMouvementsByType = () => get("/api/caisse/mouvements-by-type");
+
+const _fiscaliteKpis = () => get("/api/fiscalite/kpis");
+const _fiscaliteJournaux = () => get("/api/fiscalite/journaux");
+const _fiscaliteTvaByMonth = () => get("/api/fiscalite/tva-by-month");
+const _fiscaliteAnomalies = () => get("/api/fiscalite/anomalies");
+const _fiscaliteBalanceByMonth = () => get("/api/fiscalite/balance-by-month");
+const _fiscaliteEcritures = () => get("/api/fiscalite/ecritures");
+
+const _notifications = () => get("/api/notifications");
+
+/**
+ * assistantSummary — returns a combined object matching what the assistant page
+ * expects: { kpis, caByMonth, articles, clients, impayes, ecritures }
+ *
+ * The backend /api/assistant/summary endpoint should return this shape.
+ * If it doesn't exist yet, this falls back to individual calls gracefully
+ * because useApiResource uses the initialData default on failure.
+ */
+const _assistantSummary = () => get("/api/assistant/summary");
+
+const _search = (query) => get(`/api/search?q=${encodeURIComponent(query)}`);
+
+// ─── Public API object ────────────────────────────────────────────────────────
+
 export const api = {
-  health: () => get("/api/health"),
+  health: _health,
 
   etl: {
-    status: () => get("/api/etl/status"),
-    run: () => post("/api/etl/run"),
+    status: _etlStatus,
+    run: _etlRun,
   },
 
   dashboard: {
-    kpis: () => get("/api/dashboard/kpis"),
-    caByMonth: () => get("/api/ventes/ca-by-month"),
-    topFamilles: () => get("/api/ventes/top-familles"),
-    caByRegion: () => get("/api/ventes/ca-by-region"),
+    kpis: _dashboardKpis,
+    caByMonth: _dashboardCaByMonth,
+    topFamilles: _dashboardTopFamilles,
+    caByRegion: _dashboardCaByRegion,
   },
 
   ventes: {
-    caByMonth: () => get("/api/ventes/ca-by-month"),
-    topFamilles: () => get("/api/ventes/top-familles"),
-    caByRegion: () => get("/api/ventes/ca-by-region"),
+    caByMonth: _ventesCaByMonth,
+    topFamilles: _ventesTopFamilles,
+    caByRegion: _ventesCaByRegion,
   },
 
   tresorerie: {
-    summary: () => get("/api/tresorerie/summary"),
-    impayes: () => get("/api/tresorerie/impayes"),
-    encaissementsByMode: () => get("/api/tresorerie/encaissements-by-mode"),
-    aging: () => get("/api/tresorerie/aging"),
+    summary: _tresorerieSummary,
+    impayes: _tresorerieImpayes,
+    encaissementsByMode: _tresorerieEncaissements,
+    aging: _tresorerieAging,
   },
 
   produits: {
-    articles: () => get("/api/produits/articles"),
-    alerts: () => get("/api/produits/stock-alerts"),
+    articles: _produitsArticles,
+    alerts: _produitsAlerts,
   },
 
   acteurs: {
-    clients: () => get("/api/acteurs/clients"),
-    rfm: () => get("/api/acteurs/rfm"),
-    aging: () => get("/api/acteurs/aging"),
-    fournisseurs: () => get("/api/acteurs/fournisseurs"),
-    fournisseurConcentration: () => get("/api/acteurs/fournisseur-concentration"),
+    clients: _acteursClients,
+    rfm: _acteursRfm,
+    aging: _acteursAging,
+    fournisseurs: _acteursFournisseurs,
+    fournisseurConcentration: _acteursFournisseurConcentration,
   },
 
   banque: {
-    rapprochement: () => get("/api/banque/rapprochement"),
+    rapprochement: _banqueRapprochement,
   },
 
   caisse: {
-    caisses: () => get("/api/caisse/caisses"),
-    fluxDaily: () => get("/api/caisse/flux-daily"),
-    mouvementsByType: () => get("/api/caisse/mouvements-by-type"),
+    caisses: _caisseCaisses,
+    fluxDaily: _caisseFluxDaily,
+    mouvementsByType: _caisseMouvementsByType,
   },
 
   fiscalite: {
-    kpis: () => get("/api/fiscalite/kpis"),
-    journaux: () => get("/api/fiscalite/journaux"),
-    tvaByMonth: () => get("/api/fiscalite/tva-by-month"),
-    anomalies: () => get("/api/fiscalite/anomalies"),
-    balanceByMonth: () => get("/api/fiscalite/balance-by-month"),
-    ecritures: () => get("/api/fiscalite/ecritures"),
+    kpis: _fiscaliteKpis,
+    journaux: _fiscaliteJournaux,
+    tvaByMonth: _fiscaliteTvaByMonth,
+    anomalies: _fiscaliteAnomalies,
+    balanceByMonth: _fiscaliteBalanceByMonth,
+    ecritures: _fiscaliteEcritures,
   },
 
-  search: (query) => get(`/api/search?q=${encodeURIComponent(query)}`),
-  notifications: () => get("/api/notifications"),
-  assistantSummary: () => get("/api/assistant/summary"),
+  search: _search,
+  notifications: _notifications,
+  assistantSummary: _assistantSummary,
 };

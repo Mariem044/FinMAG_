@@ -10,9 +10,7 @@ import {
   Boxes,
   Users,
   Receipt,
-  Banknote,
   Landmark,
-  LayoutDashboard,
   Trash2,
   Copy,
   Check,
@@ -31,7 +29,7 @@ const SUGGESTIONS = [
   {
     icon: TrendingUp,
     label: "CA & Ventes",
-    text: "Quel est le chiffre d'affaires total et les meilleures familles de produits ? ",
+    text: "Quel est le chiffre d'affaires total et les meilleures familles de produits ?",
   },
   {
     icon: Wallet,
@@ -41,7 +39,7 @@ const SUGGESTIONS = [
   {
     icon: Boxes,
     label: "Stocks",
-    text: "Quels articles sont en rupture de stock ou sous le seuil d'alerte ? ",
+    text: "Quels articles sont en rupture de stock ou sous le seuil d'alerte ?",
   },
   {
     icon: Users,
@@ -56,45 +54,103 @@ const SUGGESTIONS = [
   {
     icon: Landmark,
     label: "Banque",
-    text: "Quel est le taux de rapprochement bancaire actuel ? ",
+    text: "Quel est le taux de rapprochement bancaire actuel ?",
   },
 ];
 
+/**
+ * generateAssistantResponse — builds a text response from local DW data.
+ *
+ * Expected `data` shape (from /api/assistant/summary):
+ * {
+ *   kpis:      { ca_total, nb_commandes, nb_clients_actifs, taux_recouvrement, marge_brute_pct },
+ *   caByMonth: [{ month, ca, objectif, caN1 }],
+ *   articles:  [{ designation, famille, qteVendue, stock, ca, prixMoyen, dsi }],
+ *   clients:   [{ code, nom, segment, region, actif, soldeImpaye, nbCommandes }],
+ *   impayes:   [{ clientCode, montantImpaye, anciennete }],
+ *   ecritures: [{ date, numPiece, journal, compte, libelle, debit, credit, solde }],
+ * }
+ */
 function generateAssistantResponse(content, data = {}) {
   const q = content.toLowerCase();
-  const caByMonth = data.caByMonth || [];
-  const articles = data.articles || [];
-  const clients = data.clients || [];
-  const impayes = data.impayes || [];
-  const ecritures = data.ecritures || [];
-  const totalCA = data.kpis?.ca_total || caByMonth.reduce((sum, month) => sum + month.ca, 0);
-  const stockCritique = articles.filter((a) => a.qteVendue < 500);
-  const clientsExposes = clients.filter((c) => c.soldeImpaye > 50000);
-  const impayesCritiques = impayes.filter((i) => i.anciennete > 90);
-  const anomalies = ecritures.filter((e) => Math.abs(e.solde) > 30000);
+
+  // Safe destructuring with defaults for every array
+  const caByMonth = Array.isArray(data.caByMonth) ? data.caByMonth : [];
+  const articles = Array.isArray(data.articles) ? data.articles : [];
+  const clients = Array.isArray(data.clients) ? data.clients : [];
+  const impayes = Array.isArray(data.impayes) ? data.impayes : [];
+  const ecritures = Array.isArray(data.ecritures) ? data.ecritures : [];
+  const kpis = data.kpis || {};
+
+  const totalCA = kpis.ca_total || caByMonth.reduce((sum, m) => sum + (m.ca || 0), 0);
+
+  const stockCritique = articles.filter((a) => (a.qteVendue || 0) < 500);
+  const clientsExposes = clients.filter((c) => (c.soldeImpaye || 0) > 50000);
+  const impayesCritiques = impayes.filter((i) => (i.anciennete || 0) > 90);
+  const anomalies = ecritures.filter((e) => Math.abs(e.solde || 0) > 30000);
 
   if (q.includes("stock") || q.includes("rupture") || q.includes("article")) {
-    const topArticle = [...articles].sort((a, b) => b.qteVendue - a.qteVendue)[0];
-    return `Analyse **stocks** depuis les données locales :\n\n- **${stockCritique.length} articles** sont sous le seuil d'alerte simulé\n- Article le plus vendu : **${topArticle?.designation}**\n- Valeur catalogue estimée : **${formatTND(articles.reduce((s, a) => s + a.ca, 0))}**\n\nPriorité : vérifier les articles avec ventes faibles et CA élevé avant réapprovisionnement.`;
+    const topArticle = [...articles].sort((a, b) => (b.qteVendue || 0) - (a.qteVendue || 0))[0];
+    const totalStockCA = articles.reduce((s, a) => s + (a.ca || 0), 0);
+    return (
+      `Analyse **stocks** depuis les données DW :\n\n` +
+      `- **${stockCritique.length} articles** sont sous le seuil d'alerte (ventes < 500 u.)\n` +
+      (topArticle ? `- Article le plus vendu : **${topArticle.designation}**\n` : "") +
+      `- Valeur catalogue estimée : **${formatTND(totalStockCA)}**\n\n` +
+      `Priorité : vérifier les articles avec ventes faibles et CA élevé avant réapprovisionnement.`
+    );
   }
 
   if (q.includes("client") || q.includes("attrition") || q.includes("risque")) {
-    return `Analyse **clients** depuis les données locales :\n\n- **${clients.length} clients** suivis\n- **${clientsExposes.length} clients** ont un solde impayé supérieur à 50 000\n- Exposition impayée totale : **${formatTND(clients.reduce((s, c) => s + c.soldeImpaye, 0))}**\n\nPriorité : contacter les clients exposés avant les prochaines échéances.`;
+    const totalImpaye = clients.reduce((s, c) => s + (c.soldeImpaye || 0), 0);
+    return (
+      `Analyse **clients** depuis les données DW :\n\n` +
+      `- **${clients.length} clients** suivis\n` +
+      `- **${clientsExposes.length} clients** ont un solde impayé > 50 000 DT\n` +
+      `- Exposition impayée totale : **${formatTND(totalImpaye)}**\n\n` +
+      `Priorité : contacter les clients exposés avant les prochaines échéances.`
+    );
   }
 
   if (q.includes("trésorerie") || q.includes("tresorerie") || q.includes("impay")) {
-    return `Synthèse **trésorerie** depuis les données locales :\n\n- **${impayes.length} créances** en suivi\n- **${impayesCritiques.length} créances** dépassent 90 jours\n- Montant impayé total : **${formatTND(impayes.reduce((s, i) => s + i.montantImpaye, 0))}**\n\nPriorité : traiter les dossiers de plus de 90 jours et les montants les plus élevés.`;
+    const totalMontantImpaye = impayes.reduce((s, i) => s + (i.montantImpaye || 0), 0);
+    return (
+      `Synthèse **trésorerie** depuis les données DW :\n\n` +
+      `- **${impayes.length} créances** en suivi\n` +
+      `- **${impayesCritiques.length} créances** dépassent 90 jours\n` +
+      `- Montant impayé total : **${formatTND(totalMontantImpaye)}**\n\n` +
+      `Priorité : traiter les dossiers > 90 jours et les montants les plus élevés.`
+    );
   }
 
   if (q.includes("fiscal") || q.includes("compta") || q.includes("anomal")) {
-    return `Analyse **fiscalité & comptabilité** depuis les données locales :\n\n- **${ecritures.length} écritures** disponibles dans le tableau\n- **${anomalies.length} écritures** ont un solde absolu supérieur à 30 000\n- Journaux couverts : Ventes, Achats, Banque, Caisse\n\nPriorité : filtrer le tableau des écritures et exporter le CSV pour contrôle.`;
+    return (
+      `Analyse **fiscalité & comptabilité** depuis les données DW :\n\n` +
+      `- **${ecritures.length} écritures** disponibles\n` +
+      `- **${anomalies.length} écritures** ont un solde absolu > 30 000 DT\n` +
+      `- Journaux couverts : Ventes, Achats, Banque, Caisse\n\n` +
+      `Priorité : filtrer le tableau des écritures et exporter le CSV pour contrôle.`
+    );
   }
 
   if (q.includes("banque") || q.includes("rapprochement")) {
-    return "Synthèse **banque** depuis les données locales :\n\n- Les bordereaux, agios et écarts affichés sont recalculés selon les filtres Banque et Mode\n- Le taux de rapprochement est une moyenne locale de la période sélectionnée\n\nPriorité : utiliser les filtres banque/mode pour isoler les remises non rapprochées.";
+    return (
+      `Synthèse **banque** depuis les données DW :\n\n` +
+      `- Les bordereaux, agios et écarts sont calculés selon les filtres Banque / Mode\n` +
+      `- Le taux de rapprochement est une moyenne de la période sélectionnée\n\n` +
+      `Priorité : utiliser les filtres banque/mode pour isoler les remises non rapprochées.`
+    );
   }
 
-  return `Synthèse **MAG Distribution** depuis les données locales :\n\n- CA total estimé : **${formatTND(totalCA)}**\n- Articles sous alerte stock : **${stockCritique.length}**\n- Clients avec solde impayé élevé : **${clientsExposes.length}**\n- Écritures à contrôler : **${anomalies.length}**\n\nVous pouvez me demander un détail sur ventes, stocks, clients, trésorerie, fiscalité ou banque.`;
+  // Default summary
+  return (
+    `Synthèse **MAG Distribution** depuis les données DW :\n\n` +
+    `- CA total estimé : **${formatTND(totalCA)}**\n` +
+    `- Articles sous alerte stock : **${stockCritique.length}**\n` +
+    `- Clients avec solde impayé élevé : **${clientsExposes.length}**\n` +
+    `- Écritures à contrôler : **${anomalies.length}**\n\n` +
+    `Vous pouvez me demander un détail sur : ventes, stocks, clients, trésorerie, fiscalité ou banque.`
+  );
 }
 
 function TypingIndicator() {
@@ -123,20 +179,20 @@ function MessageBubble({ msg }) {
   const isUser = msg.role === "user";
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(msg.content);
+    navigator.clipboard.writeText(msg.content).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const renderContent = (text) => {
-    return text.split("\n").map((line, i) => {
+    return text.split("\n").map((line, i, arr) => {
       const formatted = line
         .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-        .replace(/_(.*?)_/g, "<em>$1</em>")
+        .replace(/_(.*?)_/g, "<em>$1</em>");
       return (
         <span key={i}>
           <span dangerouslySetInnerHTML={{ __html: formatted }} />
-          {i < text.split("\n").length - 1 && <br />}
+          {i < arr.length - 1 && <br />}
         </span>
       );
     });
@@ -151,14 +207,10 @@ function MessageBubble({ msg }) {
             : "bg-gradient-to-br from-primary to-primary/70 shadow-primary/30"
         }`}
       >
-        {isUser ? (
-          <User size={14} className="text-white" />
-        ) : (
-          <Bot size={14} className="text-white" />
-        )}
+        {isUser ? <User size={14} className="text-white" /> : <Bot size={14} className="text-white" />}
       </div>
 
-      <div className={`max-w-[75%] relative ${isUser ? "items-end" : "items-start"} flex flex-col gap-1`}>
+      <div className={`max-w-[75%] relative flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
         <div
           className={`px-4 py-3 rounded-2xl text-[13px] leading-relaxed ${
             isUser
@@ -184,20 +236,25 @@ function MessageBubble({ msg }) {
   );
 }
 
+// ─── INITIAL_DATA is module-level so its reference is stable ─────────────────
+const ASSISTANT_INITIAL = {
+  kpis: {},
+  caByMonth: [],
+  articles: [],
+  clients: [],
+  impayes: [],
+  ecritures: [],
+};
+
 function AssistantIAPage() {
-  const { data: assistantData } = useApiResource(api.assistantSummary, {
-    kpis: {},
-    articles: [],
-    clients: [],
-    impayes: [],
-    ecritures: [],
-  });
-  const [messages, setMessages] = useState([
+  const { data: assistantData } = useApiResource(api.assistantSummary, ASSISTANT_INITIAL);
+
+  const [messages, setMessages] = useState(() => [
     {
       id: 1,
       role: "assistant",
       content:
-        "Bonjour ! Je suis votre assistant données pour **MAG Distribution**. Je peux résumer les données locales du tableau de bord, identifier des points à surveiller et préparer des pistes d'analyse.\n\nQue souhaitez-vous explorer aujourd'hui ? ",
+        "Bonjour ! Je suis votre assistant données pour **MAG Distribution**. Je peux résumer les données du tableau de bord, identifier des points à surveiller et préparer des pistes d'analyse.\n\nQue souhaitez-vous explorer aujourd'hui ?",
       time: new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" }),
     },
   ]);
@@ -211,30 +268,22 @@ function AssistantIAPage() {
   }, [messages, isTyping]);
 
   const sendMessage = (text) => {
-    const content = text || input.trim();
+    const content = (text || input).trim();
     if (!content) return;
 
-    const userMsg = {
-      id: Date.now(),
-      role: "user",
-      content,
-      time: new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" }),
-    };
+    const now = new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" });
+    const userMsg = { id: Date.now(), role: "user", content, time: now };
 
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsTyping(true);
 
-    const delay = 1200 + Math.min(content.length * 12, 800);
+    const delay = Math.min(1200 + content.length * 12, 2000);
     setTimeout(() => {
-      const aiMsg = {
-        id: Date.now() + 1,
-        role: "assistant",
-        content: generateAssistantResponse(content, assistantData),
-        time: new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" }),
-      };
+      const aiContent = generateAssistantResponse(content, assistantData);
+      const aiTime = new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" });
       setIsTyping(false);
-      setMessages((prev) => [...prev, aiMsg]);
+      setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: aiContent, time: aiTime }]);
     }, delay);
   };
 
@@ -246,17 +295,13 @@ function AssistantIAPage() {
   };
 
   const clearChat = () => {
+    const now = new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" });
     setMessages([
-      {
-        id: Date.now(),
-        role: "assistant",
-        content: "Conversation réinitialisée. Comment puis-je vous aider ? ",
-        time: new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" }),
-      },
+      { id: Date.now(), role: "assistant", content: "Conversation réinitialisée. Comment puis-je vous aider ?", time: now },
     ]);
   };
 
-  const showSuggestions = messages.length <= 1;
+  const showSuggestions = messages.length <= 1 && !isTyping;
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] max-w-4xl mx-auto">
@@ -270,7 +315,7 @@ function AssistantIAPage() {
             <h1 className="text-[18px] font-bold text-foreground leading-none">Assistant données</h1>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-[11px] text-text-dim">Basé sur les données locales MAG Distribution</span>
+              <span className="text-[11px] text-text-dim">Basé sur les données MAG Distribution</span>
             </div>
           </div>
         </div>
@@ -291,8 +336,7 @@ function AssistantIAPage() {
         {isTyping && <TypingIndicator />}
         <div ref={messagesEndRef} />
 
-        {/* Suggestions */}
-        {showSuggestions && !isTyping && (
+        {showSuggestions && (
           <div className="mt-6">
             <p className="text-[11px] text-text-dim font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
               <Zap size={11} className="text-primary" />
@@ -308,7 +352,7 @@ function AssistantIAPage() {
                   <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/20 transition-colors">
                     <s.icon size={13} className="text-primary" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-[12px] font-semibold text-foreground leading-none mb-1">{s.label}</p>
                     <p className="text-[11px] text-text-dim leading-relaxed line-clamp-2">{s.text}</p>
                   </div>
