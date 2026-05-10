@@ -128,6 +128,9 @@ function verifyPassword(plain, stored) {
 }
 
 function generateSessionToken() {
+  if (typeof crypto === "undefined" || !crypto.getRandomValues) {
+    return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  }
   return Array.from(crypto.getRandomValues(new Uint8Array(32)))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");

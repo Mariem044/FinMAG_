@@ -264,7 +264,7 @@ function FiscalitePage() {
                 fill="#22c55e"
               >
                 {waterfallData.map((d, i) => (
-                  <rect key={i} fill={d.ecart >= 0 ? "#22c55e" : "#ef4444"} />
+              <Cell key={i} fill={d.ecart >= 0 ? "#22c55e" : "#ef4444"} />
                 ))}
               </Bar>
             </BarChart>

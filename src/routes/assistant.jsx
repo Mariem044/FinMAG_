@@ -131,8 +131,8 @@ function MessageBubble({ msg }) {
   const renderContent = (text) => {
     return text.split("\n").map((line, i) => {
       const formatted = line
-        .replace(/\*\*(.*-)\*\*/g, "<strong>$1</strong>")
-        .replace(/_(.*-)_/g, "<em>$1</em>");
+        .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+        .replace(/_(.*?)_/g, "<em>$1</em>")
       return (
         <span key={i}>
           <span dangerouslySetInnerHTML={{ __html: formatted }} />

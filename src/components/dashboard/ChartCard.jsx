@@ -7,6 +7,18 @@ import { useEffect, useState } from "react";
  * Used internally by ChartCard when `loading` prop is true.
  */
 
+
+if (typeof document !== "undefined" && !document.getElementById("chart-card-keyframes")) {
+  const s = document.createElement("style");
+  s.id = "chart-card-keyframes";
+  s.textContent = `
+    @keyframes skelPulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+    @keyframes skeletonLine { from{stroke-dashoffset:300} to{stroke-dashoffset:0} }
+  `;
+  document.head.appendChild(s);
+}
+
+
 function BarChartSkeleton({ bars = 7, horizontal = false }) {
   const heights = [65, 85, 50, 95, 70, 80, 55];
   if (horizontal) {
@@ -391,16 +403,6 @@ export function ChartCard({
       </div>
 
       {/* Keyframe styles injected once */}
-      <style>{`
-        @keyframes skelPulse {
-          0%, 100% { opacity: 0.4; }
-          50%       { opacity: 1; }
-        }
-        @keyframes skeletonLine {
-          from { stroke-dashoffset: 300; }
-          to   { stroke-dashoffset: 0; }
-        }
-      `}</style>
     </div>
   );
 }
