@@ -3,7 +3,6 @@ import { KPICard } from "@/components/dashboard/KPICard";
 import {
   useChartHeight,
   ChartCard,
-  useSimulatedLoading,
   KPICardSkeleton,
 } from "@/components/dashboard/ChartCard";
 import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
@@ -129,8 +128,8 @@ function BanquePage() {
   );
   const activeIdx = getActiveMonthIndexes();
   const chartH = useChartHeight();
-  const kpiLoading = useSimulatedLoading(500);
-  const chartsLoading = useSimulatedLoading(950) || rapprochementLoading;
+  const kpiLoading = rapprochementLoading;
+  const chartsLoading = rapprochementLoading;
 
   const activeBanques = useMemo(() => (banque === "Toutes" ? ALL_BANQUES : [banque]), [banque]);
   const activeModes = useMemo(

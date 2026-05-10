@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   useChartHeight,
   ChartCard,
-  useSimulatedLoading,
   KPICardSkeleton,
 } from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
@@ -85,8 +84,8 @@ function CaissePage() {
   );
   const activeIdx = getActiveMonthIndexes();
   const chartH = useChartHeight();
-  const kpiLoading = useSimulatedLoading(500) || caissesLoading || fluxLoading;
-  const chartsLoading = useSimulatedLoading(950) || caissesLoading || fluxLoading || natureLoading;
+  const kpiLoading = caissesLoading || fluxLoading;
+  const chartsLoading = caissesLoading || fluxLoading || natureLoading;
 
   // Filter caisses by depot
   const filteredCaisses = useMemo(() => {

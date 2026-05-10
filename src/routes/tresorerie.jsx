@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   useChartHeight,
   ChartCard,
-  useSimulatedLoading,
   KPICardSkeleton,
 } from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
@@ -49,8 +48,8 @@ function TresorerietPage() {
   const { data: agingData, loading: agingLoading } = useApiResource(api.tresorerie.aging, []);
   const activeIdx = getActiveMonthIndexes();
   const chartH = useChartHeight();
-  const kpiLoading = useSimulatedLoading(500) || summaryLoading || encaissementsLoading;
-  const chartsLoading = useSimulatedLoading(950) || encaissementsLoading || agingLoading;
+  const kpiLoading = summaryLoading || encaissementsLoading;
+  const chartsLoading = encaissementsLoading || agingLoading;
 
   // Filter encaissements by mode
   const encaissementsMode = useMemo(() => {

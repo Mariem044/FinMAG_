@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   useChartHeight,
   ChartCard,
-  useSimulatedLoading,
   KPICardSkeleton,
 } from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
@@ -49,9 +48,8 @@ function VentesPage() {
   );
   const activeIdx = getActiveMonthIndexes();
   const chartH = useChartHeight();
-  const kpiLoading = useSimulatedLoading(500) || monthlyLoading || regionLoading;
-  const chartsLoading =
-    useSimulatedLoading(900) || monthlyLoading || familleLoading || regionLoading;
+  const kpiLoading = monthlyLoading || regionLoading;
+  const chartsLoading = monthlyLoading || familleLoading || regionLoading;
   const sourceRatio = 1;
 
   // Filter monthly data by active quarter/months

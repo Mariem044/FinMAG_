@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { KPICard } from "@/components/dashboard/KPICard";
-import { useChartHeight, ChartCard, useSimulatedLoading, KPICardSkeleton } from "@/components/dashboard/ChartCard";
+import { useChartHeight, ChartCard, KPICardSkeleton } from "@/components/dashboard/ChartCard";
 import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
 import { DataTable } from "@/components/dashboard/DataTable";
 import { FileText, Receipt, AlertCircle, CheckCircle } from "lucide-react";
@@ -70,8 +70,8 @@ function FiscalitePage() {
   const { data: ecritures, loading: ecrituresLoading } = useApiResource(api.fiscalite.ecritures, []);
   const nbAnomalies = anomalyData.filter((d) => d.anomalie).length;
   const chartH = useChartHeight();
-  const kpiLoading    = useSimulatedLoading(500) || kpisLoading;
-  const chartsLoading = useSimulatedLoading(950) || journauxLoading || tvaLoading || anomaliesLoading || balanceLoading || ecrituresLoading;
+  const kpiLoading = kpisLoading;
+  const chartsLoading = journauxLoading || tvaLoading || anomaliesLoading || balanceLoading || ecrituresLoading;
 
 
   return (

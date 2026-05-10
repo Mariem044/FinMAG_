@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   useChartHeight,
   ChartCard,
-  useSimulatedLoading,
   KPICardSkeleton,
 } from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
@@ -97,8 +96,8 @@ function ProduitsPage() {
   const { data: stockAlerts, loading: alertsLoading } = useApiResource(api.produits.alerts, []);
   const activeIdx = getActiveMonthIndexes();
   const chartH = useChartHeight();
-  const kpiLoading = useSimulatedLoading(500) || articlesLoading || alertsLoading;
-  const chartsLoading = useSimulatedLoading(950) || articlesLoading || alertsLoading;
+  const kpiLoading = articlesLoading || alertsLoading;
+  const chartsLoading = articlesLoading || alertsLoading;
 
   // Filter articles
   const filteredArticles = useMemo(() => {

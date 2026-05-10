@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   useChartHeight,
   ChartCard,
-  useSimulatedLoading,
   KPICardSkeleton,
 } from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
@@ -55,8 +54,8 @@ function OverviewPage() {
   );
   const totalCA = caByMonth.reduce((s, m) => s + m.ca, 0);
   const chartH = useChartHeight();
-  const kpiLoading = useSimulatedLoading(500) || kpisApiLoading;
-  const chartsLoading = useSimulatedLoading(900) || caLoading || famillesLoading || regionLoading;
+  const kpiLoading = kpisApiLoading;
+  const chartsLoading = caLoading || famillesLoading || regionLoading;
 
   return (
     <div className="space-y-6">
