@@ -26,14 +26,18 @@ export function DataSourceStatus() {
           <AlertTriangle size={14} />
           API ETL indisponible. Les tableaux attendent les donnees reelles du DW.
         </span>
-        <Link to="/parametres" className="font-semibold text-red-100 underline-offset-4 hover:underline">
+        <Link
+          to="/parametres"
+          className="font-semibold text-red-100 underline-offset-4 hover:underline"
+        >
           Verifier
         </Link>
       </div>
     );
   }
 
-  const counts = data.counts || {};
+  // Safe null-check: data or data.counts may be undefined on first render
+  const counts = data?.counts || {};
   const totalRows = Object.values(counts).reduce((sum, value) => sum + Number(value || 0), 0);
 
   if (totalRows === 0) {
@@ -43,7 +47,10 @@ export function DataSourceStatus() {
           <Database size={14} />
           API connectee, mais le DW est vide. Lancez l'ETL pour extraire MAG_2020 et GRT_MAG.
         </span>
-        <Link to="/parametres" className="font-semibold text-amber-50 underline-offset-4 hover:underline">
+        <Link
+          to="/parametres"
+          className="font-semibold text-amber-50 underline-offset-4 hover:underline"
+        >
           Lancer ETL
         </Link>
       </div>
@@ -59,7 +66,7 @@ export function DataSourceStatus() {
       <span>{(counts.ventes || 0).toLocaleString("fr-TN")} ventes</span>
       <span>{(counts.reglements || 0).toLocaleString("fr-TN")} reglements</span>
       <span>{(counts.ecritures || 0).toLocaleString("fr-TN")} ecritures</span>
-      {data.running && <span className="font-semibold">ETL en cours</span>}
+      {data?.running && <span className="font-semibold">ETL en cours</span>}
     </div>
   );
 }

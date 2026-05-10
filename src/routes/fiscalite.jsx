@@ -11,6 +11,7 @@ import {
   Line,
   ScatterChart,
   Scatter,
+  ComposedChart,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -19,6 +20,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
   ZAxis,
+  Cell,
 } from "recharts";
 import { formatPercent, formatTND } from "@/lib/dashboardConstants";
 import { api } from "@/lib/api";
@@ -49,8 +51,10 @@ const columns = [
 // Custom dot for anomaly scatter
 function AnomalyDot(props) {
   const { cx, cy, payload } = props;
-  if (payload.anomalie) {
-    return <circle cx={cx} cy={cy} r={6} fill="#ef4444" stroke="#ff000044" strokeWidth={3} opacity={0.9} />;
+  if (payload?.anomalie) {
+    return (
+      <circle cx={cx} cy={cy} r={6} fill="#ef4444" stroke="#ff000044" strokeWidth={3} opacity={0.9} />
+    );
   }
   return <circle cx={cx} cy={cy} r={3} fill="#3b82f6" opacity={0.4} />;
 }
@@ -63,62 +67,81 @@ function FiscalitePage() {
     anomalies: 0,
     equilibre_pct: 0,
   });
-  const { data: journalData, loading: journauxLoading } = useApiResource(api.fiscalite.journaux, []);
+  const { data: journalData, loading: journauxLoading } = useApiResource(
+    api.fiscalite.journaux,
+    [],
+  );
   const { data: tvaData, loading: tvaLoading } = useApiResource(api.fiscalite.tvaByMonth, []);
-  const { data: anomalyData, loading: anomaliesLoading } = useApiResource(api.fiscalite.anomalies, []);
-  const { data: waterfallData, loading: balanceLoading } = useApiResource(api.fiscalite.balanceByMonth, []);
-  const { data: ecritures, loading: ecrituresLoading } = useApiResource(api.fiscalite.ecritures, []);
-  const nbAnomalies = anomalyData.filter((d) => d.anomalie).length;
+  const { data: anomalyData, loading: anomaliesLoading } = useApiResource(
+    api.fiscalite.anomalies,
+    [],
+  );
+  const { data: waterfallData, loading: balanceLoading } = useApiResource(
+    api.fiscalite.balanceByMonth,
+    [],
+  );
+  const { data: ecritures, loading: ecrituresLoading } = useApiResource(
+    api.fiscalite.ecritures,
+    [],
+  );
+
+  const nbAnomalies = Array.isArray(anomalyData)
+    ? anomalyData.filter((d) => d?.anomalie).length
+    : 0;
   const chartH = useChartHeight();
   const kpiLoading = kpisLoading;
-  const chartsLoading = journauxLoading || tvaLoading || anomaliesLoading || balanceLoading || ecrituresLoading;
-
+  const chartsLoading =
+    journauxLoading || tvaLoading || anomaliesLoading || balanceLoading || ecrituresLoading;
 
   return (
     <div className="space-y-6">
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-    {kpiLoading ? (
-      <>
-        <KPICardSkeleton />
-        <KPICardSkeleton />
-        <KPICardSkeleton />
-        <KPICardSkeleton />
-      </>
-    ) : (
-      <>
-        <KPICard
-          label="Écritures comptables"
-          value={kpis.nb_ecritures.toLocaleString("fr-TN")}
-          subtitle={`${journalData.length} journaux`}
-          icon={FileText}
-        />
-        <KPICard
-          label="TVA collectée YTD"
-          value={formatTND(kpis.tva_collectee)}
-          subtitle={`vs ${formatTND(kpis.tva_deductible)} déductible`}
-          icon={Receipt}
-        />
-        <KPICard
-          label="Anomalies détectées"
-          value={String(kpis.anomalies || nbAnomalies)}
-          subtitle="Score issu du DW"
-          trend={-2}
-          icon={AlertCircle}
-        />
-        <KPICard
-          label="Équilibre débit/crédit"
-          value={formatPercent(kpis.equilibre_pct)}
-          subtitle="Débit / crédit"
-          icon={CheckCircle}
-        />
-      </>
-    )}
-  </div>
+        {kpiLoading ? (
+          <>
+            <KPICardSkeleton />
+            <KPICardSkeleton />
+            <KPICardSkeleton />
+            <KPICardSkeleton />
+          </>
+        ) : (
+          <>
+            <KPICard
+              label="Écritures comptables"
+              value={(kpis?.nb_ecritures || 0).toLocaleString("fr-TN")}
+              subtitle={`${journalData?.length || 0} journaux`}
+              icon={FileText}
+            />
+            <KPICard
+              label="TVA collectée YTD"
+              value={formatTND(kpis?.tva_collectee || 0)}
+              subtitle={`vs ${formatTND(kpis?.tva_deductible || 0)} déductible`}
+              icon={Receipt}
+            />
+            <KPICard
+              label="Anomalies détectées"
+              value={String(kpis?.anomalies || nbAnomalies)}
+              subtitle="Score issu du DW"
+              trend={-2}
+              icon={AlertCircle}
+            />
+            <KPICard
+              label="Équilibre débit/crédit"
+              value={formatPercent(kpis?.equilibre_pct || 0)}
+              subtitle="Débit / crédit"
+              icon={CheckCircle}
+            />
+          </>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Widget A: Grouped bar Débit vs Crédit top 10 journaux (KPI-19) */}
-        <ChartCard loading={chartsLoading} skeleton="bar" title="Soldes par journal — Débit vs Crédit (KPI-19)">
+        <ChartCard
+          loading={chartsLoading}
+          skeleton="bar"
+          title="Soldes par journal — Débit vs Crédit (KPI-19)"
+        >
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={journalData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -144,9 +167,14 @@ function FiscalitePage() {
         </ChartCard>
 
         {/* Widget B: TVA collectée vs déductible (KPI-20) */}
-        <ChartCard loading={chartsLoading} skeleton="bar" title="TVA collectée vs déductible (KPI-20)">
+        <ChartCard
+          loading={chartsLoading}
+          skeleton="bar"
+          title="TVA collectée vs déductible (KPI-20)"
+        >
           <ResponsiveContainer width="100%" height={chartH}>
-            <BarChart data={tvaData}>
+            {/* Use ComposedChart so Bar + Line can coexist */}
+            <ComposedChart data={tvaData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
               <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
               <YAxis
@@ -190,12 +218,16 @@ function FiscalitePage() {
                 dot={false}
                 name="TVA déductible"
               />
-            </BarChart>
+            </ComposedChart>
           </ResponsiveContainer>
         </ChartCard>
 
         {/* Widget C: Anomaly scatter (KPI-21) */}
-        <ChartCard loading={chartsLoading} skeleton="scatter" title="Détection anomalies comptables — score local (KPI-21)">
+        <ChartCard
+          loading={chartsLoading}
+          skeleton="scatter"
+          title="Détection anomalies comptables — score local (KPI-21)"
+        >
           <ResponsiveContainer width="100%" height={chartH}>
             <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -241,10 +273,14 @@ function FiscalitePage() {
           </p>
         </ChartCard>
 
-        {/* Widget D: Waterfall mensuel débit/crédit (KPI-19) */}
-        <ChartCard loading={chartsLoading} skeleton="bar" title="Équilibre comptable mensuel — Waterfall (KPI-19)">
+        {/* Widget D: Waterfall mensuel débit/crédit — use ComposedChart to support Bar+Cell */}
+        <ChartCard
+          loading={chartsLoading}
+          skeleton="bar"
+          title="Équilibre comptable mensuel — Waterfall (KPI-19)"
+        >
           <ResponsiveContainer width="100%" height={chartH}>
-            <BarChart data={waterfallData}>
+            <ComposedChart data={waterfallData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
               <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
               <YAxis
@@ -256,24 +292,25 @@ function FiscalitePage() {
               <Legend wrapperStyle={{ fontSize: 12, color: "#888" }} />
               <ReferenceLine y={0} stroke="#555" />
               <Bar dataKey="debit" fill="#3b82f6" name="Débit" radius={[4, 4, 0, 0]} opacity={0.8} />
-              <Bar dataKey="credit" fill="#6366f1" name="Crédit" radius={[4, 4, 0, 0]} opacity={0.8} />
               <Bar
-                dataKey="ecart"
-                name="Écart D-C"
+                dataKey="credit"
+                fill="#6366f1"
+                name="Crédit"
                 radius={[4, 4, 0, 0]}
-                fill="#22c55e"
-              >
-                {waterfallData.map((d, i) => (
-              <Cell key={i} fill={d.ecart >= 0 ? "#22c55e" : "#ef4444"} />
+                opacity={0.8}
+              />
+              <Bar dataKey="ecart" name="Écart D-C" radius={[4, 4, 0, 0]}>
+                {(waterfallData || []).map((d, i) => (
+                  <Cell key={i} fill={d?.ecart >= 0 ? "#22c55e" : "#ef4444"} />
                 ))}
               </Bar>
-            </BarChart>
+            </ComposedChart>
           </ResponsiveContainer>
         </ChartCard>
       </div>
 
       {/* Écritures data table */}
-      <DataTable data={ecritures} columns={columns} />
+      <DataTable data={ecritures || []} columns={columns} />
     </div>
   );
 }
