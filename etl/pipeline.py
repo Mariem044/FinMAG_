@@ -1,34 +1,35 @@
 """
-pipeline.py — SIAD MAG Distribution ETL — v14.3-fixed
+pipeline.py — SIAD MAG Distribution ETL — v14.4-fixed
 Main orchestrator.
 
-BUG FIXES APPLIED IN THIS VERSION
+BUG FIXES from v14.3
 ──────────────────────────────────────────────────────────────────────────
-BUG-1  FIX : DIM_COLLABORATEUR transform — CO_Fonction cast to Int32
-             because source Sage codes can exceed SMALLINT range.
+BUG-1  FIX : DIM_COLLABORATEUR — CO_Fonction cast to Int32.
+BUG-5  FIX : last_run captured as immutable closure, not read from lookups.
+BUG-7  FIX : type-4 stock rows use pd.NA for nullable FK columns.
+WARN-5 FIX : _compute_dsi_jours() filters on DIM_DATE.date_val, not
+             date_extraction.
 
-BUG-5  FIX : _last_run is NO LONGER read from the mutable lookups dict
-             inside the FAIT_REGLEMENTS and FAIT_ECRITURES step lambdas.
-             It is now captured as a closure over last_run_date (an
-             immutable datetime set once at the start of run_pipeline).
-             The lookups dict no longer carries "_last_run" at all, so no
-             step can accidentally corrupt the delta window.
+NEW in v14.4
+──────────────────────────────────────────────────────────────────────────
+KPI-16 FIX : FAIT_LIGNES_VENTE step now concatenates purchase lines
+             (DO_Domaine=1) after sales lines (DO_Domaine=0). The combined
+             load uses id_domaine as discriminant — BI queries filter on
+             id_domaine=1 (DIM_DOMAINE) to isolate supplier purchases.
+             Previously, only vente lines were loaded, making KPI-16
+             (volume & concentration des achats par fournisseur) impossible.
 
-BUG-7  FIX : _assemble_fait_ecritures() — type-4 (stock snapshot) rows
-             now assign id_journal=pd.NA instead of id_journal=None.
-             Python None after pd.concat with Int64 columns produces an
-             object-dtype column, which breaks _prepare_for_load()'s
-             date-conversion loop.  pd.NA keeps the column as Int64
-             throughout, consistent with id_banque=pd.NA already used.
+KPI-18 FIX : _compute_rfm_scores() added — post-load SQL UPDATE that stamps
+             rfm_recence_jours, rfm_frequence, rfm_montant_12m on
+             DIM_CLIENT using a 365-day rolling window from FAIT_LIGNES_VENTE.
+             Previously FENETRE_RFM_JOURS was defined in config.py but never
+             applied anywhere. Requires three new nullable columns on
+             DIM_CLIENT (added via migration in ddl.py — see KPI18_MIGRATION).
 
-WARN-5 FIX : _compute_dsi_jours() — the 365-day window now filters on
-             DIM_DATE.date_val (the actual sale date) joined via id_date,
-             not on date_extraction (the ETL run date).  The old query
-             produced wrong KPI-13 values because a row loaded today for a
-             2019 sale would be included in the rolling year.
-
-Earlier fixes (FIX-BANQUE, FIX-CAISSE, FIX-IDBANQUE, FIX-COMMENT) from
-v14.2 are preserved unchanged.
+KPI-08 FIX : bucket_impaye is now computed from id_date_echeance (the due
+             date) as the KPI document specifies, not from delai_reel_jours
+             (RT_Date - DO_Date). A new helper _bucket_from_echeance()
+             replaces the old logic in _assemble_fait_reglements().
 """
 from __future__ import annotations
 
@@ -47,7 +48,7 @@ warnings.filterwarnings(
     category=FutureWarning,
 )
 
-from etl.config import DW_ENGINE, SEGMENTS, DIM_DATE_START, DIM_DATE_END
+from etl.config import DW_ENGINE, SEGMENTS, DIM_DATE_START, DIM_DATE_END, FENETRE_RFM_JOURS
 from etl.utils.logger import get_logger
 from etl.utils.audit import (
     acquire_lock, start_run, end_run, release_lock,
@@ -56,6 +57,28 @@ from etl.utils.audit import (
 from etl import ddl, extract, transform, load
 
 logger = get_logger(__name__)
+
+
+# ── DDL migration for KPI-18 RFM columns ─────────────────────────────────────
+# Safe to add here so they are applied at every pipeline start without a
+# separate migration script.
+KPI18_MIGRATION: list[tuple[str, str]] = [
+    (
+        "DIM_CLIENT.rfm_recence_jours",
+        "IF COL_LENGTH('DIM_CLIENT','rfm_recence_jours') IS NULL "
+        "ALTER TABLE [DIM_CLIENT] ADD rfm_recence_jours INT NULL",
+    ),
+    (
+        "DIM_CLIENT.rfm_frequence",
+        "IF COL_LENGTH('DIM_CLIENT','rfm_frequence') IS NULL "
+        "ALTER TABLE [DIM_CLIENT] ADD rfm_frequence INT NULL",
+    ),
+    (
+        "DIM_CLIENT.rfm_montant_12m",
+        "IF COL_LENGTH('DIM_CLIENT','rfm_montant_12m') IS NULL "
+        "ALTER TABLE [DIM_CLIENT] ADD rfm_montant_12m NUMERIC(18,4) NULL",
+    ),
+]
 
 
 def _safe_int16(series: pd.Series) -> pd.Series:
@@ -104,11 +127,6 @@ LOOKUP_CONFIG: Dict[str, Tuple[str, str]] = {
     "DIM_CAISSE":          ("CA_Numero_code",      "id_caisse"),
 }
 
-
-# ════════════════════════════════════════════════════════════════════════════
-# TYPE ALIAS
-# ════════════════════════════════════════════════════════════════════════════
-
 Step = Tuple[
     str,
     Callable[..., pd.DataFrame],
@@ -148,7 +166,6 @@ def _lookup_code(lookups: Dict, table_name: str, value):
 
 
 def _resolve_today_id(lookups: Dict, today: date) -> Optional[int]:
-    """Return id_date for today, with fallback to nearest date."""
     date_lookup = lookups.get("DIM_DATE", {})
     id_val = date_lookup.get(today)
     if id_val is not None:
@@ -163,6 +180,44 @@ def _resolve_today_id(lookups: Dict, today: date) -> Optional[int]:
         return id_val
     logger.error("DIM_DATE lookup is empty — stock snapshot id_date will be NULL")
     return None
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# KPI-08 FIX — bucket from echeance date, not delai_reel_jours
+# ════════════════════════════════════════════════════════════════════════════
+
+def _bucket_from_echeance(row) -> Optional[int]:
+    """Compute bucket_impaye from DATEDIFF(today, echeance) per KPI-08 spec.
+
+    KPI-08 FIX: the document says GROUP BY ancienneté DATEDIFF(today,
+    id_date_echeance). The old implementation used delai_reel_jours which
+    measures RT_Date - DO_Date (payment date minus invoice date), a different
+    concept. This function uses LB_EcheanceReg (due date) instead.
+
+    Buckets (unpaid rows where DR_Regle == 0 only):
+      0 = 0–30 days overdue
+      1 = 31–60 days overdue
+      2 = 61–90 days overdue
+      3 = > 90 days overdue
+    """
+    if row.get("DR_Regle", 1) != 0:
+        return None
+    echeance = row.get("LB_EcheanceReg")
+    if echeance is None or pd.isna(echeance):
+        return None
+    try:
+        days_overdue = (date.today() - pd.Timestamp(echeance).date()).days
+    except Exception:
+        return None
+    if days_overdue <= 0:
+        return None   # not yet overdue
+    if days_overdue <= 30:
+        return 0
+    if days_overdue <= 60:
+        return 1
+    if days_overdue <= 90:
+        return 2
+    return 3
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -251,10 +306,9 @@ def _assemble_fait_reglements(
 ) -> pd.DataFrame:
     """Assemble FAIT_REGLEMENTS from client and supplier payment tables.
 
-    BUG-5 FIX: last_run is passed in directly as a parameter — it is NOT
-    read from lookups.  The caller (run_pipeline) closes over the immutable
-    last_run_date variable, so this value can never be corrupted by any
-    other step mutating the lookups dict.
+    KPI-08 FIX: bucket_impaye is now derived from LB_EcheanceReg (the due
+    date), not from delai_reel_jours. The old transform.add_fact_reglements_bucket
+    helper is replaced by _bucket_from_echeance() for this assembly.
     """
     defaults = {
         "DO_Piece":          None,
@@ -322,9 +376,12 @@ def _assemble_fait_reglements(
         if _col not in df.columns:
             df[_col] = _default
 
-    df = transform.add_fact_reglements_bucket(
-        transform.add_fact_reglements_calcs(df)
-    )
+    # KPI-09: delai_reel_jours and ecart_delai (payment delay vs contractual)
+    df = transform.add_fact_reglements_calcs(df)
+
+    # KPI-08 FIX: bucket from echeance date (not delai_reel_jours)
+    df = df.copy()
+    df["bucket_impaye"] = df.apply(_bucket_from_echeance, axis=1)
 
     return df.assign(
         id_date_paiement=lambda d: d["RT_Date"].apply(
@@ -380,28 +437,15 @@ def _assemble_fait_reglements(
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# DIM_CAISSE assembly
+# DIM_CAISSE / DIM_BANQUE assembly (unchanged)
 # ════════════════════════════════════════════════════════════════════════════
 
 def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
-    """Assemble DIM_CAISSE from MAG (master) and GRT (supplement).
-
-    MAG rows take priority over GRT rows (sort by _source_priority asc,
-    keep="first" in drop_duplicates).  extract_fait_mvtcaisse is called
-    with last_run=None so the caisse dimension always contains ALL cash
-    registers, not just those seen in the current delta window.
-    """
     df_mag = extract.extract_dim_caisse_mag().copy()
     df_mag["_source_priority"] = 1
 
     df_grt_raw = (
         extract.extract_fait_mvtcaisse(last_run=None)
-        # Intentionally select only CA_No and JO_Num from GRT movement rows.
-        # CA_Type is NOT included here because GRT's F_Caisse may or may not
-        # carry it, so we always set CA_Type = NULL for GRT-sourced registers.
-        # The DDL marks CA_Type NULLABLE specifically for this case (BUG-4 FIX).
-        # If CA_Type is ever available from GRT, add it to the slice and the
-        # GRT extract — but default to NULL is the correct safe behaviour.
         [["CA_No", "JO_Num"]]
         .drop_duplicates(subset=["CA_No"])
         .copy()
@@ -419,9 +463,7 @@ def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
         .assign(
             CA_Numero_code=lambda d: d["CA_No"].apply(transform.hash_key),
             id_journal=lambda d: d["JO_Num"].apply(
-                lambda v: lookups.get("DIM_JOURNAL", {}).get(
-                    transform.hash_key(v)
-                )
+                lambda v: lookups.get("DIM_JOURNAL", {}).get(transform.hash_key(v))
             ),
             CA_Type=lambda d: (
                 pd.to_numeric(
@@ -439,16 +481,7 @@ def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
     return df
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# DIM_BANQUE assembly
-# ════════════════════════════════════════════════════════════════════════════
-
 def _assemble_dim_banque(lookups: Dict) -> pd.DataFrame:
-    """Assemble DIM_BANQUE from MAG and GRT sources.
-
-    EB_Banque is an INT bank code (BCT reference), NOT a Sage natural key.
-    Only EB_Abrege is hashed to produce EB_Abrege_code.
-    """
     df_mag = extract.extract_dim_banque_mag().copy()
     df_grt = extract.extract_dim_banque_grt().copy()
 
@@ -466,19 +499,13 @@ def _assemble_dim_banque(lookups: Dict) -> pd.DataFrame:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# FAIT_ECRITURES assembly
+# FAIT_ECRITURES assembly (unchanged from v14.3)
 # ════════════════════════════════════════════════════════════════════════════
 
 def _assemble_fait_ecritures(
     last_run: Optional[datetime],
     lookups:  Dict,
 ) -> pd.DataFrame:
-    """Assemble FAIT_ECRITURES from four source types.
-
-    BUG-5 FIX: last_run is passed in directly — not read from lookups.
-    BUG-7 FIX: all nullable FK columns on type-4 (stock) rows use pd.NA,
-               not Python None, to keep Int64 dtypes intact after concat.
-    """
     today    = date.today()
     today_id = _resolve_today_id(lookups, today)
 
@@ -487,7 +514,6 @@ def _assemble_fait_ecritures(
             return None
         return lookups.get("DIM_DATE", {}).get(pd.Timestamp(d).date())
 
-    # ── TYPE 1 — accounting entries ──────────────────────────────────────────
     df1 = (
         extract.extract_fait_ecriturec(last_run)
         .assign(
@@ -499,9 +525,7 @@ def _assemble_fait_ecritures(
             ),
             id_banque=lambda d: d.apply(
                 lambda row: (
-                    lookups.get("DIM_BANQUE", {}).get(
-                        transform.hash_key(row.get("JO_Num"))
-                    )
+                    lookups.get("DIM_BANQUE", {}).get(transform.hash_key(row.get("JO_Num")))
                     if row.get("JO_Type") == 2 else None
                 ),
                 axis=1,
@@ -520,14 +544,9 @@ def _assemble_fait_ecritures(
             ),
             source_hash=lambda d: d.apply(
                 lambda row: _source_hash(
-                    "ECRITUREC",
-                    row.get("JO_Num"),
-                    row.get("EC_No"),
-                    row.get("EC_Date"),
-                    row.get("CG_Num"),
-                    row.get("CT_Num"),
-                    row.get("EC_Sens"),
-                    row.get("EC_Montant"),
+                    "ECRITUREC", row.get("JO_Num"), row.get("EC_No"),
+                    row.get("EC_Date"), row.get("CG_Num"), row.get("CT_Num"),
+                    row.get("EC_Sens"), row.get("EC_Montant"),
                 ),
                 axis=1,
             ),
@@ -535,7 +554,6 @@ def _assemble_fait_ecritures(
         )
     )
 
-    # ── TYPE 2 — TVA ─────────────────────────────────────────────────────────
     df2 = (
         extract.extract_fait_regtaxe(last_run)
         .assign(
@@ -557,13 +575,9 @@ def _assemble_fait_ecritures(
             ),
             source_hash=lambda d: d.apply(
                 lambda row: _source_hash(
-                    "REGTAXE",
-                    row.get("JO_Num"),
-                    row.get("EC_No"),
-                    row.get("EC_Date"),
-                    row.get("TA_Taux01"),
-                    row.get("RT_Base01"),
-                    row.get("RT_Montant01"),
+                    "REGTAXE", row.get("JO_Num"), row.get("EC_No"),
+                    row.get("EC_Date"), row.get("TA_Taux01"),
+                    row.get("RT_Base01"), row.get("RT_Montant01"),
                 ),
                 axis=1,
             ),
@@ -571,7 +585,6 @@ def _assemble_fait_ecritures(
         )
     )
 
-    # ── TYPE 3 — cash movements ───────────────────────────────────────────────
     df3 = (
         extract.extract_fait_mvtcaisse(last_run)
         .assign(
@@ -590,13 +603,9 @@ def _assemble_fait_ecritures(
             ),
             source_hash=lambda d: d.apply(
                 lambda row: _source_hash(
-                    "MVTCaisse",
-                    row.get("CA_No"),
-                    row.get("MC_Numero"),
-                    row.get("MC_Date"),
-                    row.get("MC_TypeMvt"),
-                    row.get("MC_Debit"),
-                    row.get("MC_Credit"),
+                    "MVTCaisse", row.get("CA_No"), row.get("MC_Numero"),
+                    row.get("MC_Date"), row.get("MC_TypeMvt"),
+                    row.get("MC_Debit"), row.get("MC_Credit"),
                 ),
                 axis=1,
             ),
@@ -605,16 +614,13 @@ def _assemble_fait_ecritures(
         .rename(columns={"MC_Date": "EC_Date"})
     )
 
-    # ── TYPE 4 — stock snapshot ───────────────────────────────────────────────
-    # BUG-7 FIX: all nullable FK columns use pd.NA (not Python None) so that
-    # after pd.concat the column dtype stays Int64 rather than becoming object.
     df4 = (
         extract.extract_fait_artstock()
         .assign(
             type_ligne   =4,
             id_type_ligne=lambda d: d.apply(lambda _: _lookup_code(lookups, "DIM_TYPE_LIGNE", 4), axis=1),
             id_date      =today_id,
-            id_journal   =pd.NA,      # BUG-7 FIX: was None
+            id_journal   =pd.NA,
             id_banque    =pd.NA,
             id_client    =pd.NA,
             id_sens      =pd.NA,
@@ -636,7 +642,6 @@ def _assemble_fait_ecritures(
     )
     df4 = transform.add_fact_ecritures_calcs(df4)
 
-    # ── Align columns before concat ───────────────────────────────────────────
     _all_cols = list(dict.fromkeys(
         list(df1.columns) + list(df2.columns) +
         list(df3.columns) + list(df4.columns)
@@ -653,7 +658,6 @@ def _assemble_fait_ecritures(
     if "date_extraction" not in df.columns:
         df["date_extraction"] = date.today()
 
-    # Deduplicate on source_hash — duplicate hashes crash the unique index
     before = len(df)
     df = df.drop_duplicates(subset=["source_hash"], keep="last")
     if len(df) != before:
@@ -663,17 +667,14 @@ def _assemble_fait_ecritures(
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# DSI computation
+# POST-LOAD COMPUTATIONS
 # ════════════════════════════════════════════════════════════════════════════
 
 def _compute_dsi_jours() -> None:
     """Update dsi_jours and qte_vendue_365j on FAIT_ECRITURES stock rows.
 
-    WARN-5 FIX: the 365-day window now filters on DIM_DATE.date_val (the
-    actual transaction date) joined via id_date, NOT on date_extraction
-    (the ETL load date).  The old query produced wrong KPI-13 values because
-    a row inserted today but representing a 2019 sale would be counted inside
-    the rolling year.
+    WARN-5 FIX: filters on DIM_DATE.date_val (transaction date), not
+    date_extraction.
     """
     sql = """
         UPDATE fe
@@ -690,7 +691,9 @@ def _compute_dsi_jours() -> None:
             SELECT flv.id_article, SUM(flv.DL_Qte) AS qte_vendue_365j
             FROM FAIT_LIGNES_VENTE flv
             JOIN DIM_DATE d ON d.id_date = flv.id_date
+            JOIN DIM_DOMAINE dom ON dom.id_domaine = flv.id_domaine
             WHERE d.date_val >= DATEADD(DAY, -365, CAST(GETDATE() AS DATE))
+              AND dom.DO_Domaine = 0
             GROUP BY flv.id_article
         ) sub ON sub.id_article = fe.id_article
         WHERE tl.type_ligne = 4
@@ -698,6 +701,42 @@ def _compute_dsi_jours() -> None:
     with DW_ENGINE.begin() as conn:
         conn.execute(text(sql))
     logger.info("dsi_jours computed successfully.")
+
+
+def _compute_rfm_scores() -> None:
+    """Stamp RFM metrics on DIM_CLIENT using a rolling 365-day window.
+
+    KPI-18 FIX: FENETRE_RFM_JOURS (365) is now actually applied.
+    Uses FAIT_LIGNES_VENTE filtered to DO_Domaine=0 (vente) only.
+    Only updates rows with at least one sale in the window — clients with
+    no recent activity keep their previous values (or NULL on first run).
+
+    Columns written: rfm_recence_jours, rfm_frequence, rfm_montant_12m.
+    """
+    sql = f"""
+        UPDATE c
+        SET
+            c.rfm_recence_jours  = rfm.recence_jours,
+            c.rfm_frequence      = rfm.frequence,
+            c.rfm_montant_12m    = rfm.montant_12m
+        FROM DIM_CLIENT c
+        INNER JOIN (
+            SELECT
+                v.id_client,
+                DATEDIFF(DAY, MAX(d.date_val), CAST(GETDATE() AS DATE)) AS recence_jours,
+                COUNT(DISTINCT v.DO_Piece_hash)                          AS frequence,
+                SUM(v.DO_TotalHT)                                        AS montant_12m
+            FROM FAIT_LIGNES_VENTE v
+            JOIN DIM_DATE d   ON d.id_date   = v.id_date
+            JOIN DIM_DOMAINE dom ON dom.id_domaine = v.id_domaine
+            WHERE d.date_val >= DATEADD(DAY, -{FENETRE_RFM_JOURS}, CAST(GETDATE() AS DATE))
+              AND dom.DO_Domaine = 0
+            GROUP BY v.id_client
+        ) rfm ON rfm.id_client = c.id_client
+    """
+    with DW_ENGINE.begin() as conn:
+        conn.execute(text(sql))
+    logger.info(f"RFM scores computed (window={FENETRE_RFM_JOURS} days).")
 
 
 def _load_dim_date(df: pd.DataFrame, table: str, mode: str) -> None:
@@ -711,10 +750,45 @@ def _load_dim_date(df: pd.DataFrame, table: str, mode: str) -> None:
 # STEPS
 # ════════════════════════════════════════════════════════════════════════════
 
-# NOTE (BUG-5 FIX): FAIT_REGLEMENTS and FAIT_ECRITURES transform functions
-# are intentionally set to None here.  run_pipeline() replaces them at
-# runtime with closures that capture the immutable last_run_date value,
-# so no step can corrupt the delta window through the mutable lookups dict.
+def _build_lignes_vente_transform(last_run_date):
+    """Return a transform function that merges vente + achat lines (KPI-16 FIX)."""
+    def _transform(df_vente: pd.DataFrame, lookups: Dict) -> pd.DataFrame:
+        # Also extract purchase lines and concatenate
+        df_achat = extract.extract_fait_lignes_achat(last_run_date)
+        df_raw = pd.concat([df_vente, df_achat], ignore_index=True, sort=False)
+
+        return (
+            transform.add_fact_lignes_vente_calcs(df_raw)
+            .assign(
+                id_date=lambda d: d["DO_Date"].apply(
+                    lambda dt: lookups.get("DIM_DATE", {}).get(
+                        pd.Timestamp(dt).date() if pd.notna(dt) else None
+                    )
+                ),
+                id_type_doc=lambda d: d["DO_Type"].apply(
+                    lambda v: _lookup_code(lookups, "DIM_TYPE_DOC", v)
+                ),
+                id_domaine=lambda d: d["DO_Domaine"].apply(
+                    lambda v: _lookup_code(lookups, "DIM_DOMAINE", v)
+                ),
+                id_client=lambda d: d["CT_Num"].apply(
+                    lambda v: lookups.get("DIM_CLIENT", {}).get(transform.hash_key(v))
+                ),
+                id_article=lambda d: d["AR_Ref"].apply(
+                    lambda v: lookups.get("DIM_ARTICLE", {}).get(transform.hash_key(v))
+                ),
+                source_hash=lambda d: d.apply(
+                    lambda row: _source_hash(
+                        "DOCLIGNE", row.get("DO_Domaine"), row.get("DO_Type"),
+                        row.get("DO_Piece"), row.get("DL_Ligne"), row.get("AR_Ref"),
+                    ),
+                    axis=1,
+                ),
+                date_extraction=date.today(),
+            )
+        )
+    return _transform
+
 
 STEPS: List[Step] = [
 
@@ -785,7 +859,6 @@ STEPS: List[Step] = [
      ),
      lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="cbIndice_code")),
 
-    # CO_Fonction can contain Sage codes outside SMALLINT range.
     ("DIM_COLLABORATEUR",
      lambda **kw: extract.extract_dim_collaborateur(kw.get("last_run")),
      lambda df, lookups: df.assign(
@@ -858,51 +931,21 @@ STEPS: List[Step] = [
      lambda df, lookups: _assemble_dim_caisse(lookups),
      lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CA_Numero_code")),
 
+    # KPI-16 FIX: extract_fn loads vente lines only; transform_fn (replaced at
+    # runtime) concatenates achat lines so both domaines land in the same fact table.
     ("FAIT_LIGNES_VENTE",
      lambda **kw: extract.extract_fait_lignes_vente(kw.get("last_run")),
-     lambda df, lookups: (
-         transform.add_fact_lignes_vente_calcs(df)
-         .assign(
-             id_date=lambda d: d["DO_Date"].apply(
-                 lambda dt: lookups.get("DIM_DATE", {}).get(
-                     pd.Timestamp(dt).date() if pd.notna(dt) else None
-                 )
-             ),
-             id_type_doc=lambda d: d["DO_Type"].apply(
-                 lambda v: _lookup_code(lookups, "DIM_TYPE_DOC", v)
-             ),
-             id_domaine=lambda d: d["DO_Domaine"].apply(
-                 lambda v: _lookup_code(lookups, "DIM_DOMAINE", v)
-             ),
-             id_client=lambda d: d["CT_Num"].apply(
-                 lambda v: lookups.get("DIM_CLIENT", {}).get(transform.hash_key(v))
-             ),
-             id_article=lambda d: d["AR_Ref"].apply(
-                 lambda v: lookups.get("DIM_ARTICLE", {}).get(transform.hash_key(v))
-             ),
-             source_hash=lambda d: d.apply(
-                 lambda row: _source_hash(
-                     "DOCLIGNE", row.get("DO_Domaine"), row.get("DO_Type"),
-                     row.get("DO_Piece"), row.get("DL_Ligne"), row.get("AR_Ref"),
-                 ),
-                 axis=1,
-             ),
-             date_extraction=date.today(),
-         )
-     ),
+     None,   # replaced at runtime by _build_lignes_vente_transform(last_run_date)
      lambda df, tbl, mode: load.load_fact(df, tbl, mode)),
 
-    # BUG-5 FIX: transform_fn is None here — replaced at runtime in
-    # run_pipeline() with a closure over the immutable last_run_date.
     ("FAIT_REGLEMENTS",
      lambda **kw: pd.DataFrame(),
-     None,
+     None,   # replaced at runtime
      lambda df, tbl, mode: load.load_fact(df, tbl, mode)),
 
-    # BUG-5 FIX: same — transform_fn replaced at runtime.
     ("FAIT_ECRITURES",
      lambda **kw: pd.DataFrame(),
-     None,
+     None,   # replaced at runtime
      lambda df, tbl, mode: load.load_fact(df, tbl, mode)),
 ]
 
@@ -923,23 +966,30 @@ def run_pipeline() -> None:
     ddl.create_all_tables(drop_existing=False)
     ddl.apply_schema_migrations()
 
+    # KPI-18 FIX: ensure RFM columns exist on DIM_CLIENT
+    with DW_ENGINE.begin() as conn:
+        for label, sql in KPI18_MIGRATION:
+            try:
+                conn.execute(text(sql))
+                logger.info(f"  [MIGRATION OK] {label}")
+            except Exception as exc:
+                logger.warning(f"  [MIGRATION WARN] {label}: {exc}")
+
     run_id = start_run(mode)
     run_finished = False
     fk_disabled  = False
 
-    # BUG-5 FIX: lookups no longer carries "_last_run".  last_run_date is
-    # an immutable local variable captured by the closures below.
     lookups: Dict = {}
 
-    # BUG-5 FIX: build closures over the immutable last_run_date now that
-    # it is known.  These replace the None transform_fn slots in STEPS for
-    # FAIT_REGLEMENTS and FAIT_ECRITURES.
-    _transform_reglements = lambda df, lk: _assemble_fait_reglements(last_run_date, lk)
-    _transform_ecritures  = lambda df, lk: _assemble_fait_ecritures(last_run_date, lk)
+    # Runtime closures over immutable last_run_date
+    _transform_lignes_vente = _build_lignes_vente_transform(last_run_date)
+    _transform_reglements   = lambda df, lk: _assemble_fait_reglements(last_run_date, lk)
+    _transform_ecritures    = lambda df, lk: _assemble_fait_ecritures(last_run_date, lk)
 
     _RUNTIME_TRANSFORMS: Dict[str, Callable] = {
-        "FAIT_REGLEMENTS": _transform_reglements,
-        "FAIT_ECRITURES":  _transform_ecritures,
+        "FAIT_LIGNES_VENTE": _transform_lignes_vente,
+        "FAIT_REGLEMENTS":   _transform_reglements,
+        "FAIT_ECRITURES":    _transform_ecritures,
     }
 
     try:
@@ -953,8 +1003,6 @@ def run_pipeline() -> None:
             with table_timer(run_id, table_name) as ctx:
                 logger.info(f"--- Processing {table_name} ---")
 
-                # BUG-5 FIX: resolve transform function — use the runtime
-                # closure for fact tables that need last_run_date.
                 transform_fn = _RUNTIME_TRANSFORMS.get(table_name, _transform_fn)
 
                 df_raw = extract_fn(last_run=last_run_date)
@@ -978,6 +1026,9 @@ def run_pipeline() -> None:
         logger.info("--- Computing dsi_jours ---")
         _compute_dsi_jours()
 
+        logger.info("--- Computing RFM scores (KPI-18) ---")
+        _compute_rfm_scores()
+
         end_run(run_id, "SUCCESS")
         run_finished = True
 
@@ -988,10 +1039,6 @@ def run_pipeline() -> None:
         raise
 
     finally:
-        # FIX-BUG-7: release_lock() must always be called. The old guard
-        # 'if not run_finished' was never True because run_finished is set to
-        # True in both the try and except blocks above, permanently blocking
-        # all future pipeline runs after the first execution.
         release_lock(run_id)
         if fk_disabled:
             try:

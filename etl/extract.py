@@ -1,24 +1,26 @@
 """
-extract.py — SIAD MAG Distribution ETL — v14.2
+extract.py — SIAD MAG Distribution ETL — v14.4
 Extraction from MAG_2020 (Sage Gestion Commerciale)
 and GRT_MAG (Sage Trésorerie).
 
-FIXES vs previous version
+FIXES vs v14.2
 ──────────────────────────────────────────────────────────────────────────
 FIX-JOIN  : extract_fait_mvtcaisse() — GRT F_Caisse PK is CA_Numero,
             aliased to CA_No so the rest of the pipeline stays consistent.
-            The previous join ON c.CA_Numero = mc.CA_Numero was correct in
-            SQL but selected c.CA_Numero AS CA_No — now explicit and safe.
 FIX-DELTA : extract_fait_mvtcaisse() now accepts last_run and applies a
-            delta filter on MC_Date so the caisse-dimension assembly and
-            the fact-table assembly use the SAME time window.
+            delta filter on MC_Date.
 FIX-BUG4  : extract_docregl_grt() had a duplicate definition — removed.
-             Only one definition is kept (full reload; GRT has no
-             cbModification column).
 FIX-BUG7  : extract_dim_client_grt() — runtime column-existence check for
-             CT_EchustTroisMois / CT_EchusTroisMois spelling variants.
-FIX-BUG10 : extract_fait_lignes_vente() — DE_No removed from SELECT
-             (id_depot was dropped from FAIT_LIGNES_VENTE in schema v11).
+            CT_EchustTroisMois / CT_EchusTroisMois spelling variants.
+FIX-BUG10 : extract_fait_lignes_vente() — DE_No removed from SELECT.
+
+NEW in v14.4
+──────────────────────────────────────────────────────────────────────────
+KPI-16 FIX: extract_fait_lignes_achat() added — extracts purchase lines
+            (DO_Domaine=1) so KPI-16 (fournisseur concentration) can be
+            computed from FAIT_LIGNES_VENTE using id_domaine=1 as filter.
+            Previously, only sales lines (domaine=0) were loaded, making
+            KPI-16 impossible to calculate from the DW.
 """
 from __future__ import annotations
 
@@ -33,11 +35,6 @@ from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# FIX-TIMEOUT: Per-query timeout for source DB reads.
-# config.py sets connect_args timeout=30 which only limits the TCP handshake.
-# Long-running queries (full table scans on slow MAG/GRT servers) can hang
-# the ETL indefinitely without this additional guard.
-# Override via env var ETL_QUERY_TIMEOUT (seconds, int).
 import os as _os
 _QUERY_TIMEOUT: int = int(_os.getenv("ETL_QUERY_TIMEOUT", "120"))
 
@@ -265,12 +262,55 @@ def extract_dim_caisse_mag() -> pd.DataFrame:
     return _read(MAG_ENGINE, sql)
 
 
+# ── KPI-16 FIX: Purchase lines (DO_Domaine=1) ────────────────────────────────
+
+def extract_fait_lignes_achat(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """Purchase lines from MAG_2020 (DO_Domaine=1) for KPI-16.
+
+    Loaded into FAIT_LIGNES_VENTE alongside sales lines. Use id_domaine=1
+    as the discriminant in BI queries to isolate purchase data.
+
+    DO_Type 16 = Facture fournisseur, 17 = Avoir fournisseur.
+    """
+    delta_clause, params = _delta_filter("dl.cbModification", last_run)
+    sql = f"""
+        SELECT
+            dl.DO_Domaine,
+            dl.DO_Type,
+            dl.CT_Num,
+            dl.DO_Piece,
+            dl.DL_Ligne,
+            dl.DO_Date,
+            dl.AR_Ref,
+            dl.DL_Qte,
+            dl.DL_PrixUnitaire,
+            dl.DL_Taxe1,
+            dl.DL_MontantHT,
+            dl.DL_MontantTTC,
+            de.DO_TxEscompte,
+            de.DO_TotalHT,
+            de.DO_TotalHTNet,
+            de.DO_TotalTTC,
+            de.DO_NetAPayer,
+            de.DO_MontantRegle
+        FROM F_DOCLIGNE dl
+        INNER JOIN F_DOCENTETE de
+            ON  de.DO_Domaine = dl.DO_Domaine
+            AND de.DO_Type    = dl.DO_Type
+            AND de.DO_Piece   = dl.DO_Piece
+        WHERE dl.DO_Domaine = 1
+          AND dl.DO_Type IN (16, 17)
+          AND dl.DL_MontantHT IS NOT NULL
+          {delta_clause}
+    """
+    return _read(MAG_ENGINE, sql, params)
+
+
 def extract_fait_lignes_vente(last_run: Optional[datetime] = None) -> pd.DataFrame:
     """Sales lines from MAG_2020.
 
     FIX-BUG10: DE_No removed — id_depot was dropped from FAIT_LIGNES_VENTE
-    in schema v11. Including it was dead weight that _prepare_for_load()
-    silently discarded every run.
+    in schema v11.
     """
     delta_clause, params = _delta_filter("dl.cbModification", last_run)
     sql = f"""
@@ -436,12 +476,8 @@ def extract_docregl_grt(last_run: Optional[datetime] = None) -> pd.DataFrame:
 def extract_fait_mvtcaisse(last_run: Optional[datetime] = None) -> pd.DataFrame:
     """Cash movements from GRT.
 
-    FIX-JOIN : GRT F_Caisse PK column is CA_Numero.  We alias it to CA_No
-               so the rest of the pipeline (DIM_CAISSE assembly, FK lookup)
-               uses a single consistent name.
-    FIX-DELTA: delta filter on MC_Date so caisse-dim assembly and fact
-               assembly use the same time window when last_run is supplied.
-               For DIM_CAISSE (always full) the caller passes None.
+    FIX-JOIN : GRT F_Caisse PK column is CA_Numero, aliased to CA_No.
+    FIX-DELTA: delta filter on MC_Date.
     """
     delta_clause, params = _delta_filter("mc.MC_Date", last_run)
     sql = f"""
