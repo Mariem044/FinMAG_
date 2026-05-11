@@ -236,13 +236,21 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
     with DW_ENGINE.begin() as conn:
         conn.execute(text(_DROP_IF_EXISTS.format(name=temp_name)))
 
-    binary_cols = [c for c in df.columns if c in _BINARY_COLS]
+    # FIX-STAGING-PERF: replaced slow pandas to_sql(method="multi") with the
+    # same pyodbc fast_executemany path used by _bulk_insert.
+    # to_sql with method="multi" batches rows but still uses SQLAlchemy's
+    # parameter substitution which is slow for wide tables — 2099//n_cols
+    # can produce chunk=1 when n_cols > 2099, making it O(N) round-trips.
+    # fast_executemany=True sends all rows in a single ODBC call.
+    binary_cols = _detect_binary_cols(df)
     df_staging  = _hex_encode_binary_cols(df, binary_cols) if binary_cols else df
 
+    # Create the staging table via pandas (schema inference only — 1 row batch)
+    # then truncate and re-insert via executemany.
+    _one_row = df_staging.head(0)  # empty frame to create table schema
     n_cols = len(df_staging.columns)
-    sql_server_chunk = max(1, 2099 // n_cols)
-
-    df_staging.to_sql(
+    sql_server_chunk = max(100, 2099 // max(n_cols, 1))
+    _one_row.to_sql(
         name=temp_name,
         con=DW_ENGINE,
         if_exists="replace",
@@ -250,6 +258,21 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
         chunksize=sql_server_chunk,
         method="multi",
     )
+
+    # Bulk-insert via raw pyodbc cursor for maximum throughput
+    cols = list(df_staging.columns)
+    col_names = ", ".join([f"[{c}]" for c in cols])
+    value_exprs = ["CONVERT(VARBINARY(32), ?, 2)" if c in binary_cols else "?" for c in cols]
+    insert_sql = f"INSERT INTO [{temp_name}] ({col_names}) VALUES ({', '.join(value_exprs)})"
+    rows = [tuple(_to_python(v) for v in row) for row in df_staging.itertuples(index=False, name=None)]
+
+    with DW_ENGINE.begin() as conn:
+        raw_conn = conn.connection
+        cursor = raw_conn.cursor()
+        cursor.fast_executemany = not bool(binary_cols)
+        for i in range(0, len(rows), CHUNK_SIZE):
+            cursor.executemany(insert_sql, rows[i : i + CHUNK_SIZE])
+        cursor.close()
 
     def _src_value(c: str) -> str:
         if c in binary_cols:

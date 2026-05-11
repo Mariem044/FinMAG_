@@ -1,22 +1,24 @@
 # api/main.py
 """
-FinMAG API — v14.2
-Fixes applied vs v14.1:
-  FIX-DEPOT   : get_ca_by_region() — removed f.id_depot JOIN on FAIT_LIGNES_VENTE;
-                id_depot was dropped from that table in schema v11 (FIX-9/BUG-10).
-                Sales are now grouped by DIM_CLIENT.id_segment as a meaningful proxy,
-                or by a direct client-count breakdown when no depot is available.
-  FIX-FAMILLE : get_top_familles() — joined DIM_FAMILLE → FA_CodeFamille_code and
-                DIM_ARTICLE to surface the famille surrogate; label falls back to
-                the code when no intitule is stored (DIM_FAMILLE has no libelle col).
-  FIX-REGION  : get_ca_by_region() now groups by segment label instead of a
-                non-existent depot FK, giving meaningful data without a schema change.
+FinMAG API — v14.3
+Adds POST /api/assistant/chat — a real LLM-powered endpoint backed by
+Google Gemini 1.5 Flash.  The endpoint:
+  1. Fetches a live snapshot from the DW (KPIs, articles, clients, impayes)
+  2. Injects it as JSON into a French financial analyst system prompt
+  3. Streams Gemini's answer back via SSE so the UI shows text word-by-word
 """
+import json
 import os
+import re
 import threading
+import unicodedata
+from typing import List
 
+from google import genai
 from fastapi import BackgroundTasks, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from etl.config import DW_ENGINE
@@ -50,6 +52,43 @@ app.add_middleware(
     allow_origins=allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# ─── Gemini LLM Setup ─────────────────────────────────────────────────────────
+_GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+if _GEMINI_API_KEY and _GEMINI_API_KEY != "AIzaSyCXwsimUY1jGOy-ruNdtxpxATQWafYNOAg":
+    _GEMINI_CLIENT = genai.Client(api_key=_GEMINI_API_KEY)
+    _LLM_READY = True
+else:
+    _GEMINI_CLIENT = None
+    _LLM_READY = False
+
+_SYSTEM_PROMPT = (
+    "Tu es FinMAG, l'assistant IA financier de MAG Distribution. "
+    "Tu es direct, précis et professionnel — comme un CFO senior. "
+    "\n\n"
+    "RÈGLES STRICTES :"
+    "\n- Réponds TOUJOURS en français"
+    "\n- Maximum 4-5 phrases ou bullet points. Jamais de longues listes."
+    "\n- Va droit au but. Pas d'introduction, pas de répétition des données."
+    "\n- Donne UNE recommandation principale, claire et actionnable."
+    "\n- Utilise des chiffres précis quand tu en as."
+    "\n- Ton ton : confiant, factuel, sans alarmisme excessif."
+    "\n- Ne répète JAMAIS 'anomalie critique' ou 'données incohérentes' à chaque réponse."
+    "\n- Si la question n'est pas financière, réponds brièvement et redirige vers les données MAG."
+    "\n- Formate avec **gras** pour les chiffres clés uniquement."
+)
+
+_SYSTEM_PROMPT = (
+    "Tu es FinMAG, assistant IA financier de MAG Distribution, avec un ton de CFO. "
+    "Reponds toujours en francais, de facon directe, sobre et utile. "
+    "Limite chaque reponse a 4-5 lignes maximum. "
+    "N'analyse les donnees financieres que lorsqu'elles sont fournies dans le message utilisateur. "
+    "Pour un message casual ou non financier, reponds naturellement en 1-2 lignes, sans mentionner les donnees. "
+    "Ne repete pas les memes alertes, warnings ou anomalies si l'utilisateur ne les demande pas. "
+    "Ne fais pas de longue synthese automatique. "
+    "Utilise le **gras uniquement pour les chiffres cles**, jamais pour des phrases entieres."
 )
 
 MONTHS = ["Jan", "Fev", "Mar", "Avr", "Mai", "Jun", "Jul", "Aou", "Sep", "Oct", "Nov", "Dec"]
@@ -982,11 +1021,319 @@ def search(q: str = ""):
 
 @app.get("/api/assistant/summary")
 def get_assistant_summary():
-    return {
-        "kpis": get_dashboard_kpis(),
-        "tresorerie": get_tresorerie_summary(),
-        "articles": get_articles()[:20],
-        "clients": get_clients()[:20],
-        "impayes": get_impayes()[:20],
-        "stockAlerts": get_stock_alerts()[:20],
+    # FIX-POOL: the old implementation called get_dashboard_kpis(),
+    # get_articles(), get_clients(), etc. — each opens its own connection
+    # from the pool simultaneously.  With pool_size=5 and max_overflow=10,
+    # concurrent assistant requests could exhaust the pool and block.
+    # Fix: open ONE connection and run all queries sequentially on it.
+    # Each section is wrapped so a single failing table returns [] rather
+    # than crashing the entire summary response.
+    result = {
+        "kpis":        {},
+        "tresorerie":  {},
+        "articles":    [],
+        "clients":     [],
+        "impayes":     [],
+        "stockAlerts": [],
     }
+    with DW_ENGINE.connect() as conn:
+        def _q(sql, params=None):
+            return conn.execute(text(sql), params or {}).fetchall()
+        def _qone(sql, params=None):
+            return conn.execute(text(sql), params or {}).fetchone()
+
+        try:
+            kpi_row = _qone("""
+                WITH latest AS (
+                    SELECT COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year
+                    FROM FAIT_LIGNES_VENTE f
+                    LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
+                )
+                SELECT SUM(f.DL_MontantHT) AS ca_total,
+                       COUNT(DISTINCT f.DO_Piece_hash) AS nb_commandes,
+                       COUNT(DISTINCT f.id_client) AS nb_clients_actifs,
+                       SUM(f.DL_MontantHT - (f.DL_Qte * COALESCE(a.AR_PrixAch,0))) AS marge_brute
+                FROM FAIT_LIGNES_VENTE f
+                LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
+                LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
+                CROSS JOIN latest WHERE d.annee = latest.latest_year
+            """)
+            ca = _num(kpi_row.ca_total)
+            result["kpis"] = {
+                "ca_total": ca,
+                "nb_commandes": _int(kpi_row.nb_commandes),
+                "nb_clients_actifs": _int(kpi_row.nb_clients_actifs),
+                "marge_brute_pct": (_num(kpi_row.marge_brute) / ca * 100) if ca else 0,
+                "taux_recouvrement": 0,
+            }
+        except Exception:
+            pass
+
+        try:
+            tr = _qone("""
+                SELECT SUM(CASE WHEN DR_Regle=1 THEN RT_Montant ELSE 0 END) AS enc,
+                       SUM(CASE WHEN DR_Regle=0 THEN RT_Montant ELSE 0 END) AS imp,
+                       AVG(CAST(delai_reel_jours AS FLOAT)) AS delai
+                FROM FAIT_REGLEMENTS
+            """)
+            enc = _num(tr.enc); imp = _num(tr.imp); tot = enc + imp
+            result["tresorerie"] = {
+                "encaissements": enc, "impayes": imp,
+                "delai_moyen": round(_num(tr.delai)),
+                "taux_recouvrement": (enc / tot * 100) if tot else 0,
+            }
+            result["kpis"]["taux_recouvrement"] = result["tresorerie"]["taux_recouvrement"]
+        except Exception:
+            pass
+
+        try:
+            result["articles"] = [
+                {"code": f"ART-{r.AR_Ref_code}", "designation": f"Article {r.AR_Ref_code}",
+                 "famille": f"Famille {r.id_famille or 'N/A'}", "qteVendue": _num(r.qte_vendue),
+                 "ca": _num(r.ca), "prixMoyen": _num(r.AR_PrixAch), "marge": 0,
+                 "stock": _num(r.stock), "dsi": _num(r.dsi_jours)}
+                for r in _q("""
+                    WITH sales AS (SELECT id_article, COALESCE(SUM(DL_Qte),0) AS qte_vendue,
+                                          COALESCE(SUM(DL_MontantHT),0) AS ca
+                                   FROM FAIT_LIGNES_VENTE GROUP BY id_article),
+                    stock AS (SELECT e.id_article, MAX(e.AS_QteSto) AS stock,
+                                     MAX(e.dsi_jours) AS dsi_jours
+                              FROM FAIT_ECRITURES e
+                              JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne=e.id_type_ligne
+                               AND tl.type_ligne=4 GROUP BY e.id_article)
+                    SELECT TOP 20 a.AR_Ref_code, a.id_famille, a.AR_PrixAch,
+                           COALESCE(sales.qte_vendue,0) AS qte_vendue,
+                           COALESCE(sales.ca,0) AS ca, stock.stock, stock.dsi_jours
+                    FROM DIM_ARTICLE a
+                    LEFT JOIN sales ON sales.id_article=a.id_article
+                    LEFT JOIN stock ON stock.id_article=a.id_article
+                    ORDER BY ca DESC
+                """)
+            ]
+        except Exception:
+            pass
+
+        try:
+            result["clients"] = [
+                {"code": str(r.CT_Num_code), "nom": f"Client {r.CT_Num_code}",
+                 "caTotal": _num(r.ca_total), "nbCommandes": _int(r.nb_commandes),
+                 "soldeImpaye": _num(r.solde_impaye), "segment": r.segment, "actif": _int(r.sommeil) == 0}
+                for r in _q("""
+                    SELECT TOP 20 c.CT_Num_code, COALESCE(s.libelle_segment,'Sans segment') AS segment,
+                           SUM(v.DL_MontantHT) AS ca_total,
+                           COUNT(DISTINCT v.DO_Piece_hash) AS nb_commandes,
+                           c.CT_SoldeActuel AS solde_impaye, c.CT_Sommeil AS sommeil
+                    FROM DIM_CLIENT c
+                    LEFT JOIN DIM_SEGMENT s ON s.id_segment=c.id_segment
+                    LEFT JOIN FAIT_LIGNES_VENTE v ON v.id_client=c.id_client
+                    GROUP BY c.CT_Num_code, s.libelle_segment, c.CT_SoldeActuel, c.CT_Sommeil
+                    ORDER BY ca_total DESC
+                """)
+            ]
+        except Exception:
+            pass
+
+        try:
+            result["impayes"] = [
+                {"client": f"Client {r.CT_Num_code}", "montant": _num(r.montant_impaye),
+                 "anciennete": _int(r.anciennete)}
+                for r in _q("""
+                    SELECT TOP 20 c.CT_Num_code, SUM(r.RT_Montant) AS montant_impaye,
+                           MAX(r.delai_reel_jours) AS anciennete
+                    FROM FAIT_REGLEMENTS r JOIN DIM_CLIENT c ON c.id_client=r.id_client
+                    WHERE r.DR_Regle=0 GROUP BY c.CT_Num_code
+                    HAVING SUM(r.RT_Montant)>0 ORDER BY montant_impaye DESC
+                """)
+            ]
+        except Exception:
+            pass
+
+        try:
+            result["stockAlerts"] = [
+                {"article": f"ART-{r.AR_Ref_code}", "stockActuel": _num(r.AS_QteSto),
+                 "seuil": _num(r.AS_QteMini), "ratioTension": _num(r.ratio_tension)}
+                for r in _q("""
+                    SELECT TOP 20 a.AR_Ref_code, f.AS_QteSto, f.AS_QteMini, f.ratio_tension
+                    FROM FAIT_ECRITURES f
+                    JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne=f.id_type_ligne
+                    JOIN DIM_ARTICLE a ON a.id_article=f.id_article
+                    WHERE tl.type_ligne=4 AND f.en_rupture=1
+                      AND f.AS_QteSto IS NOT NULL AND f.ratio_tension IS NOT NULL
+                    ORDER BY f.ratio_tension DESC
+                """)
+            ]
+        except Exception:
+            pass
+
+    return result
+
+
+
+# --- LLM Chat Endpoint -------------------------------------------------------
+
+class ChatMessage(BaseModel):
+    role: str   # user | assistant
+    content: str
+
+
+class ChatRequest(BaseModel):
+    messages: List[ChatMessage]
+
+
+_FINANCIAL_KEYWORDS = {
+    "ca",
+    "chiffre",
+    "client",
+    "clients",
+    "stock",
+    "stocks",
+    "impaye",
+    "impayes",
+    "tresorerie",
+    "marge",
+    "vente",
+    "ventes",
+    "article",
+    "articles",
+    "kpi",
+    "analyse",
+    "analyser",
+    "donnee",
+    "donnees",
+    "rapport",
+}
+
+_CASUAL_CA_PHRASES = {
+    "ca va",
+    "comment ca va",
+    "ca marche",
+    "ca roule",
+}
+
+
+def _normalize_intent_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text or "")
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    return ascii_text.lower()
+
+
+def _asks_financial_question(text: str) -> bool:
+    """Return True only when the current user turn asks for financial data."""
+    normalized = _normalize_intent_text(text)
+    compact = " ".join(normalized.split())
+
+    if any(phrase in compact for phrase in _CASUAL_CA_PHRASES):
+        compact = compact.replace("ca va", "").replace("comment ca va", "")
+        compact = compact.replace("ca marche", "").replace("ca roule", "")
+
+    words = set(re.findall(r"[a-z0-9]+", compact))
+    if words & _FINANCIAL_KEYWORDS:
+        return True
+
+    return "chiffre d affaires" in compact or "data warehouse" in compact
+
+
+def _build_dw_context() -> str:
+    """Fetch a live DW snapshot and return it as compact JSON for the LLM."""
+    ctx: dict = {}
+    try:
+        summary = get_assistant_summary()
+        ctx["kpis"]          = summary.get("kpis", {})
+        ctx["tresorerie"]    = summary.get("tresorerie", {})
+        ctx["top_articles"]  = summary.get("articles", [])[:10]
+        ctx["top_clients"]   = summary.get("clients", [])[:10]
+        ctx["impayes"]       = summary.get("impayes", [])[:10]
+        ctx["alertes_stock"] = summary.get("stockAlerts", [])[:10]
+    except Exception as exc:
+        ctx["error"] = str(exc)
+    return json.dumps(ctx, ensure_ascii=False, default=str)
+
+
+# NEW
+def _gemini_history(messages: List[ChatMessage]) -> list:
+    history = []
+    for msg in messages[:-1]:
+        history.append(
+            genai.types.Content(
+                role="user" if msg.role == "user" else "model",
+                parts=[genai.types.Part(text=msg.content)],
+            )
+        )
+    return history
+
+
+@app.get("/api/assistant/status")
+def get_assistant_status():
+    return {"llm_ready": _LLM_READY, "model": _GEMINI_MODEL if _LLM_READY else None}
+
+
+@app.post("/api/assistant/chat")
+def assistant_chat(req: ChatRequest):
+    """
+    Real LLM chat with Server-Sent Events streaming.
+    1. Detect whether the current turn is a financial/data question
+    2. Inject DW data only for financial questions
+    3. Stream Gemini answer back token-by-token via SSE
+    4. Gracefully degrade when no API key is configured
+    """
+    if not _LLM_READY or _GEMINI_CLIENT is None:
+        def _no_key():
+            yield "data: Ajoutez GEMINI_API_KEY dans etl/.env pour activer l'IA.\n\n"
+            yield "data: Cle gratuite : https://aistudio.google.com/app/apikey\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(_no_key(), media_type="text/event-stream")
+
+    if not req.messages:
+        return StreamingResponse(
+            iter(["data: [DONE]\n\n"]),
+            media_type="text/event-stream",
+        )
+
+    current_user_text = req.messages[-1].content
+    is_financial_question = _asks_financial_question(current_user_text)
+
+    if is_financial_question:
+        dw_ctx = _build_dw_context()
+        prompt = (
+            "[DONNEES LIVE DU DATA WAREHOUSE - MAG Distribution]\n"
+            + dw_ctx
+            + "\n\n[QUESTION UTILISATEUR]\n"
+            + current_user_text
+        )
+        contents = _gemini_history(req.messages) + [
+            genai.types.Content(
+                role="user",
+                parts=[genai.types.Part(text=prompt)],
+            )
+        ]
+    else:
+        contents = [
+            genai.types.Content(
+                role="user",
+                parts=[genai.types.Part(text=current_user_text)],
+            )
+        ]
+
+    def _stream():
+        try:
+            response = _GEMINI_CLIENT.models.generate_content_stream(
+                model=_GEMINI_MODEL,
+                contents=contents,
+                config=genai.types.GenerateContentConfig(
+                    system_instruction=_SYSTEM_PROMPT,
+                ),
+            )
+            for chunk in response:
+                text_chunk = chunk.text if chunk.text else ""
+                if text_chunk:
+                    for line in text_chunk.splitlines(keepends=True):
+                        yield f"data: {line}"
+                    if not text_chunk.endswith("\n"):
+                        yield "\n"
+                    yield "\n"
+        except Exception as exc:
+            yield f"data: Erreur LLM : {exc}\n\n"
+        finally:
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")

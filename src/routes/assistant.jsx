@@ -16,143 +16,52 @@ import {
   Check,
   ChevronRight,
   Zap,
+  AlertCircle,
+  Cpu,
 } from "lucide-react";
-import { formatTND } from "@/lib/dashboardConstants";
 import { api } from "@/lib/api";
-import { useApiResource } from "@/hooks/useApiResource";
 
 export const Route = createFileRoute("/assistant")({
   component: AssistantIAPage,
 });
 
+// ─── API base (same origin as other endpoints) ─────────────────────────────
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
 const SUGGESTIONS = [
   {
     icon: TrendingUp,
     label: "CA & Ventes",
-    text: "Quel est le chiffre d'affaires total et les meilleures familles de produits ?",
+    text: "Quel est le chiffre d'affaires total ? Quelles familles de produits performent le mieux ?",
   },
   {
     icon: Wallet,
     label: "Trésorerie",
-    text: "Analyse l'état actuel de la trésorerie et les créances impayées.",
+    text: "Analyse l'état de la trésorerie et les créances impayées. Quelles actions recommandes-tu ?",
   },
   {
     icon: Boxes,
     label: "Stocks",
-    text: "Quels articles sont en rupture de stock ou sous le seuil d'alerte ?",
+    text: "Quels articles sont en rupture ou sous le seuil d'alerte ? Donne-moi des recommandations.",
   },
   {
     icon: Users,
-    label: "Clients",
+    label: "Clients à risque",
     text: "Identifie les clients à risque d'attrition et les top clients par CA.",
   },
   {
     icon: Receipt,
-    label: "Fiscalité",
-    text: "Résume les anomalies comptables détectées ce mois-ci.",
+    label: "Anomalies",
+    text: "Y a-t-il des anomalies comptables ou fiscales à surveiller ce mois-ci ?",
   },
   {
     icon: Landmark,
     label: "Banque",
-    text: "Quel est le taux de rapprochement bancaire actuel ?",
+    text: "Quel est le taux de rapprochement bancaire actuel et quelles remises ne sont pas rapprochées ?",
   },
 ];
 
-/**
- * generateAssistantResponse — builds a text response from local DW data.
- *
- * Expected `data` shape (from /api/assistant/summary):
- * {
- *   kpis:      { ca_total, nb_commandes, nb_clients_actifs, taux_recouvrement, marge_brute_pct },
- *   caByMonth: [{ month, ca, objectif, caN1 }],
- *   articles:  [{ designation, famille, qteVendue, stock, ca, prixMoyen, dsi }],
- *   clients:   [{ code, nom, segment, region, actif, soldeImpaye, nbCommandes }],
- *   impayes:   [{ clientCode, montantImpaye, anciennete }],
- *   ecritures: [{ date, numPiece, journal, compte, libelle, debit, credit, solde }],
- * }
- */
-function generateAssistantResponse(content, data = {}) {
-  const q = content.toLowerCase();
-
-  // Safe destructuring with defaults for every array
-  const caByMonth = Array.isArray(data.caByMonth) ? data.caByMonth : [];
-  const articles = Array.isArray(data.articles) ? data.articles : [];
-  const clients = Array.isArray(data.clients) ? data.clients : [];
-  const impayes = Array.isArray(data.impayes) ? data.impayes : [];
-  const ecritures = Array.isArray(data.ecritures) ? data.ecritures : [];
-  const kpis = data.kpis || {};
-
-  const totalCA = kpis.ca_total || caByMonth.reduce((sum, m) => sum + (m.ca || 0), 0);
-
-  const stockCritique = articles.filter((a) => (a.qteVendue || 0) < 500);
-  const clientsExposes = clients.filter((c) => (c.soldeImpaye || 0) > 50000);
-  const impayesCritiques = impayes.filter((i) => (i.anciennete || 0) > 90);
-  const anomalies = ecritures.filter((e) => Math.abs(e.solde || 0) > 30000);
-
-  if (q.includes("stock") || q.includes("rupture") || q.includes("article")) {
-    const topArticle = [...articles].sort((a, b) => (b.qteVendue || 0) - (a.qteVendue || 0))[0];
-    const totalStockCA = articles.reduce((s, a) => s + (a.ca || 0), 0);
-    return (
-      `Analyse **stocks** depuis les données DW :\n\n` +
-      `- **${stockCritique.length} articles** sont sous le seuil d'alerte (ventes < 500 u.)\n` +
-      (topArticle ? `- Article le plus vendu : **${topArticle.designation}**\n` : "") +
-      `- Valeur catalogue estimée : **${formatTND(totalStockCA)}**\n\n` +
-      `Priorité : vérifier les articles avec ventes faibles et CA élevé avant réapprovisionnement.`
-    );
-  }
-
-  if (q.includes("client") || q.includes("attrition") || q.includes("risque")) {
-    const totalImpaye = clients.reduce((s, c) => s + (c.soldeImpaye || 0), 0);
-    return (
-      `Analyse **clients** depuis les données DW :\n\n` +
-      `- **${clients.length} clients** suivis\n` +
-      `- **${clientsExposes.length} clients** ont un solde impayé > 50 000 DT\n` +
-      `- Exposition impayée totale : **${formatTND(totalImpaye)}**\n\n` +
-      `Priorité : contacter les clients exposés avant les prochaines échéances.`
-    );
-  }
-
-  if (q.includes("trésorerie") || q.includes("tresorerie") || q.includes("impay")) {
-    const totalMontantImpaye = impayes.reduce((s, i) => s + (i.montantImpaye || 0), 0);
-    return (
-      `Synthèse **trésorerie** depuis les données DW :\n\n` +
-      `- **${impayes.length} créances** en suivi\n` +
-      `- **${impayesCritiques.length} créances** dépassent 90 jours\n` +
-      `- Montant impayé total : **${formatTND(totalMontantImpaye)}**\n\n` +
-      `Priorité : traiter les dossiers > 90 jours et les montants les plus élevés.`
-    );
-  }
-
-  if (q.includes("fiscal") || q.includes("compta") || q.includes("anomal")) {
-    return (
-      `Analyse **fiscalité & comptabilité** depuis les données DW :\n\n` +
-      `- **${ecritures.length} écritures** disponibles\n` +
-      `- **${anomalies.length} écritures** ont un solde absolu > 30 000 DT\n` +
-      `- Journaux couverts : Ventes, Achats, Banque, Caisse\n\n` +
-      `Priorité : filtrer le tableau des écritures et exporter le CSV pour contrôle.`
-    );
-  }
-
-  if (q.includes("banque") || q.includes("rapprochement")) {
-    return (
-      `Synthèse **banque** depuis les données DW :\n\n` +
-      `- Les bordereaux, agios et écarts sont calculés selon les filtres Banque / Mode\n` +
-      `- Le taux de rapprochement est une moyenne de la période sélectionnée\n\n` +
-      `Priorité : utiliser les filtres banque/mode pour isoler les remises non rapprochées.`
-    );
-  }
-
-  // Default summary
-  return (
-    `Synthèse **MAG Distribution** depuis les données DW :\n\n` +
-    `- CA total estimé : **${formatTND(totalCA)}**\n` +
-    `- Articles sous alerte stock : **${stockCritique.length}**\n` +
-    `- Clients avec solde impayé élevé : **${clientsExposes.length}**\n` +
-    `- Écritures à contrôler : **${anomalies.length}**\n\n` +
-    `Vous pouvez me demander un détail sur : ventes, stocks, clients, trésorerie, fiscalité ou banque.`
-  );
-}
-
+// ─── Typing indicator ─────────────────────────────────────────────────────────
 function TypingIndicator() {
   return (
     <div className="flex items-end gap-3">
@@ -174,6 +83,23 @@ function TypingIndicator() {
   );
 }
 
+// ─── Markdown-lite renderer ───────────────────────────────────────────────────
+function renderMarkdown(text) {
+  return text.split("\n").map((line, i, arr) => {
+    const formatted = line
+      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+      .replace(/_(.*?)_/g, "<em>$1</em>")
+      .replace(/`(.*?)`/g, "<code style='background:rgba(99,102,241,.15);padding:1px 5px;border-radius:4px;font-size:11px'>$1</code>");
+    return (
+      <span key={i}>
+        <span dangerouslySetInnerHTML={{ __html: formatted }} />
+        {i < arr.length - 1 && <br />}
+      </span>
+    );
+  });
+}
+
+// ─── Message bubble ───────────────────────────────────────────────────────────
 function MessageBubble({ msg }) {
   const [copied, setCopied] = useState(false);
   const isUser = msg.role === "user";
@@ -182,20 +108,6 @@ function MessageBubble({ msg }) {
     navigator.clipboard.writeText(msg.content).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const renderContent = (text) => {
-    return text.split("\n").map((line, i, arr) => {
-      const formatted = line
-        .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-        .replace(/_(.*?)_/g, "<em>$1</em>");
-      return (
-        <span key={i}>
-          <span dangerouslySetInnerHTML={{ __html: formatted }} />
-          {i < arr.length - 1 && <br />}
-        </span>
-      );
-    });
   };
 
   return (
@@ -218,11 +130,18 @@ function MessageBubble({ msg }) {
               : "bg-card border border-border/60 text-foreground rounded-bl-sm shadow-sm"
           }`}
         >
-          {renderContent(msg.content)}
+          {msg.streaming ? (
+            <span>
+              {renderMarkdown(msg.content)}
+              <span className="inline-block w-0.5 h-3.5 bg-primary ml-0.5 animate-pulse align-middle" />
+            </span>
+          ) : (
+            renderMarkdown(msg.content)
+          )}
         </div>
         <div className={`flex items-center gap-2 px-1 ${isUser ? "flex-row-reverse" : ""}`}>
           <span className="text-[10px] text-text-dim">{msg.time}</span>
-          {!isUser && (
+          {!isUser && !msg.streaming && (
             <button
               onClick={handleCopy}
               className="opacity-0 group-hover:opacity-100 transition-opacity text-text-dim hover:text-foreground"
@@ -236,55 +155,132 @@ function MessageBubble({ msg }) {
   );
 }
 
-// ─── INITIAL_DATA is module-level so its reference is stable ─────────────────
-const ASSISTANT_INITIAL = {
-  kpis: {},
-  caByMonth: [],
-  articles: [],
-  clients: [],
-  impayes: [],
-  ecritures: [],
-};
-
+// ─── Main page ────────────────────────────────────────────────────────────────
 function AssistantIAPage() {
-  const { data: assistantData } = useApiResource(api.assistantSummary, ASSISTANT_INITIAL);
-
   const [messages, setMessages] = useState(() => [
     {
       id: 1,
       role: "assistant",
       content:
-        "Bonjour ! Je suis votre assistant données pour **MAG Distribution**. Je peux résumer les données du tableau de bord, identifier des points à surveiller et préparer des pistes d'analyse.\n\nQue souhaitez-vous explorer aujourd'hui ?",
+        "Bonjour ! Je suis **FinMAG IA**, votre assistant financier connecté au data warehouse MAG Distribution.\n\nJ'analyse vos **données en temps réel** — CA, trésorerie, stocks, clients, fiscalité — et je vous fournis des recommandations actionnables.\n\nQue souhaitez-vous explorer ?",
       time: new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" }),
+      streaming: false,
     },
   ]);
   const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [llmStatus, setLlmStatus] = useState({ llm_ready: null, model: null });
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const abortRef = useRef(null);
 
+  // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping]);
+  }, [messages]);
 
-  const sendMessage = (text) => {
+  // Check LLM status on mount
+  useEffect(() => {
+    fetch(`${API_BASE}/api/assistant/status`)
+      .then((r) => r.json())
+      .then(setLlmStatus)
+      .catch(() => setLlmStatus({ llm_ready: false, model: null }));
+  }, []);
+
+  const sendMessage = async (text) => {
     const content = (text || input).trim();
-    if (!content) return;
+    if (!content || isStreaming) return;
 
-    const now = new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" });
-    const userMsg = { id: Date.now(), role: "user", content, time: now };
+    const now = () =>
+      new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" });
+
+    const userMsg = { id: Date.now(), role: "user", content, time: now(), streaming: false };
+
+    // Build full conversation history for multi-turn context
+    const historyForApi = [
+      ...messages
+        .filter((m) => !m.streaming)
+        .map((m) => ({ role: m.role, content: m.content })),
+      { role: "user", content },
+    ];
 
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
-    setIsTyping(true);
+    setIsStreaming(true);
 
-    const delay = Math.min(1200 + content.length * 12, 2000);
-    setTimeout(() => {
-      const aiContent = generateAssistantResponse(content, assistantData);
-      const aiTime = new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" });
-      setIsTyping(false);
-      setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: aiContent, time: aiTime }]);
-    }, delay);
+    // Placeholder assistant message that streams into
+    const assistantId = Date.now() + 1;
+    setMessages((prev) => [
+      ...prev,
+      { id: assistantId, role: "assistant", content: "", time: now(), streaming: true },
+    ]);
+
+    try {
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      const res = await fetch(`${API_BASE}/api/assistant/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: historyForApi }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const chunk = line.slice(6); // strip "data: "
+          if (chunk === "[DONE]") break;
+
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, content: m.content + chunk }
+                : m
+            )
+          );
+        }
+      }
+    } catch (err) {
+      if (err.name !== "AbortError") {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? {
+                  ...m,
+                  content:
+                    m.content ||
+                    "❌ Impossible de contacter l'IA. Vérifiez que le serveur API est démarré et que GEMINI_API_KEY est configuré dans `etl/.env`.",
+                }
+              : m
+          )
+        );
+      }
+    } finally {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? { ...m, streaming: false, time: now() }
+            : m
+        )
+      );
+      setIsStreaming(false);
+      abortRef.current = null;
+    }
   };
 
   const handleKeyDown = (e) => {
@@ -295,13 +291,21 @@ function AssistantIAPage() {
   };
 
   const clearChat = () => {
+    if (abortRef.current) abortRef.current.abort();
     const now = new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" });
     setMessages([
-      { id: Date.now(), role: "assistant", content: "Conversation réinitialisée. Comment puis-je vous aider ?", time: now },
+      {
+        id: Date.now(),
+        role: "assistant",
+        content: "Conversation réinitialisée. Comment puis-je vous aider ?",
+        time: now,
+        streaming: false,
+      },
     ]);
+    setIsStreaming(false);
   };
 
-  const showSuggestions = messages.length <= 1 && !isTyping;
+  const showSuggestions = messages.length <= 1 && !isStreaming;
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] max-w-4xl mx-auto">
@@ -312,10 +316,24 @@ function AssistantIAPage() {
             <Sparkles size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="text-[18px] font-bold text-foreground leading-none">Assistant données</h1>
+            <h1 className="text-[18px] font-bold text-foreground leading-none">Assistant IA</h1>
             <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-[11px] text-text-dim">Basé sur les données MAG Distribution</span>
+              {llmStatus.llm_ready === null ? (
+                <span className="text-[11px] text-text-dim">Connexion…</span>
+              ) : llmStatus.llm_ready ? (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                  <span className="text-[11px] text-text-dim flex items-center gap-1">
+                    <Cpu size={10} className="text-primary" />
+                    {llmStatus.model || "Gemini 1.5 Flash"} · données live MAG
+                  </span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle size={11} className="text-amber-400" />
+                  <span className="text-[11px] text-amber-400">Clé API manquante — voir etl/.env</span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -333,7 +351,9 @@ function AssistantIAPage() {
         {messages.map((msg) => (
           <MessageBubble key={msg.id} msg={msg} />
         ))}
-        {isTyping && <TypingIndicator />}
+        {isStreaming && messages[messages.length - 1]?.role !== "assistant" && (
+          <TypingIndicator />
+        )}
         <div ref={messagesEndRef} />
 
         {showSuggestions && (
@@ -347,7 +367,8 @@ function AssistantIAPage() {
                 <button
                   key={s.label}
                   onClick={() => sendMessage(s.text)}
-                  className="flex items-start gap-2.5 p-3 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:bg-primary/5 text-left transition-all duration-200 group"
+                  disabled={isStreaming}
+                  className="flex items-start gap-2.5 p-3 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:bg-primary/5 text-left transition-all duration-200 group disabled:opacity-50"
                 >
                   <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/20 transition-colors">
                     <s.icon size={13} className="text-primary" />
@@ -372,9 +393,14 @@ function AssistantIAPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Posez votre question sur les données MAG Distribution..."
+            placeholder={
+              isStreaming
+                ? "FinMAG IA est en train de répondre…"
+                : "Posez votre question sur les données MAG Distribution…"
+            }
             rows={1}
-            className="flex-1 bg-transparent text-[13px] text-foreground placeholder:text-text-dim outline-none resize-none px-2 py-1.5 leading-relaxed max-h-32"
+            disabled={isStreaming}
+            className="flex-1 bg-transparent text-[13px] text-foreground placeholder:text-text-dim outline-none resize-none px-2 py-1.5 leading-relaxed max-h-32 disabled:opacity-60"
             style={{ minHeight: "36px" }}
             onInput={(e) => {
               e.target.style.height = "auto";
@@ -383,14 +409,14 @@ function AssistantIAPage() {
           />
           <button
             onClick={() => sendMessage()}
-            disabled={!input.trim() || isTyping}
+            disabled={!input.trim() || isStreaming}
             className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center flex-shrink-0 self-end shadow-md shadow-primary/30 hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 hover:scale-105 active:scale-95"
           >
             <Send size={15} className="text-white" />
           </button>
         </div>
         <p className="text-[10px] text-text-dim text-center mt-1.5">
-          Entrée pour envoyer · Maj+Entrée pour nouvelle ligne
+          Entrée pour envoyer · Maj+Entrée pour nouvelle ligne · Réponses basées sur vos données live
         </p>
       </div>
     </div>

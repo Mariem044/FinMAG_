@@ -33,6 +33,14 @@ from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# FIX-TIMEOUT: Per-query timeout for source DB reads.
+# config.py sets connect_args timeout=30 which only limits the TCP handshake.
+# Long-running queries (full table scans on slow MAG/GRT servers) can hang
+# the ETL indefinitely without this additional guard.
+# Override via env var ETL_QUERY_TIMEOUT (seconds, int).
+import os as _os
+_QUERY_TIMEOUT: int = int(_os.getenv("ETL_QUERY_TIMEOUT", "120"))
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # HELPERS
@@ -40,7 +48,11 @@ logger = get_logger(__name__)
 
 def _read(engine, sql: str, params: Optional[dict] = None) -> pd.DataFrame:
     with engine.connect() as conn:
-        df = pd.read_sql(text(sql), conn, params=params or {})
+        df = pd.read_sql(
+            text(sql),
+            conn.execution_options(timeout=_QUERY_TIMEOUT),
+            params=params or {},
+        )
     logger.debug(f"Extracted {len(df)} rows — {sql[:80].strip()}...")
     return df
 

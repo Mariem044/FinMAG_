@@ -1,14 +1,41 @@
 import { Link } from "@tanstack/react-router";
 import { AlertTriangle, Database, Loader2 } from "lucide-react";
+import { useEffect, useCallback, useState } from "react";
 import { api } from "@/lib/api";
-import { useApiResource } from "@/hooks/useApiResource";
+
+const POLL_RUNNING_MS  = 3_000;   // fast poll while ETL is active
+const POLL_IDLE_MS     = 30_000;  // slow poll when nothing is running
 
 export function DataSourceStatus() {
-  const { data, error, loading, hasRealData } = useApiResource(api.etl.status, {
-    running: false,
-    lastRun: null,
-    counts: {},
-  });
+  const defaultData = { running: false, lastRun: null, counts: {} };
+  const [data,      setData]      = useState(defaultData);
+  const [error,     setError]     = useState(null);
+  const [loading,   setLoading]   = useState(true);
+  const [hasRealData, setHasRealData] = useState(false);
+
+  const fetch = useCallback(() => {
+    api.etl.status()
+      .then((d) => {
+        setData(d ?? defaultData);
+        setError(null);
+        setHasRealData(true);
+      })
+      .catch((e) => {
+        setError(e);
+        setHasRealData(false);
+      })
+      .finally(() => setLoading(false));
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // FIX: poll continuously instead of fetching once on mount.
+  // Use a short interval while the ETL is running so the UI transitions
+  // to "done" promptly; use a long interval when idle to save DB load.
+  useEffect(() => {
+    fetch(); // immediate first fetch
+    const interval = setInterval(fetch, data.running ? POLL_RUNNING_MS : POLL_IDLE_MS);
+    return () => clearInterval(interval);
+  }, [fetch, data.running]);
+
 
   if (loading) {
     return (
