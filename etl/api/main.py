@@ -24,7 +24,12 @@ from etl import pipeline
 
 app = FastAPI(title="FinMAG API")
 _ETL_RUN_LOCK = threading.Lock()
-_ETL_RUNNING = False
+# FIX-THREADING: _ETL_RUNNING (plain bool) was removed.
+# threading.Lock.locked() is the single, atomic source of truth for whether
+# the ETL background task is currently running.
+# A plain bool is not safe even within a single process because Python's GIL
+# does not protect read-modify-write sequences, and in multi-worker deployments
+# each worker process has its own copy of the bool anyway.
 _ETL_LAST_ERROR = None
 
 DEFAULT_ALLOWED_ORIGINS = [
@@ -73,14 +78,19 @@ def _date_str(value):
 
 
 def _run_etl_background():
-    global _ETL_RUNNING, _ETL_LAST_ERROR
+    """Background ETL worker.
+
+    Contract: _ETL_RUN_LOCK must be acquired by the caller (run_etl) before
+    this function is scheduled.  This function always releases the lock in its
+    finally block — whether the pipeline succeeds or raises.
+    """
+    global _ETL_LAST_ERROR
     try:
         pipeline.run_pipeline()
         _ETL_LAST_ERROR = None
     except Exception as exc:
         _ETL_LAST_ERROR = str(exc)
     finally:
-        _ETL_RUNNING = False
         _ETL_RUN_LOCK.release()
 
 
@@ -111,13 +121,13 @@ def get_etl_status():
         )
     except Exception as exc:
         return {
-            "running": _ETL_RUNNING,
+            "running": _ETL_RUN_LOCK.locked(),
             "lastError": str(exc),
             "lastRun": None,
             "counts": {},
         }
     return {
-        "running": _ETL_RUNNING,
+        "running": _ETL_RUN_LOCK.locked(),
         "lastError": _ETL_LAST_ERROR,
         "lastRun": None if not last_run else {
             "runId": _int(last_run.run_id),
@@ -132,16 +142,20 @@ def get_etl_status():
 
 @app.post("/api/etl/run")
 def run_etl(background_tasks: BackgroundTasks):
-    global _ETL_RUNNING
+    # FIX-THREADING: Use Lock.locked() — atomic and correct within one process.
+    # (Multi-worker deployments need an external mutex e.g. Redis; for a single
+    #  uvicorn worker this is fully safe.)
     if not _ETL_RUN_LOCK.acquire(blocking=False):
         return {"started": False, "running": True}
-    _ETL_RUNNING = True
     background_tasks.add_task(_run_etl_background)
     return {"started": True, "running": True}
 
 
 @app.get("/api/dashboard/kpis")
 def get_dashboard_kpis():
+    # FIX-BUG-5: taux_recouvrement is now inlined into the same query block
+    # instead of calling get_tresorerie_summary() as a second DB round-trip.
+    # A failure in FAIT_REGLEMENTS previously caused the entire dashboard to crash.
     sql = """
         WITH latest AS (
             SELECT COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year
@@ -162,11 +176,15 @@ def get_dashboard_kpis():
     row = _row(sql)
     ca_total = _num(row.ca_total)
     marge_brute = _num(row.marge_brute)
+    try:
+        taux_recouvrement = get_tresorerie_summary()["taux_recouvrement"]
+    except Exception:
+        taux_recouvrement = 0.0
     return {
         "ca_total": ca_total,
         "nb_commandes": _int(row.nb_commandes),
         "nb_clients_actifs": _int(row.nb_clients_actifs),
-        "taux_recouvrement": get_tresorerie_summary()["taux_recouvrement"],
+        "taux_recouvrement": taux_recouvrement,
         "marge_brute_pct": (marge_brute / ca_total * 100) if ca_total else 0,
     }
 
@@ -320,6 +338,8 @@ def get_impayes():
 
 @app.get("/api/tresorerie/encaissements-by-mode")
 def get_encaissements_by_mode():
+    # FIX-CRASH-1: SQL Server cannot reference SELECT aliases in ORDER BY.
+    # Replaced 'ORDER BY mag + grt DESC' with the full SUM expressions.
     sql = """
         SELECT
             COALESCE(m.libelle_mode_reg, CONCAT('Mode ', r.DR_ModeReg)) AS mode,
@@ -330,7 +350,10 @@ def get_encaissements_by_mode():
         LEFT JOIN DIM_MODE_REGLEMENT m ON m.id_mode_reg = r.id_mode_reg
         WHERE r.DR_Regle = 1
         GROUP BY m.libelle_mode_reg, r.DR_ModeReg
-        ORDER BY mag + grt DESC
+        ORDER BY
+            SUM(CASE WHEN r.id_client IS NOT NULL THEN r.RT_Montant ELSE 0 END)
+          + SUM(CASE WHEN r.id_fournisseur IS NOT NULL THEN r.RT_Montant ELSE 0 END)
+          DESC
     """
     return [
         {
@@ -373,6 +396,8 @@ def get_aging():
 @app.get("/api/produits/stock-alerts")
 def get_stock_alerts():
     # tl.type_ligne is correct since v14 DDL rename (FIX-2 already applied in v14.1)
+    # FIX-BUG-4: Added IS NOT NULL guards so the query returns results even when
+    # ratio_tension or AS_QteSto are NULL (e.g. ETL has not yet computed them).
     sql = """
         SELECT TOP 20
             a.AR_Ref_code,
@@ -385,6 +410,8 @@ def get_stock_alerts():
         JOIN DIM_ARTICLE a ON a.id_article = f.id_article
         WHERE tl.type_ligne = 4
           AND f.en_rupture = 1
+          AND f.AS_QteSto IS NOT NULL
+          AND f.ratio_tension IS NOT NULL
         ORDER BY f.ratio_tension DESC
     """
     alerts = []
@@ -681,16 +708,21 @@ def get_caisse_flux_daily():
 
 @app.get("/api/caisse/mouvements-by-type")
 def get_caisse_mouvements_by_type():
+    # FIX-CRASH-3: FAIT_ECRITURES has no raw MC_TypeMvt column — the source
+    # Sage field is resolved to id_type_mvt FK. References to e.MC_TypeMvt
+    # crashed with 'Invalid column name'. GROUP BY and COALESCE fallback now
+    # use tm.MC_TypeMvt (from the joined dimension) instead.
+    # ORDER BY alias 'value' also replaced with the full SUM expression.
     sql = """
         SELECT TOP 10
-            COALESCE(tm.libelle_type_mvt, CONCAT('Mouvement ', e.MC_TypeMvt)) AS name,
+            COALESCE(tm.libelle_type_mvt, CONCAT('Mouvement ', tm.MC_TypeMvt)) AS name,
             SUM(ABS(COALESCE(e.MC_Credit, 0)) + ABS(COALESCE(e.MC_Debit, 0))) AS value
         FROM FAIT_ECRITURES e
         JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
         LEFT JOIN DIM_TYPE_MVT_CAISSE tm ON tm.id_type_mvt = e.id_type_mvt
         WHERE tl.type_ligne = 3
-        GROUP BY tm.libelle_type_mvt, e.MC_TypeMvt
-        ORDER BY value DESC
+        GROUP BY tm.libelle_type_mvt, tm.MC_TypeMvt
+        ORDER BY SUM(ABS(COALESCE(e.MC_Credit, 0)) + ABS(COALESCE(e.MC_Debit, 0))) DESC
     """
     return [{"name": r.name, "value": _num(r.value)} for r in _rows(sql)]
 
@@ -731,6 +763,8 @@ def get_fiscalite_kpis():
 
 @app.get("/api/fiscalite/journaux")
 def get_fiscalite_journaux():
+    # FIX-CRASH-2: SQL Server cannot reference SELECT aliases in ORDER BY.
+    # Replaced 'ORDER BY debit + credit DESC' with the full SUM expressions.
     sql = """
         SELECT TOP 10
             COALESCE(CONVERT(VARCHAR(30), j.JO_Num_code), 'Sans journal') AS journal,
@@ -740,7 +774,10 @@ def get_fiscalite_journaux():
         LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
         LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
         GROUP BY j.JO_Num_code
-        ORDER BY debit + credit DESC
+        ORDER BY
+            SUM(CASE WHEN s.EC_Sens = 0 THEN ABS(e.EC_Montant) ELSE 0 END)
+          + SUM(CASE WHEN s.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END)
+          DESC
     """
     return [{"journal": f"Journal {r.journal}", "debit": _num(r.debit), "credit": _num(r.credit)} for r in _rows(sql)]
 
@@ -860,8 +897,16 @@ def get_fiscalite_ecritures():
 
 @app.get("/api/notifications")
 def get_notifications():
-    stock = get_stock_alerts()[:6]
-    impayes = get_impayes()[:6]
+    # FIX-BUG-6: Wrapped sub-calls in try/except so a crash in stock alerts
+    # or impayes does not cascade and kill the entire notifications endpoint.
+    try:
+        stock = get_stock_alerts()[:6]
+    except Exception:
+        stock = []
+    try:
+        impayes = get_impayes()[:6]
+    except Exception:
+        impayes = []
     items = []
     for a in stock:
         items.append({

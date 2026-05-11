@@ -166,9 +166,14 @@ def _bulk_insert(df: pd.DataFrame, table: str) -> None:
         logger.info(f"[LOAD] {table} – empty after schema alignment")
         return
 
-    # Hex-encode any binary columns that survived _prepare_for_load
-    # Hex-encode binary columns by name — dtype sniffing is unreliable for bytearray
-    binary_cols = [c for c in df.columns if c in _BINARY_COLS]
+    # FIX-BINARY-DETECT: Use _detect_binary_cols() which checks BOTH the column
+    # name AND that at least one non-null value is actually bytes/bytearray.
+    # The old name-only check would emit CONVERT(VARBINARY, ?, 2) in the INSERT
+    # even for all-NULL binary columns, causing a SQL Server type-mismatch error
+    # when pyodbc sent None through the CONVERT() call.
+    # _detect_binary_cols was previously dead code — it is now the single source
+    # of truth for binary column detection in both _bulk_insert and _merge_upsert.
+    binary_cols = _detect_binary_cols(df)
     if binary_cols:
         df = _hex_encode_binary_cols(df, binary_cols)
 

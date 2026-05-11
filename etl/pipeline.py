@@ -396,6 +396,12 @@ def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
 
     df_grt_raw = (
         extract.extract_fait_mvtcaisse(last_run=None)
+        # Intentionally select only CA_No and JO_Num from GRT movement rows.
+        # CA_Type is NOT included here because GRT's F_Caisse may or may not
+        # carry it, so we always set CA_Type = NULL for GRT-sourced registers.
+        # The DDL marks CA_Type NULLABLE specifically for this case (BUG-4 FIX).
+        # If CA_Type is ever available from GRT, add it to the slice and the
+        # GRT extract — but default to NULL is the correct safe behaviour.
         [["CA_No", "JO_Num"]]
         .drop_duplicates(subset=["CA_No"])
         .copy()
@@ -982,8 +988,11 @@ def run_pipeline() -> None:
         raise
 
     finally:
-        if not run_finished:
-            release_lock(run_id)
+        # FIX-BUG-7: release_lock() must always be called. The old guard
+        # 'if not run_finished' was never True because run_finished is set to
+        # True in both the try and except blocks above, permanently blocking
+        # all future pipeline runs after the first execution.
+        release_lock(run_id)
         if fk_disabled:
             try:
                 with DW_ENGINE.begin() as conn:
