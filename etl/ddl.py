@@ -196,6 +196,10 @@ CREATE TABLE DIM_CLIENT (
     CT_EchusPlusTroisMois   NUMERIC(18,4) NULL,
     CT_MoyenneDelaiPayement NUMERIC(18,4) NULL,
     CT_MoyenneDelaiImpaye   NUMERIC(18,4) NULL,
+    rfm_recence_jours       INT NULL,
+    rfm_frequence           INT NULL,
+    rfm_montant_12m         NUMERIC(18,4) NULL,
+    rfm_score               VARCHAR(20) NULL,
     row_hash                BINARY(32) NULL
 )"""),
 ]
@@ -319,6 +323,8 @@ CREATE TABLE FAIT_REGLEMENTS (
     LB_MontantReg      NUMERIC(18,4) NULL,
     BR_TotalReglement  NUMERIC(18,4) NULL,
     BR_Rapproch        SMALLINT NULL,
+    BR_TauxAgios       NUMERIC(18,4) NULL,
+    BR_TMM             NUMERIC(18,4) NULL,
     RT_NbJour          SMALLINT NULL,
     delai_reel_jours   INT NULL,
     ecart_delai        INT NULL,

@@ -45,6 +45,21 @@ KPI18_MIGRATION: list[tuple[str, str]] = [
         "IF COL_LENGTH('DIM_CLIENT','rfm_montant_12m') IS NULL "
         "ALTER TABLE [DIM_CLIENT] ADD rfm_montant_12m NUMERIC(18,4) NULL",
     ),
+    (
+        "DIM_CLIENT.rfm_score",
+        "IF COL_LENGTH('DIM_CLIENT','rfm_score') IS NULL "
+        "ALTER TABLE [DIM_CLIENT] ADD rfm_score VARCHAR(20) NULL",
+    ),
+    (
+        "FAIT_REGLEMENTS.BR_TauxAgios",
+        "IF COL_LENGTH('FAIT_REGLEMENTS','BR_TauxAgios') IS NULL "
+        "ALTER TABLE [FAIT_REGLEMENTS] ADD BR_TauxAgios NUMERIC(18,4) NULL",
+    ),
+    (
+        "FAIT_REGLEMENTS.BR_TMM",
+        "IF COL_LENGTH('FAIT_REGLEMENTS','BR_TMM') IS NULL "
+        "ALTER TABLE [FAIT_REGLEMENTS] ADD BR_TMM NUMERIC(18,4) NULL",
+    ),
 ]
 
 
@@ -263,6 +278,8 @@ def _assemble_fait_reglements(
         "LB_NbJour":         0,
         "LB_Agios":          0,
         "BR_Rapproch":       0,
+        "BR_TauxAgios":      None,
+        "BR_TMM":            None,
         "BQ_ABREGE":         None,
         "LB_MontantReg":     None,
         "RG_Montant":        None,
@@ -329,6 +346,9 @@ def _assemble_fait_reglements(
 
     df = df.copy()
     df["bucket_impaye"] = df.apply(_bucket_from_echeance, axis=1)
+
+
+    df = transform.add_fact_reglements_banking_fees(df)
 
     return df.assign(
         id_date_paiement=lambda d: d["RT_Date"].apply(
@@ -651,7 +671,13 @@ def _compute_rfm_scores() -> None:
         SET
             c.rfm_recence_jours  = rfm.recence_jours,
             c.rfm_frequence      = rfm.frequence,
-            c.rfm_montant_12m    = rfm.montant_12m
+            c.rfm_montant_12m    = rfm.montant_12m,
+            c.rfm_score          = CASE
+                WHEN rfm.recence_jours <= 30 AND rfm.frequence >= 4 THEN 'Champion'
+                WHEN rfm.recence_jours <= 60 AND rfm.frequence >= 3 THEN 'Fidèle'
+                WHEN rfm.recence_jours <= 90 THEN 'À risque'
+                ELSE 'Dormant'
+            END
         FROM DIM_CLIENT c
         INNER JOIN (
             SELECT

@@ -409,7 +409,9 @@ def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.D
             lb.LB_NbJour,
             lb.LB_Agios,
             br.BR_TotalReglement,
-            br.BR_Rapproch
+            br.BR_Rapproch,
+            br.BR_TauxAgios,
+            br.BR_TMM
         FROM F_ReglementClient rc
         LEFT JOIN F_LigneBordereauRemise lb ON lb.RT_Num = rc.RT_Num
         LEFT JOIN F_BordereauRemise br ON br.BR_Num = lb.BR_Num
@@ -494,3 +496,47 @@ def extract_static_dims() -> dict[str, pd.DataFrame]:
         "DIM_SENS_ECRITURE":   _df(SENS_ECRITURE,      "EC_Sens",       "libelle_sens"),
         "DIM_TYPE_TVA":        _df(TYPES_TVA,          "type_tva",      "libelle_type_tva"),
     }
+def extract_rfm_data(fenetre_jours: int = 365) -> pd.DataFrame:
+    """Extract RFM raw data (Recency, Frequency, Monetary) for clients over past N days."""
+    sql = f"""
+        SELECT
+            dl.CT_Num,
+            MAX(dl.DO_Date) AS last_purchase_date,
+            COUNT(DISTINCT dl.DO_Piece) AS frequency,
+            SUM(dl.DL_MontantHT) AS montant_12m
+        FROM F_DOCLIGNE dl
+        WHERE dl.DO_Domaine = 0
+          AND dl.DO_Type IN (6, 7)
+          AND dl.DL_MontantHT IS NOT NULL
+          AND dl.DO_Date >= DATEADD(DAY, -{fenetre_jours}, CAST(GETDATE() AS DATE))
+        GROUP BY dl.CT_Num
+    """
+    try:
+        df = _read(MAG_ENGINE, sql)
+        logger.info(f"RFM data extracted: {len(df)} clients")
+        return df
+    except Exception as exc:
+        logger.warning(f"RFM extraction failed: {exc}")
+        return pd.DataFrame(columns=["CT_Num", "last_purchase_date", "frequency", "montant_12m"])
+
+
+def extract_sales_history_365d() -> pd.DataFrame:
+    """Extract 365-day rolling sales quantities by article for DSI calculation."""
+    sql = """
+        SELECT
+            dl.AR_Ref,
+            SUM(dl.DL_Qte) AS qte_vendue_365j
+        FROM F_DOCLIGNE dl
+        WHERE dl.DO_Domaine = 0
+          AND dl.DO_Type IN (6, 7)
+          AND dl.DO_Date >= DATEADD(DAY, -365, CAST(GETDATE() AS DATE))
+          AND dl.DL_Qte IS NOT NULL
+        GROUP BY dl.AR_Ref
+    """
+    try:
+        df = _read(MAG_ENGINE, sql)
+        logger.info(f"Sales history (365d) extracted: {len(df)} rows")
+        return df
+    except Exception as exc:
+        logger.warning(f"Sales history extraction failed: {exc}")
+        return pd.DataFrame(columns=["AR_Ref", "qte_vendue_365j"])

@@ -152,6 +152,14 @@ DOMAINES: dict[int, str] = {
 SEUIL_TENSION_STOCK: float = 0.8
 FENETRE_RFM_JOURS:   int   = 365
 BUCKETS_IMPAYE:      list[int] = [0, 30, 60, 90]
+FENETRE_DSI_JOURS:   int   = 365
+
+RFM_SEGMENTS: dict[str, list[str]] = {
+    "Champion":    ["0-30j", "4-5 cmd", "TOP Montant"],
+    "Fidèle":      ["30-60j", "3-4 cmd", "BON Montant"],
+    "À risque":    ["60-90j", "1-2 cmd", "MOYEN Montant"],
+    "Dormant":     [">90j", "1 cmd", "FAIBLE Montant"],
+}
 
 
 _CRC32_MOD: int = 2**31 - 1

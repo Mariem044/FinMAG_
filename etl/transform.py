@@ -14,8 +14,11 @@ __all__ = [
     "add_fact_ecritures_calcs",
     "add_fact_reglements_calcs",
     "add_fact_reglements_bucket",
+    "add_fact_reglements_banking_fees",
+    "add_fact_ecritures_dsi",
     "transform_dim_date",
     "transform_dim_client",
+    "transform_dim_client_rfm",
 ]
 
 
@@ -119,4 +122,121 @@ def transform_dim_client(
     df = resolve_fk(df, "_N_CatTarif_hash", lookup_segment, "id_segment")
     df = df.drop(columns=["_N_CatTarif_hash"])
     df = resolve_fk(df, "CO_No", lookup_collab, "id_collab")
+    return df
+
+
+def transform_dim_client_rfm(
+    client_df: pd.DataFrame,
+    rfm_data: pd.DataFrame,
+) -> pd.DataFrame:
+    """Enrich DIM_CLIENT with RFM calculations."""
+    df = client_df.copy()
+    
+    if rfm_data.empty:
+        df["rfm_recence_jours"] = None
+        df["rfm_frequence"] = None
+        df["rfm_montant_12m"] = None
+        df["rfm_score"] = None
+        return df
+    
+    # Hash CT_Num for joining
+    rfm_data = rfm_data.copy()
+    rfm_data["CT_Num_hash"] = rfm_data["CT_Num"].apply(hash_key)
+    rfm_lookup = dict(zip(
+        rfm_data["CT_Num_hash"],
+        rfm_data[["last_purchase_date", "frequency", "montant_12m"]].values
+    ))
+    
+    df["_CT_Num_hash"] = df["CT_Num"].apply(hash_key)
+    df[["last_purchase_date", "rfm_frequence", "rfm_montant_12m"]] = (
+        df["_CT_Num_hash"]
+        .apply(lambda h: pd.Series(rfm_lookup.get(h, (None, None, None))))
+        .set_axis(["last_purchase_date", "rfm_frequence", "rfm_montant_12m"], axis=1)
+    )
+    
+    # Calculate recency (days since last purchase)
+    df["last_purchase_date"] = pd.to_datetime(df["last_purchase_date"], errors="coerce")
+    df["rfm_recence_jours"] = (
+        (pd.Timestamp.now().normalize() - df["last_purchase_date"]).dt.days
+    ).astype("Int32")
+    
+    # Score calculation (simple quartile-based)
+    def _rfm_score(row) -> Optional[str]:
+        if pd.isna(row["rfm_recence_jours"]) or pd.isna(row["rfm_frequence"]):
+            return None
+        if row["rfm_recence_jours"] <= 30 and row["rfm_frequence"] >= 4:
+            return "Champion"
+        elif row["rfm_recence_jours"] <= 60 and row["rfm_frequence"] >= 3:
+            return "Fidèle"
+        elif row["rfm_recence_jours"] <= 90:
+            return "À risque"
+        else:
+            return "Dormant"
+    
+    df["rfm_score"] = df.apply(_rfm_score, axis=1)
+    df = df.drop(columns=["_CT_Num_hash", "last_purchase_date"])
+    
+    return df
+
+
+def add_fact_reglements_banking_fees(df: pd.DataFrame) -> pd.DataFrame:
+    """Add banking fees calculations to FAIT_REGLEMENTS."""
+    df = df.copy()
+    
+    # Ensure BR_TauxAgios and BR_TMM columns exist
+    if "BR_TauxAgios" not in df.columns:
+        df["BR_TauxAgios"] = None
+    if "BR_TMM" not in df.columns:
+        df["BR_TMM"] = None
+    
+    # Fill nulls with 0 for aggregations
+    df["BR_TauxAgios"] = pd.to_numeric(df["BR_TauxAgios"], errors="coerce").fillna(0)
+    df["BR_TMM"] = pd.to_numeric(df["BR_TMM"], errors="coerce").fillna(0)
+    
+    return df
+
+
+def add_fact_ecritures_dsi(
+    ecritures_df: pd.DataFrame,
+    sales_365d: pd.DataFrame,
+) -> pd.DataFrame:
+    """Add DSI (Days Sales of Inventory) calculations to FAIT_ECRITURES."""
+    df = ecritures_df.copy()
+    
+    # Only process stock snapshot rows (id_type_ligne=4)
+    if "id_type_ligne" not in df.columns:
+        return df
+    
+    stock_mask = df["id_type_ligne"] == 4
+    
+    if sales_365d.empty:
+        df.loc[stock_mask, "qte_vendue_365j"] = None
+        df.loc[stock_mask, "dsi_jours"] = None
+        return df
+    
+    # Create lookup from sales history
+    sales_365d_copy = sales_365d.copy()
+    sales_365d_copy["AR_Ref_hash"] = sales_365d_copy["AR_Ref"].apply(hash_key)
+    sales_lookup = dict(zip(sales_365d_copy["AR_Ref_hash"], sales_365d_copy["qte_vendue_365j"]))
+    
+    # Resolve sales quantities
+    if "id_article" in df.columns:
+        df.loc[stock_mask, "qte_vendue_365j"] = (
+            df.loc[stock_mask, "id_article"]
+            .map(lambda x: sales_lookup.get(x) if pd.notna(x) else None)
+        )
+    
+    # Calculate DSI = AS_QteSto / (qte_vendue_365j / 365)
+    df["dsi_jours"] = None
+    if "AS_QteSto" in df.columns and "qte_vendue_365j" in df.columns:
+        valid_mask = (
+            stock_mask &
+            df["AS_QteSto"].notna() &
+            df["qte_vendue_365j"].notna() &
+            (df["qte_vendue_365j"] > 0)
+        )
+        df.loc[valid_mask, "dsi_jours"] = (
+            df.loc[valid_mask, "AS_QteSto"] / (df.loc[valid_mask, "qte_vendue_365j"] / 365)
+        ).astype("float64")
+    
     return df
