@@ -1,15 +1,106 @@
-if you have an another test put it here 
+UI Redesign Prompt
 
-Assistant IA
-gemini-2.5-flash-lite · données live MAG
-Effacer
-Bonjour ! Je suis FinMAG IA, votre assistant financier connecté au data warehouse MAG Distribution.
+Prompt:
 
-J'analyse vos données en temps réel — CA, trésorerie, stocks, clients, fiscalité — et je vous fournis des recommandations actionnables.
+You are a senior UX/UI designer specializing in modern AI SaaS dashboards.
 
-Que souhaitez-vous explorer ?
-05:52 PM
+Redesign the following chatbot interface for a financial AI assistant called FinMAG AI, which is connected to a live data warehouse.
 
-Analyse l'état de la trésorerie et les créances impayées. Quelles actions recommandes-tu ?
-05:52 PM
-Erreur LLM : 403 PERMISSIONDENIED. {'error': {'code': 403, 'message': 'Your API key was reported as leaked. Please use another API key.', 'status': 'PERMISSIONDENIED'}}
+🎯 Goal
+
+Transform the current layout into a modern, premium AI workspace that feels:
+
+highly professional (enterprise SaaS)
+clean and minimal
+interactive and dynamic
+focused on data + chat fusion (not just messaging)
+🧠 Context
+
+The app provides real-time financial insights:
+
+revenue (CA)
+treasury (trésorerie)
+stock levels
+client risk analysis
+accounting anomalies
+
+The assistant should feel like a financial copilot, not a simple chatbot.
+
+🧱 Current Problems to Fix
+Layout feels too spaced out and empty
+Chat is not the main focus
+Suggestions look repetitive and static
+Input bar feels basic
+No strong hierarchy between dashboard elements
+Lack of visual depth and modern UI polish
+🎨 Required Improvements
+1. Layout Structure
+
+Redesign into:
+
+Left sidebar (navigation + history + quick analytics)
+Main chat workspace (center focus)
+Optional right panel for insights or KPI summaries
+2. Chat Experience
+Use modern chat bubbles (AI vs user clearly differentiated)
+Add smooth message animations
+Improve readability (max width, spacing, typography)
+AI messages should support structured blocks (not only text)
+3. AI Response Format (IMPORTANT)
+
+AI responses must support:
+
+KPI cards (revenue, stock alerts, risk clients)
+mini tables
+alert badges
+charts placeholders
+structured financial insights
+
+Make responses feel like a data dashboard inside chat
+
+4. Suggestions Section
+
+Replace static suggestion cards with:
+
+categorized quick actions
+shorter labels
+hover animations
+better grouping (Finance / Stock / Clients / Alerts)
+5. Input Bar
+
+Redesign to feel premium:
+
+floating input design
+attachment button + optional voice icon
+glowing focus state
+gradient or soft glass effect
+modern send button
+6. Visual Style
+modern SaaS design
+soft shadows + glassmorphism
+light neutral background with subtle gradient
+strong primary accent color (blue or indigo recommended)
+smooth rounded corners (12–16px)
+consistent spacing system (8pt grid)
+7. Motion & Interaction
+
+Add:
+
+hover elevation effects
+smooth transitions (150–250ms)
+typing indicator for AI
+subtle loading states
+micro-interactions for buttons/cards
+🧩 Output Required
+
+Provide:
+
+a redesigned layout description
+component structure (React or UI components)
+visual hierarchy explanation
+optionally a sample React + Tailwind layout
+🚀 Final Vision
+
+The result should feel like:
+
+“Bloomberg Terminal × ChatGPT × Modern SaaS dashboard”
