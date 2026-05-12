@@ -1,25 +1,26 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef, useEffect } from "react";
 import {
+  Activity,
   AlertCircle,
-  ArrowUpRight,
   BarChart3,
   Bot,
   Check,
   ChevronRight,
   Clock3,
   Copy,
+  Database,
   FileText,
   Landmark,
   Mic,
   Paperclip,
-  RefreshCw,
+  Receipt,
   Send,
-  ShieldAlert,
   Sparkles,
   Square,
-  TrendingUp,
+  Table2,
   Trash2,
+  TrendingUp,
   User,
   Users,
   Wallet,
@@ -33,116 +34,96 @@ export const Route = createFileRoute("/assistant")({
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-const QUICK_ACTION_GROUPS = [
+const QUICK_ACTIONS = [
   {
-    title: "Finance",
+    group: "Finance",
     items: [
       {
         icon: TrendingUp,
         label: "Analyser CA",
-        text: "Analyse le chiffre d'affaires, les tendances et les familles de produits les plus performantes.",
+        text: "Analyse le chiffre d'affaires, la tendance mensuelle et les familles les plus rentables.",
       },
       {
         icon: Wallet,
         label: "Tresorerie",
-        text: "Analyse la tresorerie, les encaissements, les impayes et les priorites de recouvrement.",
+        text: "Resume la tresorerie, les encaissements, les impayes et les actions prioritaires.",
       },
     ],
   },
   {
-    title: "Operations",
+    group: "Stock",
     items: [
       {
         icon: Warehouse,
         label: "Stock critique",
-        text: "Quels articles sont en rupture ou sous le seuil d'alerte ? Donne les actions recommandees.",
-      },
-      {
-        icon: Users,
-        label: "Clients a risque",
-        text: "Identifie les clients a risque, les top clients par CA et les signaux d'attrition.",
+        text: "Liste les articles en rupture ou sous seuil avec les recommandations de reapprovisionnement.",
       },
     ],
   },
   {
-    title: "Controle",
+    group: "Clients",
     items: [
       {
-        icon: ShieldAlert,
+        icon: Users,
+        label: "Risque clients",
+        text: "Identifie les clients a risque, les retards de paiement et les comptes a contacter.",
+      },
+    ],
+  },
+  {
+    group: "Alertes",
+    items: [
+      {
+        icon: Receipt,
         label: "Anomalies",
-        text: "Detecte les anomalies comptables, fiscales ou commerciales a surveiller ce mois-ci.",
+        text: "Detecte les anomalies comptables, fiscales et commerciales a surveiller ce mois-ci.",
       },
       {
         icon: Landmark,
         label: "Banque",
-        text: "Analyse le taux de rapprochement bancaire et les remises non rapprochees.",
+        text: "Analyse le rapprochement bancaire et les remises non rapprochees.",
       },
     ],
   },
 ];
 
-const LIVE_INSIGHTS = [
-  { label: "CA annuel", value: "4.82M DT", trend: "+8.4%", tone: "positive" },
-  { label: "Encaissements", value: "1.26M DT", trend: "+3.1%", tone: "positive" },
-  { label: "Impayes", value: "318K DT", trend: "12 alertes", tone: "warning" },
-  { label: "Stock critique", value: "27", trend: "a traiter", tone: "danger" },
+const KPI_SUMMARY = [
+  { label: "CA", value: "4.82M DT", delta: "+8.4%", tone: "good" },
+  { label: "Tresorerie", value: "1.26M DT", delta: "+3.1%", tone: "good" },
+  { label: "Impayes", value: "318K DT", delta: "12 alertes", tone: "warn" },
+  { label: "Stock", value: "27", delta: "critique", tone: "bad" },
 ];
 
-const RECENT_THREADS = [
-  "Synthese tresorerie",
-  "Clients a risque",
-  "Stock sous seuil",
-  "Rapprochement banque",
+const THREADS = [
+  "Synthese du matin",
+  "Recouvrement clients",
+  "Ruptures stock",
+  "Controle bancaire",
 ];
 
-const SAMPLE_INSIGHT = {
-  title: "Vue executive",
-  summary: "Les indicateurs critiques sont suivis en direct depuis le data warehouse MAG.",
-  kpis: [
-    { label: "CA", value: "4.82M DT", trend: "+8.4%" },
-    { label: "Recouvrement", value: "82%", trend: "+4 pts" },
-    { label: "Alertes stock", value: "27", trend: "urgent" },
-  ],
-  alerts: ["3 clients concentrent 42% des impayes", "7 articles sont sous le seuil critique"],
-};
+const INSIGHT_ROWS = [
+  ["Client A", "92K DT", "Urgent"],
+  ["Client B", "79K DT", "A suivre"],
+  ["Client C", "66K DT", "Stable"],
+];
 
 function getTime() {
   return new Date().toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" });
 }
 
-function TypingIndicator() {
-  return (
-    <div className="flex items-end gap-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
-      <AssistantAvatar />
-      <div className="rounded-2xl rounded-bl-md border border-border/70 bg-card px-4 py-3 shadow-sm">
-        <div className="flex h-4 items-center gap-1.5">
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70"
-              style={{ animationDelay: `${i * 140}ms`, animationDuration: "900ms" }}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AssistantAvatar() {
-  return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/25">
-      <Bot size={16} />
-    </div>
-  );
-}
-
-function UserAvatar() {
-  return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-foreground text-background shadow-md">
-      <User size={15} />
-    </div>
-  );
+function shouldAttachInsight(text) {
+  const compact = text.toLowerCase();
+  return [
+    "ca",
+    "chiffre",
+    "tresorerie",
+    "impaye",
+    "stock",
+    "client",
+    "anomalie",
+    "banque",
+    "rapprochement",
+  ].some((keyword) => compact.includes(keyword));
 }
 
 function renderMarkdown(text) {
@@ -152,8 +133,9 @@ function renderMarkdown(text) {
       .replace(/_(.*?)_/g, "<em>$1</em>")
       .replace(
         /`(.*?)`/g,
-        "<code style='background:rgba(79,141,253,.14);padding:1px 5px;border-radius:4px;font-size:11px'>$1</code>",
+        "<code style='background:rgba(47,116,245,.12);padding:1px 5px;border-radius:5px;font-size:11px'>$1</code>",
       );
+
     return (
       <span key={i}>
         <span dangerouslySetInnerHTML={{ __html: formatted }} />
@@ -163,11 +145,51 @@ function renderMarkdown(text) {
   });
 }
 
-function StatusPill({ llmStatus }) {
+function WorkspaceHeader({ llmStatus, onClear }) {
+  return (
+    <header className="flex flex-col gap-4 border-b border-border/70 bg-card/80 px-4 py-4 backdrop-blur-xl md:px-5 xl:flex-row xl:items-center xl:justify-between">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+          <Sparkles size={19} />
+        </div>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-[18px] font-bold leading-none text-foreground">
+              FinMAG AI Copilot
+            </h1>
+            <span className="rounded-full border border-primary/25 bg-primary/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
+              Data warehouse live
+            </span>
+          </div>
+          <p className="mt-1 text-[12px] text-text-dim">
+            Analyse, priorise et transforme les donnees financieres en decisions exploitables.
+          </p>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusBadge llmStatus={llmStatus} />
+        <span className="inline-flex h-8 items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 text-[11px] text-text-dim">
+          <Clock3 size={12} className="text-primary" />
+          Sync {getTime()}
+        </span>
+        <button
+          onClick={onClear}
+          className="inline-flex h-8 items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 text-[12px] text-text-muted transition-all duration-200 hover:border-primary/40 hover:text-foreground"
+        >
+          <Trash2 size={13} />
+          Effacer
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function StatusBadge({ llmStatus }) {
   if (llmStatus.llm_ready === null) {
     return (
-      <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-[11px] text-text-dim">
-        <RefreshCw size={11} className="animate-spin text-primary" />
+      <span className="inline-flex h-8 items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 text-[11px] text-text-dim">
+        <Activity size={12} className="animate-pulse text-primary" />
         Connexion
       </span>
     );
@@ -175,106 +197,79 @@ function StatusPill({ llmStatus }) {
 
   if (llmStatus.llm_ready) {
     return (
-      <span className="inline-flex items-center gap-2 rounded-full border border-green-500/25 bg-green-500/10 px-3 py-1 text-[11px] text-green-400">
-        <span className="h-1.5 w-1.5 rounded-full bg-green-400 shadow-[0_0_0_4px_rgba(34,197,94,.14)]" />
+      <span className="inline-flex h-8 items-center gap-2 rounded-full border border-green-500/25 bg-green-500/10 px-3 text-[11px] text-green-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
         {llmStatus.model || "Gemini 1.5 Flash"}
       </span>
     );
   }
 
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1 text-[11px] text-amber-400">
-      <AlertCircle size={11} />
+    <span className="inline-flex h-8 items-center gap-2 rounded-full border border-amber-500/25 bg-amber-500/10 px-3 text-[11px] text-amber-400">
+      <AlertCircle size={12} />
       Cle API manquante
     </span>
   );
 }
 
-function AssistantHeader({ llmStatus, onClear }) {
+function LeftWorkspace({ onSelect, isStreaming }) {
   return (
-    <div className="flex flex-col gap-4 border-b border-border/70 bg-background/95 px-4 py-4 backdrop-blur md:px-6 lg:flex-row lg:items-center lg:justify-between">
-      <div className="flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/25">
-          <Sparkles size={19} />
-        </div>
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-[18px] font-bold leading-none text-foreground">FinMAG AI Copilot</h1>
-            <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
-              Live DW
-            </span>
+    <aside className="hidden min-h-0 border-r border-border/70 bg-card/55 lg:flex lg:flex-col">
+      <div className="border-b border-border/70 p-4">
+        <div className="rounded-2xl border border-border/70 bg-background/65 p-3">
+          <div className="flex items-center gap-2 text-[12px] font-semibold text-foreground">
+            <Database size={14} className="text-primary" />
+            MAG Data Warehouse
           </div>
-          <p className="mt-1 text-[12px] text-text-dim">
-            Analyse financiere, risques et recommandations connectees aux donnees MAG.
+          <p className="mt-1 text-[11px] leading-relaxed text-text-dim">
+            CA, tresorerie, stock, clients et fiscalite consolides.
           </p>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <StatusPill llmStatus={llmStatus} />
-        <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-[11px] text-text-dim">
-          <Clock3 size={11} className="text-primary" />
-          Sync {getTime()}
-        </span>
-        <button
-          onClick={onClear}
-          className="inline-flex h-8 items-center gap-2 rounded-lg border border-border bg-card px-3 text-[12px] text-text-dim transition-all duration-200 hover:border-primary/40 hover:text-foreground"
-        >
-          <Trash2 size={13} />
-          Effacer
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function WorkspaceRail({ onSelect, isStreaming }) {
-  return (
-    <aside className="hidden min-h-0 border-r border-border/70 bg-card/45 lg:flex lg:flex-col">
-      <div className="border-b border-border/70 p-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-dim">
-          Actions rapides
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-dim">
+          Quick actions
         </p>
-      </div>
-
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
-        {QUICK_ACTION_GROUPS.map((group) => (
-          <section key={group.title}>
-            <p className="mb-2 text-[11px] font-semibold text-text-muted">{group.title}</p>
-            <div className="space-y-2">
-              {group.items.map((item) => (
-                <button
-                  key={item.label}
-                  onClick={() => onSelect(item.text)}
-                  disabled={isStreaming}
-                  className="group flex w-full items-center gap-3 rounded-xl border border-border/60 bg-background/55 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/5 hover:shadow-lg hover:shadow-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
-                    <item.icon size={15} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[12px] font-semibold text-foreground">
-                      {item.label}
+        <div className="space-y-4">
+          {QUICK_ACTIONS.map((section) => (
+            <section key={section.group}>
+              <p className="mb-2 text-[11px] font-semibold text-text-muted">{section.group}</p>
+              <div className="space-y-2">
+                {section.items.map((item) => (
+                  <button
+                    key={item.label}
+                    disabled={isStreaming}
+                    onClick={() => onSelect(item.text)}
+                    className="group flex w-full items-center gap-3 rounded-xl border border-transparent bg-background/45 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/25 hover:bg-primary/5 hover:shadow-lg hover:shadow-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+                      <item.icon size={15} />
                     </span>
-                    <span className="block truncate text-[11px] text-text-dim">{item.text}</span>
-                  </span>
-                  <ChevronRight
-                    size={14}
-                    className="text-text-dim opacity-0 transition-opacity group-hover:opacity-100"
-                  />
-                </button>
-              ))}
-            </div>
-          </section>
-        ))}
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[12px] font-semibold text-foreground">
+                        {item.label}
+                      </span>
+                      <span className="block truncate text-[11px] text-text-dim">{item.text}</span>
+                    </span>
+                    <ChevronRight
+                      size={14}
+                      className="text-text-dim opacity-0 transition-opacity group-hover:opacity-100"
+                    />
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
       </div>
 
       <div className="border-t border-border/70 p-4">
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-text-dim">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-dim">
           Historique
         </p>
         <div className="space-y-1">
-          {RECENT_THREADS.map((thread) => (
+          {THREADS.map((thread) => (
             <button
               key={thread}
               className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[12px] text-text-muted transition-colors hover:bg-surface-hover hover:text-foreground"
@@ -289,35 +284,162 @@ function WorkspaceRail({ onSelect, isStreaming }) {
   );
 }
 
-function InsightPreview() {
+function RightInsights() {
   return (
-    <div className="mt-3 rounded-xl border border-border/70 bg-background/55 p-3">
-      <div className="mb-3 flex items-center justify-between">
+    <aside className="hidden min-h-0 border-l border-border/70 bg-card/55 xl:flex xl:flex-col">
+      <div className="border-b border-border/70 p-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-dim">
+          Live insights
+        </p>
+      </div>
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        <section className="rounded-2xl border border-border/70 bg-background/65 p-4">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <p className="text-[13px] font-semibold text-foreground">KPI monitor</p>
+              <p className="text-[11px] text-text-dim">Vue executive</p>
+            </div>
+            <Zap size={15} className="text-primary" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {KPI_SUMMARY.map((kpi) => (
+              <div key={kpi.label} className="rounded-xl border border-border/60 bg-card p-3">
+                <p className="text-[10px] uppercase tracking-[0.12em] text-text-dim">{kpi.label}</p>
+                <p className="mt-1 text-[17px] font-bold text-foreground">{kpi.value}</p>
+                <p
+                  className={`mt-1 text-[11px] ${
+                    kpi.tone === "good"
+                      ? "text-green-400"
+                      : kpi.tone === "warn"
+                        ? "text-amber-300"
+                        : "text-red-300"
+                  }`}
+                >
+                  {kpi.delta}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-border/70 bg-background/65 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-[13px] font-semibold text-foreground">Tendance CA</p>
+            <BarChart3 size={15} className="text-primary" />
+          </div>
+          <div className="flex h-28 items-end gap-2">
+            {[38, 52, 46, 66, 72, 63, 86, 91].map((height, index) => (
+              <div key={index} className="flex flex-1 items-end rounded-full bg-primary/10">
+                <div
+                  className="w-full rounded-full bg-primary/80 transition-all duration-300"
+                  style={{ height: `${height}%` }}
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-border/70 bg-background/65 p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <AlertCircle size={15} className="text-amber-300" />
+            <p className="text-[13px] font-semibold text-foreground">Priorites</p>
+          </div>
+          <div className="space-y-2">
+            {["Relancer 3 comptes majeurs", "Verifier 7 articles sous seuil", "Controler les remises banque"].map(
+              (item) => (
+                <div key={item} className="rounded-lg bg-card px-3 py-2 text-[11px] text-text-muted">
+                  {item}
+                </div>
+              ),
+            )}
+          </div>
+        </section>
+      </div>
+    </aside>
+  );
+}
+
+function AssistantAvatar() {
+  return (
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+      <Bot size={16} />
+    </div>
+  );
+}
+
+function UserAvatar() {
+  return (
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-foreground text-background shadow-md">
+      <User size={15} />
+    </div>
+  );
+}
+
+function FinancialInsightBlock() {
+  return (
+    <div className="mt-3 overflow-hidden rounded-2xl border border-border/70 bg-background/65">
+      <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
         <div>
-          <p className="text-[12px] font-semibold text-foreground">{SAMPLE_INSIGHT.title}</p>
-          <p className="text-[11px] text-text-dim">{SAMPLE_INSIGHT.summary}</p>
+          <p className="text-[12px] font-semibold text-foreground">Snapshot financier</p>
+          <p className="text-[11px] text-text-dim">Blocs de donnees integres a la reponse</p>
         </div>
-        <BarChart3 size={16} className="text-primary" />
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary">
+          <Database size={11} />
+          DW live
+        </span>
       </div>
-      <div className="grid gap-2 sm:grid-cols-3">
-        {SAMPLE_INSIGHT.kpis.map((kpi) => (
-          <div key={kpi.label} className="rounded-lg border border-border/60 bg-card p-3">
+
+      <div className="grid gap-2 p-3 sm:grid-cols-3">
+        {KPI_SUMMARY.slice(0, 3).map((kpi) => (
+          <div key={kpi.label} className="rounded-xl border border-border/60 bg-card p-3">
             <p className="text-[10px] uppercase tracking-[0.12em] text-text-dim">{kpi.label}</p>
-            <p className="mt-1 text-[16px] font-bold text-foreground">{kpi.value}</p>
-            <p className="mt-1 text-[11px] text-primary">{kpi.trend}</p>
+            <p className="mt-1 text-[18px] font-bold text-foreground">{kpi.value}</p>
+            <p
+              className={`mt-1 text-[11px] ${
+                kpi.tone === "good" ? "text-green-400" : "text-amber-300"
+              }`}
+            >
+              {kpi.delta}
+            </p>
           </div>
         ))}
       </div>
-      <div className="mt-3 space-y-2">
-        {SAMPLE_INSIGHT.alerts.map((alert) => (
-          <div
-            key={alert}
-            className="flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300"
-          >
-            <AlertCircle size={13} />
-            <span>{alert}</span>
+
+      <div className="grid gap-3 border-t border-border/70 p-3 lg:grid-cols-[1fr_180px]">
+        <div className="overflow-hidden rounded-xl border border-border/60 bg-card">
+          <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2 text-[11px] font-semibold text-text-muted">
+            <Table2 size={13} />
+            Top risques clients
           </div>
-        ))}
+          <div className="divide-y divide-border/60">
+            {INSIGHT_ROWS.map(([client, value, status]) => (
+              <div
+                key={client}
+                className="grid grid-cols-[1fr_80px_72px] items-center gap-2 px-3 py-2 text-[11px]"
+              >
+                <span className="font-medium text-foreground">{client}</span>
+                <span className="text-text-muted">{value}</span>
+                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-center text-amber-300">
+                  {status}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/60 bg-card p-3">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-[11px] font-semibold text-text-muted">Mini chart</p>
+            <BarChart3 size={13} className="text-primary" />
+          </div>
+          <div className="flex h-24 items-end gap-1.5">
+            {[46, 62, 52, 78, 68, 88].map((height, index) => (
+              <div key={index} className="flex flex-1 items-end rounded-full bg-primary/10">
+                <div className="w-full rounded-full bg-primary" style={{ height: `${height}%` }} />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -340,12 +462,11 @@ function MessageBubble({ msg }) {
       }`}
     >
       {!isUser && <AssistantAvatar />}
-
-      <div className={`max-w-[min(760px,82%)] ${isUser ? "items-end" : "items-start"}`}>
+      <div className={`max-w-[min(760px,86%)] ${isUser ? "text-right" : ""}`}>
         <div
           className={`rounded-2xl px-4 py-3 text-[13px] leading-relaxed shadow-sm ${
             isUser
-              ? "rounded-br-md bg-primary text-primary-foreground shadow-primary/20"
+              ? "rounded-br-md bg-primary text-primary-foreground"
               : "rounded-bl-md border border-border/70 bg-card text-foreground"
           }`}
         >
@@ -357,7 +478,7 @@ function MessageBubble({ msg }) {
           ) : (
             renderMarkdown(msg.content)
           )}
-          {!isUser && msg.insight && <InsightPreview />}
+          {!isUser && msg.insight && !msg.streaming && <FinancialInsightBlock />}
         </div>
 
         <div className={`mt-1 flex items-center gap-2 px-1 ${isUser ? "justify-end" : ""}`}>
@@ -373,30 +494,48 @@ function MessageBubble({ msg }) {
           )}
         </div>
       </div>
-
       {isUser && <UserAvatar />}
     </div>
   );
 }
 
-function EmptyPromptStrip({ onSelect, isStreaming }) {
-  const prompts = QUICK_ACTION_GROUPS.flatMap((group) => group.items).slice(0, 4);
+function TypingIndicator() {
+  return (
+    <div className="flex items-end gap-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+      <AssistantAvatar />
+      <div className="rounded-2xl rounded-bl-md border border-border/70 bg-card px-4 py-3 shadow-sm">
+        <div className="flex h-4 items-center gap-1.5">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70"
+              style={{ animationDelay: `${i * 140}ms`, animationDuration: "900ms" }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SuggestionGrid({ onSelect, isStreaming }) {
+  const actions = QUICK_ACTIONS.flatMap((section) => section.items).slice(0, 4);
 
   return (
     <div className="grid gap-2 md:grid-cols-4">
-      {prompts.map((item) => (
+      {actions.map((item) => (
         <button
           key={item.label}
-          onClick={() => onSelect(item.text)}
           disabled={isStreaming}
-          className="group rounded-xl border border-border/70 bg-card p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={() => onSelect(item.text)}
+          className="group rounded-2xl border border-border/70 bg-card p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/5 hover:shadow-lg hover:shadow-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <div className="mb-2 flex items-center justify-between">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <item.icon size={14} />
+          <div className="mb-3 flex items-center justify-between">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <item.icon size={15} />
             </span>
-            <ArrowUpRight
-              size={13}
+            <ChevronRight
+              size={14}
               className="text-text-dim opacity-0 transition-opacity group-hover:opacity-100"
             />
           </div>
@@ -408,19 +547,11 @@ function EmptyPromptStrip({ onSelect, isStreaming }) {
   );
 }
 
-function ChatInput({
-  input,
-  setInput,
-  onSend,
-  isStreaming,
-  onStop,
-  inputRef,
-  onKeyDown,
-}) {
+function ChatInput({ input, setInput, onSend, isStreaming, onStop, inputRef, onKeyDown }) {
   return (
-    <div className="border-t border-border/70 bg-background/95 p-4 backdrop-blur md:p-5">
+    <div className="border-t border-border/70 bg-card/80 p-4 backdrop-blur-xl md:p-5">
       <div className="mx-auto max-w-4xl">
-        <div className="flex items-end gap-2 rounded-2xl border border-border/70 bg-card p-2 shadow-2xl shadow-black/10 transition-all duration-200 focus-within:border-primary/50 focus-within:shadow-primary/10">
+        <div className="flex items-end gap-2 rounded-2xl border border-border/80 bg-background/80 p-2 shadow-2xl shadow-black/10 transition-all duration-200 focus-within:border-primary/50 focus-within:shadow-primary/10">
           <button
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-text-dim transition-colors hover:bg-surface-hover hover:text-foreground"
             aria-label="Joindre un fichier"
@@ -435,7 +566,7 @@ function ChatInput({
             placeholder={
               isStreaming
                 ? "FinMAG analyse les donnees..."
-                : "Demandez une analyse CA, tresorerie, stock, clients ou anomalies..."
+                : "Posez une question sur CA, tresorerie, stock, clients ou anomalies..."
             }
             rows={1}
             disabled={isStreaming}
@@ -480,98 +611,13 @@ function ChatInput({
   );
 }
 
-function LiveInsightsPanel() {
-  return (
-    <aside className="hidden min-h-0 border-l border-border/70 bg-card/45 xl:flex xl:flex-col">
-      <div className="border-b border-border/70 p-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-dim">
-          Live Insights
-        </p>
-      </div>
-
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-        <section className="rounded-2xl border border-border/70 bg-background/55 p-4">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <p className="text-[13px] font-semibold text-foreground">KPI prioritaires</p>
-              <p className="text-[11px] text-text-dim">Donnees consolidees</p>
-            </div>
-            <Zap size={15} className="text-primary" />
-          </div>
-          <div className="space-y-3">
-            {LIVE_INSIGHTS.map((item) => (
-              <div key={item.label} className="rounded-xl border border-border/60 bg-card p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-text-dim">{item.label}</p>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] ${
-                      item.tone === "positive"
-                        ? "bg-green-500/10 text-green-400"
-                        : item.tone === "warning"
-                          ? "bg-amber-500/10 text-amber-300"
-                          : "bg-red-500/10 text-red-300"
-                    }`}
-                  >
-                    {item.trend}
-                  </span>
-                </div>
-                <p className="mt-1 text-[18px] font-bold text-foreground">{item.value}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-border/70 bg-background/55 p-4">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <p className="text-[13px] font-semibold text-foreground">Signal recouvrement</p>
-              <p className="text-[11px] text-text-dim">Top risques clients</p>
-            </div>
-            <Users size={15} className="text-primary" />
-          </div>
-          <div className="space-y-2">
-            {["Client A", "Client B", "Client C"].map((client, index) => (
-              <div key={client} className="flex items-center justify-between rounded-lg bg-card p-3">
-                <div>
-                  <p className="text-[12px] font-semibold text-foreground">{client}</p>
-                  <p className="text-[10px] text-text-dim">{index + 2} factures ouvertes</p>
-                </div>
-                <span className="text-[11px] font-semibold text-amber-300">
-                  {92 - index * 13}K DT
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-border/70 bg-background/55 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-[13px] font-semibold text-foreground">Tendance CA</p>
-            <BarChart3 size={15} className="text-primary" />
-          </div>
-          <div className="flex h-28 items-end gap-2">
-            {[42, 58, 47, 72, 66, 88, 78, 92].map((height, index) => (
-              <div key={index} className="flex flex-1 items-end rounded-full bg-primary/10">
-                <div
-                  className="w-full rounded-full bg-primary/80 transition-all duration-300"
-                  style={{ height: `${height}%` }}
-                />
-              </div>
-            ))}
-          </div>
-        </section>
-      </div>
-    </aside>
-  );
-}
-
 function AssistantIAPage() {
   const [messages, setMessages] = useState(() => [
     {
       id: 1,
       role: "assistant",
       content:
-        "Bonjour. Je suis **FinMAG AI**, votre copilot financier connecte au data warehouse MAG Distribution.\n\nJe peux analyser le CA, la tresorerie, les stocks, les clients, la fiscalite et les alertes operationnelles.",
+        "Bonjour. Je suis **FinMAG AI**, votre copilot financier connecte au data warehouse MAG Distribution.\n\nJe peux analyser le CA, la tresorerie, les stocks, les clients, la fiscalite et les anomalies. Choisissez une action ou posez votre question.",
       time: getTime(),
       streaming: false,
       insight: true,
@@ -605,7 +651,7 @@ function AssistantIAPage() {
     if (!content || isStreaming) return;
 
     const userMsg = { id: Date.now(), role: "user", content, time: getTime(), streaming: false };
-
+    const attachInsight = shouldAttachInsight(content);
     const historyForApi = [
       ...messages.filter((m) => !m.streaming).map((m) => ({ role: m.role, content: m.content })),
       { role: "user", content },
@@ -618,7 +664,14 @@ function AssistantIAPage() {
     const assistantId = Date.now() + 1;
     setMessages((prev) => [
       ...prev,
-      { id: assistantId, role: "assistant", content: "", time: getTime(), streaming: true },
+      {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        time: getTime(),
+        streaming: true,
+        insight: attachInsight,
+      },
     ]);
 
     try {
@@ -705,13 +758,13 @@ function AssistantIAPage() {
   const showSuggestions = messages.length <= 1 && !isStreaming;
 
   return (
-    <div className="-mx-4 -mb-8 -mt-2 flex h-[calc(100vh-5.5rem)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-background shadow-2xl shadow-black/10 md:-mx-6 lg:-mx-8">
-      <AssistantHeader llmStatus={llmStatus} onClear={clearChat} />
+    <div className="-mx-4 -mb-8 -mt-2 flex h-[calc(100vh-5.5rem)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-[linear-gradient(180deg,var(--card),var(--background))] shadow-2xl shadow-black/10 md:-mx-6 lg:-mx-8">
+      <WorkspaceHeader llmStatus={llmStatus} onClear={clearChat} />
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)_320px]">
-        <WorkspaceRail onSelect={sendMessage} isStreaming={isStreaming} />
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[270px_minmax(0,1fr)] xl:grid-cols-[270px_minmax(0,1fr)_310px]">
+        <LeftWorkspace onSelect={sendMessage} isStreaming={isStreaming} />
 
-        <main className="flex min-h-0 flex-col bg-background">
+        <main className="flex min-h-0 flex-col bg-background/35">
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6">
             <div className="mx-auto flex max-w-4xl flex-col gap-4">
               {messages.map((msg) => (
@@ -720,7 +773,7 @@ function AssistantIAPage() {
               {isStreaming && messages[messages.length - 1]?.role !== "assistant" && (
                 <TypingIndicator />
               )}
-              {showSuggestions && <EmptyPromptStrip onSelect={sendMessage} isStreaming={isStreaming} />}
+              {showSuggestions && <SuggestionGrid onSelect={sendMessage} isStreaming={isStreaming} />}
               <div ref={messagesEndRef} />
             </div>
           </div>
@@ -736,7 +789,7 @@ function AssistantIAPage() {
           />
         </main>
 
-        <LiveInsightsPanel />
+        <RightInsights />
       </div>
     </div>
   );
