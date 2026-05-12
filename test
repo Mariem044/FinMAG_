@@ -1,0 +1,178 @@
+(.venv) PS C:\Users\marie\Desktop\FINMAG1\panorama-analytics\panorama-analytics-main> npm run etl
+
+> etl
+> python -m etl.pipeline
+
+2026-05-12 17:39:29 | INFO     | etl.utils.audit                | Last successful run: 2026-05-09 23:20:51.730000; DELTA mode selected
+2026-05-12 17:39:29 | INFO     | __main__                       | Mode: DELTA
+2026-05-12 17:39:29 | INFO     | etl.ddl                        | === DDL : début création schéma DW ===
+2026-05-12 17:39:29 | INFO     | etl.ddl                        |   [SKIP] DIM_DATE — déjà existante
+2026-05-12 17:39:29 | INFO     | etl.ddl                        |   [SKIP] DIM_DOMAINE — déjà existante
+2026-05-12 17:39:29 | INFO     | etl.ddl                        |   [SKIP] DIM_TYPE_DOC — déjà existante
+2026-05-12 17:39:29 | INFO     | etl.ddl                        |   [SKIP] DIM_MODE_REGLEMENT — déjà existante
+2026-05-12 17:39:29 | INFO     | etl.ddl                        |   [SKIP] DIM_ETAT_REGLEMENT — déjà existante
+2026-05-12 17:39:29 | INFO     | etl.ddl                        |   [SKIP] DIM_ETAT_DOCREGL — déjà existante
+2026-05-12 17:39:29 | INFO     | etl.ddl                        |   [SKIP] DIM_TYPE_LIGNE — déjà existante
+2026-05-12 17:39:29 | INFO     | etl.ddl                        |   [SKIP] DIM_SENS_ECRITURE — déjà existante
+2026-05-12 17:39:30 | INFO     | etl.ddl                        |   [SKIP] DIM_TYPE_TVA — déjà existante
+2026-05-12 17:39:30 | INFO     | etl.ddl                        |   [SKIP] DIM_TYPE_MVT_CAISSE — déjà existante
+2026-05-12 17:39:30 | INFO     | etl.ddl                        |   [SKIP] DIM_BANQUE — déjà existante
+2026-05-12 17:39:30 | INFO     | etl.ddl                        |   [SKIP] DIM_SEGMENT — déjà existante
+2026-05-12 17:39:30 | INFO     | etl.ddl                        |   [SKIP] DIM_COLLABORATEUR — déjà existante
+2026-05-12 17:39:30 | INFO     | etl.ddl                        |   [SKIP] DIM_JOURNAL — déjà existante
+2026-05-12 17:39:30 | INFO     | etl.ddl                        |   [SKIP] DIM_FOURNISSEUR — déjà existante
+2026-05-12 17:39:30 | INFO     | etl.ddl                        |   [SKIP] DIM_FAMILLE — déjà existante
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [SKIP] DIM_CLIENT — déjà existante
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [SKIP] DIM_ARTICLE — déjà existante
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [SKIP] DIM_DEPOT — déjà existante
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [SKIP] DIM_CAISSE — déjà existante
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [SKIP] FAIT_LIGNES_VENTE — déjà existante
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [SKIP] FAIT_REGLEMENTS — déjà existante
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [SKIP] FAIT_ECRITURES — déjà existante
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [SKIP] ETL_AUDIT — déjà existante
+2026-05-12 17:39:31 | INFO     | etl.ddl                        | === DDL : schéma DW créé avec succès ===
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_DATE.trimestre
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_DATE.semestre
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_DATE.date_val
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_DATE.semaine
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_SEGMENT.cbIndice_code
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_SEGMENT.CT_PrixTTC
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_SEGMENT.CT_PrixTTC_add
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_SEGMENT.libelle_segment
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_SEGMENT.libelle_segment_widen
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_COLLABORATEUR.CO_Fonction_rename
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_COLLABORATEUR.CO_Fonction_add
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_COLLABORATEUR.CO_Fonction_widen_to_int
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_BANQUE.EB_Banque
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_BANQUE.EB_Banque_add
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_BANQUE.source
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_CAISSE.id_journal
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_CAISSE.CA_Type_nullable
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_DOMAINE.DO_Domaine
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_TYPE_DOC.DO_Type
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_MODE_REGLEMENT.RT_Mode
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_ETAT_REGLEMENT.RT_Etat
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_ETAT_DOCREGL.DR_Regle
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_TYPE_LIGNE.type_ligne
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_SENS_ECRITURE.EC_Sens
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_TYPE_TVA.type_tva
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_TYPE_MVT_CAISSE.MC_TypeMvt
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_REGLEMENTS.id_date_paiement
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_REGLEMENTS.id_date_echeance
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_REGLEMENTS.id_type_doc
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_REGLEMENTS.RG_Montant
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_REGLEMENTS.LB_MontantReg
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_REGLEMENTS.BR_TotalReglement
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_REGLEMENTS.BR_Rapproch
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_REGLEMENTS.RT_NbJour
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_REGLEMENTS.delai_reel_jours_int
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_REGLEMENTS.ecart_delai_int
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_REGLEMENTS.id_mode_reg_nullable
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_REGLEMENTS.id_reglement_rename
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_ECRITURES.id_banque
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_ECRITURES.id_fournisseur
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_ECRITURES.CG_Num
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_ECRITURES.alerte_tension
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_LIGNES_VENTE.source_hash
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_REGLEMENTS.source_hash
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   FAIT_ECRITURES.source_hash
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [MIGRATION OK]   DIM_SEGMENT.cbIndice_unique
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [INDEX OK]       UX_FAIT_LIGNES_VENTE_source_hash
+2026-05-12 17:39:31 | INFO     | etl.ddl                        |   [INDEX OK]       UX_FAIT_REGLEMENTS_source_hash
+2026-05-12 17:39:32 | INFO     | etl.ddl                        |   [INDEX OK]       UX_FAIT_ECRITURES_source_hash
+2026-05-12 17:39:32 | INFO     | __main__                       |   [MIGRATION OK] DIM_CLIENT.rfm_recence_jours
+2026-05-12 17:39:32 | INFO     | __main__                       |   [MIGRATION OK] DIM_CLIENT.rfm_frequence
+2026-05-12 17:39:32 | INFO     | __main__                       |   [MIGRATION OK] DIM_CLIENT.rfm_montant_12m
+2026-05-12 17:39:32 | INFO     | __main__                       |   [MIGRATION OK] DIM_CLIENT.rfm_score
+2026-05-12 17:39:32 | INFO     | __main__                       |   [MIGRATION OK] FAIT_REGLEMENTS.BR_TauxAgios
+2026-05-12 17:39:32 | INFO     | __main__                       |   [MIGRATION OK] FAIT_REGLEMENTS.BR_TMM
+2026-05-12 17:39:32 | INFO     | etl.utils.audit                | [AUDIT] Run started - run_id=121, mode=delta
+2026-05-12 17:39:32 | INFO     | __main__                       | --- Processing DIM_DATE ---
+2026-05-12 17:39:33 | INFO     | etl.extract                    | Fiscal years loaded: 5
+2026-05-12 17:39:35 | INFO     | etl.load                       | [LOAD] DIM_DATE – MERGE upsert complete (5844 rows)
+2026-05-12 17:39:35 | INFO     | etl.utils.audit                | [DIM_DATE] OK 5844 ins / 0 upd - 3.1s
+2026-05-12 17:39:35 | INFO     | __main__                       | --- Processing DIM_DOMAINE ---
+2026-05-12 17:39:35 | INFO     | etl.load                       | [LOAD] DIM_DOMAINE – MERGE upsert complete (4 rows)
+2026-05-12 17:39:35 | INFO     | etl.utils.audit                | [DIM_DOMAINE] OK 4 ins / 0 upd - 0.1s
+2026-05-12 17:39:35 | INFO     | __main__                       | --- Processing DIM_TYPE_DOC ---
+2026-05-12 17:39:35 | INFO     | etl.load                       | [LOAD] DIM_TYPE_DOC – MERGE upsert complete (14 rows)
+2026-05-12 17:39:35 | INFO     | etl.utils.audit                | [DIM_TYPE_DOC] OK 14 ins / 0 upd - 0.1s
+2026-05-12 17:39:35 | INFO     | __main__                       | --- Processing DIM_MODE_REGLEMENT ---
+2026-05-12 17:39:35 | INFO     | etl.load                       | [LOAD] DIM_MODE_REGLEMENT – MERGE upsert complete (7 rows)
+2026-05-12 17:39:35 | INFO     | etl.utils.audit                | [DIM_MODE_REGLEMENT] OK 7 ins / 0 upd - 0.1s
+2026-05-12 17:39:35 | INFO     | __main__                       | --- Processing DIM_ETAT_REGLEMENT ---
+2026-05-12 17:39:35 | INFO     | etl.load                       | [LOAD] DIM_ETAT_REGLEMENT – MERGE upsert complete (3 rows)
+2026-05-12 17:39:35 | INFO     | etl.utils.audit                | [DIM_ETAT_REGLEMENT] OK 3 ins / 0 upd - 0.0s
+2026-05-12 17:39:35 | INFO     | __main__                       | --- Processing DIM_ETAT_DOCREGL ---
+2026-05-12 17:39:35 | INFO     | etl.load                       | [LOAD] DIM_ETAT_DOCREGL – MERGE upsert complete (2 rows)
+2026-05-12 17:39:35 | INFO     | etl.utils.audit                | [DIM_ETAT_DOCREGL] OK 2 ins / 0 upd - 0.1s
+2026-05-12 17:39:35 | INFO     | __main__                       | --- Processing DIM_TYPE_LIGNE ---
+2026-05-12 17:39:35 | INFO     | etl.load                       | [LOAD] DIM_TYPE_LIGNE – MERGE upsert complete (4 rows)
+2026-05-12 17:39:35 | INFO     | etl.utils.audit                | [DIM_TYPE_LIGNE] OK 4 ins / 0 upd - 0.1s
+2026-05-12 17:39:35 | INFO     | __main__                       | --- Processing DIM_SENS_ECRITURE ---
+2026-05-12 17:39:35 | INFO     | etl.load                       | [LOAD] DIM_SENS_ECRITURE – MERGE upsert complete (2 rows)
+2026-05-12 17:39:35 | INFO     | etl.utils.audit                | [DIM_SENS_ECRITURE] OK 2 ins / 0 upd - 0.1s
+2026-05-12 17:39:35 | INFO     | __main__                       | --- Processing DIM_TYPE_TVA ---
+2026-05-12 17:39:35 | INFO     | etl.load                       | [LOAD] DIM_TYPE_TVA – MERGE upsert complete (2 rows)
+2026-05-12 17:39:35 | INFO     | etl.utils.audit                | [DIM_TYPE_TVA] OK 2 ins / 0 upd - 0.1s
+2026-05-12 17:39:35 | INFO     | __main__                       | --- Processing DIM_TYPE_MVT_CAISSE ---
+2026-05-12 17:39:36 | INFO     | etl.load                       | [LOAD] DIM_TYPE_MVT_CAISSE – MERGE upsert complete (37 rows)
+2026-05-12 17:39:36 | INFO     | etl.utils.audit                | [DIM_TYPE_MVT_CAISSE] OK 37 ins / 0 upd - 0.4s
+2026-05-12 17:39:36 | INFO     | __main__                       | --- Processing DIM_SEGMENT ---
+2026-05-12 17:39:36 | INFO     | etl.load                       | [LOAD] DIM_SEGMENT – MERGE upsert complete (5 rows)
+2026-05-12 17:39:36 | INFO     | etl.utils.audit                | [DIM_SEGMENT] OK 5 ins / 0 upd - 0.1s
+2026-05-12 17:39:36 | INFO     | __main__                       | --- Processing DIM_COLLABORATEUR ---
+2026-05-12 17:39:36 | INFO     | etl.load                       | [LOAD] DIM_COLLABORATEUR – empty DataFrame, nothing to MERGE
+2026-05-12 17:39:36 | INFO     | etl.utils.audit                | [DIM_COLLABORATEUR] OK 0 ins / 0 upd - 0.1s
+2026-05-12 17:39:36 | INFO     | __main__                       | --- Processing DIM_JOURNAL ---
+2026-05-12 17:39:36 | INFO     | etl.load                       | [LOAD] DIM_JOURNAL – empty DataFrame, nothing to MERGE
+2026-05-12 17:39:36 | INFO     | etl.utils.audit                | [DIM_JOURNAL] OK 0 ins / 0 upd - 0.1s
+2026-05-12 17:39:36 | INFO     | __main__                       | --- Processing DIM_FOURNISSEUR ---
+2026-05-12 17:39:36 | INFO     | etl.load                       | [LOAD] DIM_FOURNISSEUR – empty DataFrame, nothing to MERGE
+2026-05-12 17:39:36 | INFO     | etl.utils.audit                | [DIM_FOURNISSEUR] OK 0 ins / 0 upd - 0.1s
+2026-05-12 17:39:36 | INFO     | __main__                       | --- Processing DIM_BANQUE ---
+2026-05-12 17:39:36 | INFO     | etl.load                       | [LOAD] DIM_BANQUE – MERGE upsert complete (3 rows)
+2026-05-12 17:39:36 | INFO     | etl.utils.audit                | [DIM_BANQUE] OK 3 ins / 0 upd - 0.2s
+2026-05-12 17:39:36 | INFO     | __main__                       | --- Processing DIM_FAMILLE ---
+2026-05-12 17:39:37 | INFO     | etl.load                       | [LOAD] DIM_FAMILLE – MERGE upsert complete (586 rows)
+2026-05-12 17:39:37 | INFO     | etl.utils.audit                | [DIM_FAMILLE] OK 586 ins / 0 upd - 0.4s
+2026-05-12 17:39:37 | INFO     | __main__                       | --- Processing DIM_CLIENT ---
+2026-05-12 17:39:37 | INFO     | etl.load                       | [LOAD] DIM_CLIENT – empty DataFrame, nothing to MERGE
+2026-05-12 17:39:37 | INFO     | etl.utils.audit                | [DIM_CLIENT] OK 0 ins / 0 upd - 0.3s
+2026-05-12 17:39:37 | INFO     | __main__                       | --- Processing DIM_ARTICLE ---
+2026-05-12 17:39:37 | INFO     | etl.load                       | [LOAD] DIM_ARTICLE – empty DataFrame, nothing to MERGE
+2026-05-12 17:39:37 | INFO     | etl.utils.audit                | [DIM_ARTICLE] OK 0 ins / 0 upd - 0.1s
+2026-05-12 17:39:37 | INFO     | __main__                       | --- Processing DIM_DEPOT ---
+2026-05-12 17:39:37 | INFO     | etl.load                       | [LOAD] DIM_DEPOT – empty DataFrame, nothing to MERGE
+2026-05-12 17:39:37 | INFO     | etl.utils.audit                | [DIM_DEPOT] OK 0 ins / 0 upd - 0.0s
+2026-05-12 17:39:37 | INFO     | __main__                       | --- Processing DIM_CAISSE ---
+2026-05-12 17:39:37 | WARNING  | etl.extract                    | F_CAISSE.CA_Type not found in MAG — defaulting to NULL
+2026-05-12 17:39:38 | INFO     | etl.load                       | [LOAD] DIM_CAISSE – MERGE upsert complete (4 rows)
+2026-05-12 17:39:38 | INFO     | etl.utils.audit                | [DIM_CAISSE] OK 4 ins / 0 upd - 0.9s
+2026-05-12 17:39:38 | INFO     | __main__                       | --- Processing FAIT_LIGNES_VENTE ---
+2026-05-12 17:39:39 | INFO     | etl.load                       | [LOAD] FAIT_LIGNES_VENTE – empty DataFrame, nothing to MERGE
+2026-05-12 17:39:39 | INFO     | etl.utils.audit                | [FAIT_LIGNES_VENTE] OK 0 ins / 0 upd - 1.3s
+2026-05-12 17:39:39 | INFO     | __main__                       | --- Processing FAIT_REGLEMENTS ---
+2026-05-12 17:39:41 | INFO     | etl.load                       | [LOAD] FAIT_REGLEMENTS – empty DataFrame, nothing to MERGE
+2026-05-12 17:39:41 | INFO     | etl.utils.audit                | [FAIT_REGLEMENTS] OK 0 ins / 0 upd - 1.3s
+2026-05-12 17:39:41 | INFO     | __main__                       | --- Processing FAIT_ECRITURES ---
+2026-05-12 17:39:43 | INFO     | etl.load                       | [LOAD] FAIT_ECRITURES – MERGE upsert complete (1987 rows)
+2026-05-12 17:39:43 | INFO     | etl.utils.audit                | [FAIT_ECRITURES] OK 1987 ins / 0 upd - 2.8s
+2026-05-12 17:39:43 | INFO     | __main__                       | --- Computing dsi_jours ---
+2026-05-12 17:39:44 | INFO     | __main__                       | dsi_jours computed successfully.
+2026-05-12 17:39:44 | INFO     | __main__                       | --- Computing RFM scores (KPI-18) ---
+2026-05-12 17:39:45 | INFO     | __main__                       | RFM scores computed (window=365 days).
+2026-05-12 17:39:45 | INFO     | etl.utils.audit                | [AUDIT] Run 121 finished - status=SUCCESS
+(.venv) PS C:\Users\marie\Desktop\FINMAG1\panorama-analytics\panorama-analytics-main> npm run api
+
+> api
+> uvicorn etl.api.main:app --host 127.0.0.1 --port 8000 --reload
+
+INFO:     Will watch for changes in these directories: ['C:\\Users\\marie\\Desktop\\FINMAG1\\panorama-analytics\\panorama-analytics-main']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [2736] using WatchFiles
+INFO:     Started server process [8284]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:59501 - "GET / HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:59501 - "GET /favicon.ico HTTP/1.1" 404 Not Found
