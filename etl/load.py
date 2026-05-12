@@ -219,7 +219,7 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
 
     cols = list(df_staging.columns)
     col_names = ", ".join([f"[{c}]" for c in cols])
-    value_exprs = ["CONVERT(VARBINARY(32), ?, 2)" if c in binary_cols else "?" for c in cols]
+    value_exprs = ["?" for _ in cols]
     insert_sql = f"INSERT INTO [{temp_name}] ({col_names}) VALUES ({', '.join(value_exprs)})"
     rows = [tuple(_to_python(v) for v in row) for row in df_staging.itertuples(index=False, name=None)]
 
