@@ -15,7 +15,14 @@ warnings.filterwarnings(
     category=FutureWarning,
 )
 
-from etl.config import DW_ENGINE, SEGMENTS, DIM_DATE_START, DIM_DATE_END, FENETRE_RFM_JOURS
+from etl.config import (
+    DW_ENGINE,
+    SEGMENTS,
+    TYPES_MVT_CAISSE,
+    DIM_DATE_START,
+    DIM_DATE_END,
+    FENETRE_RFM_JOURS,
+)
 from etl.utils.logger import get_logger
 from etl.utils.audit import (
     acquire_lock, start_run, end_run, release_lock,
@@ -195,14 +202,19 @@ def _bucket_from_echeance(row) -> Optional[int]:
 def _transform_dim_famille(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=[
-            "FA_CodeFamille_code", "niveau_0_code", "niveau_1_code", "niveau_2_code",
+            "FA_CodeFamille_code", "FA_Intitule",
+            "niveau_0_code", "niveau_1_code", "niveau_2_code",
         ])
     df = df.copy()
     df["FA_CodeFamille_code"] = df["FA_CodeFamille"].apply(transform.hash_key)
+    df["FA_Intitule"]         = df["FA_Intitule"].fillna("").astype(str).str.strip().str[:100]
     df["niveau_0_code"]       = df["CL_No1"].apply(transform.hash_key)
     df["niveau_1_code"]       = df["CL_No2"].apply(transform.hash_key)
     df["niveau_2_code"]       = df["CL_No3"].apply(transform.hash_key)
-    return df[["FA_CodeFamille_code", "niveau_0_code", "niveau_1_code", "niveau_2_code"]]
+    return df[[
+        "FA_CodeFamille_code", "FA_Intitule",
+        "niveau_0_code", "niveau_1_code", "niveau_2_code",
+    ]]
 
 
 
@@ -213,10 +225,24 @@ def _add_static_label(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     if "code_type_mvt" in df.columns and "MC_TypeMvt" not in df.columns:
         df = df.rename(columns={"code_type_mvt": "MC_TypeMvt"})
+    df["MC_TypeMvt"] = pd.to_numeric(df["MC_TypeMvt"], errors="coerce").astype("Int16")
     df["libelle_type_mvt"] = df["MC_TypeMvt"].map(
-        lambda v: f"Mouvement {int(v)}" if pd.notna(v) else None
+        lambda v: TYPES_MVT_CAISSE.get(int(v), f"Type caisse {int(v)}")
+        if pd.notna(v) else None
     )
     return df
+
+
+def _famille_label_lookup() -> Dict:
+    df = extract.extract_dim_famille()
+    if df.empty or "FA_CodeFamille" not in df.columns:
+        return {}
+    return dict(
+        zip(
+            df["FA_CodeFamille"].apply(transform.hash_key),
+            df["FA_Intitule"].fillna("").astype(str).str.strip().str[:100],
+        )
+    )
 
 
 
@@ -339,6 +365,8 @@ def _assemble_fait_reglements(
         "DR_Regle":          None,
         "DR_Montant":        None,
         "DR_ModeReg":        None,
+        "RT_Rapproche":      None,
+        "BR_Rapproch":       None,
         "RC_Montant":        None,
         "RG_Montant":        None,
         "DO_Date":           None,
@@ -354,6 +382,13 @@ def _assemble_fait_reglements(
 
 
     df = transform.add_fact_reglements_banking_fees(df)
+
+    rapproche = (
+        pd.to_numeric(df["RT_Rapproche"], errors="coerce")
+        .combine_first(pd.to_numeric(df["BR_Rapproch"], errors="coerce"))
+        .fillna(0)
+        .clip(lower=0, upper=1)
+    )
 
     return df.assign(
         id_date_paiement=lambda d: d["RT_Date"].apply(
@@ -393,7 +428,8 @@ def _assemble_fait_reglements(
         id_type_doc=lambda d: d["DO_Type"].apply(
             lambda v: _lookup_code(lookups, "DIM_TYPE_DOC", v)
         ),
-        RT_Rapproche=lambda d: d["BR_Rapproch"].fillna(0).astype("Int16"),
+        BR_Rapproch=lambda d: pd.to_numeric(d["BR_Rapproch"], errors="coerce").astype("Int16"),
+        RT_Rapproche=rapproche.astype("Int16"),
         source_hash=lambda d: d.apply(
             lambda row: _source_hash(
                 "REGLEMENT",
@@ -486,8 +522,28 @@ def _assemble_fait_ecritures(
             return None
         return lookups.get("DIM_DATE", {}).get(pd.Timestamp(d).date())
 
+    def _normalize_ecriturec(df: pd.DataFrame, source_name: str) -> pd.DataFrame:
+        df = _ensure_columns(df, {
+            "JO_Num": None,
+            "EC_No": None,
+            "EC_Date": None,
+            "CG_Num": None,
+            "CT_Num": None,
+            "EC_Sens": None,
+            "EC_Montant": None,
+            "JO_Type": None,
+        })
+        if df.empty:
+            logger.warning("FAIT_ECRITURES: %s extraction returned 0 rows", source_name)
+        df["EC_No"] = pd.to_numeric(df["EC_No"], errors="coerce").astype("Int64")
+        df["EC_Date"] = pd.to_datetime(df["EC_Date"], errors="coerce")
+        df["CG_Num"] = pd.to_numeric(df["CG_Num"], errors="coerce").astype("Int64")
+        df["EC_Sens"] = pd.to_numeric(df["EC_Sens"], errors="coerce").astype("Int16")
+        df["EC_Montant"] = pd.to_numeric(df["EC_Montant"], errors="coerce")
+        return df
+
     df1 = (
-        extract.extract_fait_ecriturec(last_run)
+        _normalize_ecriturec(extract.extract_fait_ecriturec(last_run), "F_ECRITUREC")
         .assign(
             type_ligne   =1,
             id_type_ligne=lambda d: d.apply(lambda _: _lookup_code(lookups, "DIM_TYPE_LIGNE", 1), axis=1),
@@ -521,7 +577,7 @@ def _assemble_fait_ecritures(
     )
 
     df2 = (
-        extract.extract_fait_regtaxe(last_run)
+        _normalize_ecriturec(extract.extract_fait_regtaxe(last_run), "F_REGTAXE")
         .assign(
             type_ligne   =2,
             id_type_ligne=lambda d: d.apply(lambda _: _lookup_code(lookups, "DIM_TYPE_LIGNE", 2), axis=1),
@@ -580,8 +636,12 @@ def _assemble_fait_ecritures(
         .rename(columns={"MC_Date": "EC_Date"})
     )
 
+    artstock = extract.extract_fait_artstock()
+    if artstock.empty:
+        logger.warning("FAIT_ECRITURES: F_ARTSTOCK extraction returned 0 rows")
+
     df4 = (
-        extract.extract_fait_artstock()
+        artstock
         .assign(
             type_ligne   =4,
             id_type_ligne=lambda d: d.apply(lambda _: _lookup_code(lookups, "DIM_TYPE_LIGNE", 4), axis=1),
@@ -869,6 +929,7 @@ STEPS: List[Step] = [
              id_famille=lambda d: d["FA_CodeFamille"].apply(
                  lambda v: lookups.get("DIM_FAMILLE", {}).get(transform.hash_key(v))
              ),
+             FA_Intitule=lambda d: d["FA_CodeFamille_code"].map(_famille_label_lookup()),
              id_fournisseur=lambda d: d["CT_Num_fourn"].apply(
                  lambda v: lookups.get("DIM_FOURNISSEUR", {}).get(transform.hash_key(v))
              ),

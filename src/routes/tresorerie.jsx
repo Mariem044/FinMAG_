@@ -228,6 +228,12 @@ function TresorerietPage() {
           skeleton="bar"
           title="Vieillissement des créances — Aging (KPI-08)"
         >
+          {agingData.length === 0 ||
+          agingData.every((row) => !row["0-30j"] && !row["31-60j"] && !row["61-90j"] && !row[">90j"]) ? (
+            <div className="flex items-center justify-center h-[280px] text-green-400 text-[13px] font-medium">
+              Aucune creance en souffrance detectee
+            </div>
+          ) : (
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={agingData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -245,6 +251,7 @@ function TresorerietPage() {
               <Bar dataKey=">90j" stackId="age" fill="#ef4444" name=">90j" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+          )}
         </ChartCard>
 
         <ChartCard

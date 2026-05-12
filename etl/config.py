@@ -120,6 +120,18 @@ TYPES_TVA: dict[int, str] = {
     2: "TVA déductible",
 }
 
+TYPES_MVT_CAISSE: dict[int, str] = {
+    1: "Entree especes",
+    2: "Sortie especes",
+    3: "Entree cheque",
+    4: "Sortie cheque",
+    5: "Virement caisse",
+    6: "Depot bancaire",
+    7: "Retrait bancaire",
+    8: "Remise en banque",
+    54: "Regularisation caisse",
+}
+
 TYPES_DOC: dict[int, str] = {
     1:  "Devis",
     2:  "Bon de commande",

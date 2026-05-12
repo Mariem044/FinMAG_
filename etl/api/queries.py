@@ -169,20 +169,25 @@ def get_dashboard_kpis():
             WHERE dom.DO_Domaine = 0
         )
         SELECT
-            SUM(f.DL_MontantHT) AS ca_total,
-            COUNT(DISTINCT f.DO_Piece_hash) AS nb_commandes,
-            COUNT(DISTINCT f.id_client) AS nb_clients_actifs,
-            SUM(f.DL_MontantHT - (f.DL_Qte * COALESCE(a.AR_PrixAch, 0))) AS marge_brute
+            SUM(CASE WHEN d.annee = latest.latest_year THEN f.DL_MontantHT ELSE 0 END) AS ca_total,
+            SUM(CASE WHEN d.annee = latest.latest_year - 1 THEN f.DL_MontantHT ELSE 0 END) AS ca_total_n1,
+            COUNT(DISTINCT CASE WHEN d.annee = latest.latest_year THEN f.DO_Piece_hash END) AS nb_commandes,
+            COUNT(DISTINCT CASE WHEN d.annee = latest.latest_year THEN f.id_client END) AS nb_clients_actifs,
+            SUM(CASE WHEN d.annee = latest.latest_year
+                THEN f.DL_MontantHT - (f.DL_Qte * COALESCE(a.AR_PrixAch, 0))
+                ELSE 0
+            END) AS marge_brute
         FROM FAIT_LIGNES_VENTE f
         JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
         LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
         LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
         CROSS JOIN latest
         WHERE dom.DO_Domaine = 0
-          AND d.annee = latest.latest_year
+          AND d.annee IN (latest.latest_year, latest.latest_year - 1)
     """
     row = _row(sql)
     ca_total = _num(row.ca_total)
+    ca_total_n1 = _num(row.ca_total_n1)
     marge_brute = _num(row.marge_brute)
     try:
         taux_recouvrement = get_tresorerie_summary()["taux_recouvrement"]
@@ -194,6 +199,8 @@ def get_dashboard_kpis():
         "nb_clients_actifs": _int(row.nb_clients_actifs),
         "taux_recouvrement": taux_recouvrement,
         "marge_brute_pct": (marge_brute / ca_total * 100) if ca_total else 0,
+        "ca_total_n1": ca_total_n1,
+        "ca_growth_pct": ((ca_total - ca_total_n1) / ca_total_n1 * 100) if ca_total_n1 else 0,
     }
 
 
@@ -245,6 +252,8 @@ def get_top_familles():
     sql = """
         SELECT TOP 8
             COALESCE(
+                NULLIF(fa.FA_Intitule, ''),
+                NULLIF(a.FA_Intitule, ''),
                 CONVERT(VARCHAR(30), fa.FA_CodeFamille_code),
                 'Sans famille'
             ) AS name,
@@ -254,11 +263,11 @@ def get_top_familles():
         LEFT JOIN DIM_ARTICLE a  ON a.id_article  = f.id_article
         LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
         WHERE dom.DO_Domaine = 0
-        GROUP BY fa.FA_CodeFamille_code
+        GROUP BY fa.FA_Intitule, a.FA_Intitule, fa.FA_CodeFamille_code
         ORDER BY ca DESC
     """
     return [
-        {"name": f"Famille {r.name}", "ca": _num(r.ca)}
+        {"name": r.name, "ca": _num(r.ca)}
         for r in _rows(sql)
     ]
 
@@ -469,12 +478,14 @@ def get_articles():
         SELECT TOP 100
             a.AR_Ref_code,
             a.id_famille,
+            COALESCE(NULLIF(a.FA_Intitule, ''), NULLIF(fa.FA_Intitule, ''), 'Sans famille') AS famille,
             a.AR_PrixAch,
             COALESCE(sales.qte_vendue, 0) AS qte_vendue,
             COALESCE(sales.ca, 0) AS ca,
             stock.stock,
             stock.dsi_jours
         FROM DIM_ARTICLE a
+        LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
         LEFT JOIN sales ON sales.id_article = a.id_article
         LEFT JOIN stock ON stock.id_article = a.id_article
         ORDER BY ca DESC
@@ -483,7 +494,7 @@ def get_articles():
         {
             "code": f"ART-{r.AR_Ref_code}",
             "designation": f"Article {r.AR_Ref_code}",
-            "famille": f"Famille {r.id_famille or 'N/A'}",
+            "famille": r.famille,
             "qteVendue": _num(r.qte_vendue),
             "ca": _num(r.ca),
             "prixMoyen": _num(r.AR_PrixAch),
@@ -660,7 +671,10 @@ def get_banque_rapprochement():
         SELECT
             d.mois AS month_num,
             AVG(CASE WHEN r.RT_Rapproche = 1 THEN 100.0 ELSE 0.0 END) AS taux,
-            SUM(CASE WHEN r.RT_Rapproche = 0 THEN 1 ELSE 0 END) AS non_rapproches
+            SUM(CASE WHEN r.RT_Rapproche = 0 THEN 1 ELSE 0 END) AS non_rapproches,
+            AVG(CAST(NULLIF(r.LB_NbJour, 0) AS FLOAT)) AS nb_jour,
+            SUM(COALESCE(r.LB_Agios, 0)) AS agios,
+            AVG(CAST(NULLIF(r.BR_TauxAgios, 0) AS FLOAT)) AS taux_agios
         FROM FAIT_REGLEMENTS r
         LEFT JOIN DIM_DATE d ON d.id_date = r.id_date_paiement
         WHERE d.mois IS NOT NULL
@@ -672,6 +686,9 @@ def get_banque_rapprochement():
             "month": MONTHS[r.month_num - 1],
             "taux": round(_num(r.taux)),
             "nonRapproches": _int(r.non_rapproches),
+            "nbJour": None if r.nb_jour is None else round(_num(r.nb_jour), 1),
+            "agios": _num(r.agios),
+            "tauxAgios": None if r.taux_agios is None else round(_num(r.taux_agios), 2),
         }
         for r in _rows(sql)
     ]
@@ -746,7 +763,18 @@ def get_caisse_mouvements_by_type():
         GROUP BY tm.libelle_type_mvt, tm.MC_TypeMvt
         ORDER BY SUM(ABS(COALESCE(e.MC_Credit, 0)) + ABS(COALESCE(e.MC_Debit, 0))) DESC
     """
-    return [{"name": r.name, "value": _num(r.value)} for r in _rows(sql)]
+    rows = _rows(sql)
+    total = sum(_num(r.value) for r in rows)
+    if total <= 0:
+        return []
+    return [
+        {
+            "name": r.name,
+            "value": round(_num(r.value) / total * 100, 1),
+            "amount": _num(r.value),
+        }
+        for r in rows
+    ]
 
 
 @app.get("/api/fiscalite/kpis")

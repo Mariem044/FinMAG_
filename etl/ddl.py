@@ -163,6 +163,7 @@ _DDL_GROUPE_3: list[tuple[str, str]] = [
 CREATE TABLE DIM_FAMILLE (
     id_famille          INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     FA_CodeFamille_code INT NOT NULL UNIQUE,
+    FA_Intitule         NVARCHAR(100) NULL,
     niveau_0_code       INT NULL,
     niveau_1_code       INT NULL,
     niveau_2_code       INT NULL,
@@ -218,6 +219,7 @@ CREATE TABLE DIM_ARTICLE (
                            ON DELETE NO ACTION,
     id_fournisseur     INT NULL REFERENCES DIM_FOURNISSEUR(id_fournisseur)
                            ON DELETE NO ACTION,
+    FA_Intitule        NVARCHAR(100) NULL,
     AR_Sommeil         SMALLINT NOT NULL DEFAULT 0,
     AR_PrixAch         NUMERIC(18,4) NULL,
     AR_SuiviStock      SMALLINT NOT NULL DEFAULT 0,
@@ -529,6 +531,17 @@ _MIGRATIONS: list[tuple[str, str]] = [
         "DIM_BANQUE.source",
         "IF COL_LENGTH('DIM_BANQUE','source') IS NULL "
         "ALTER TABLE [DIM_BANQUE] ADD source SMALLINT NOT NULL DEFAULT 1",
+    ),
+
+    (
+        "DIM_FAMILLE.FA_Intitule",
+        "IF COL_LENGTH('DIM_FAMILLE','FA_Intitule') IS NULL "
+        "ALTER TABLE [DIM_FAMILLE] ADD FA_Intitule NVARCHAR(100) NULL",
+    ),
+    (
+        "DIM_ARTICLE.FA_Intitule",
+        "IF COL_LENGTH('DIM_ARTICLE','FA_Intitule') IS NULL "
+        "ALTER TABLE [DIM_ARTICLE] ADD FA_Intitule NVARCHAR(100) NULL",
     ),
 
 

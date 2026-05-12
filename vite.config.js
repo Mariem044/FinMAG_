@@ -1,10 +1,21 @@
 import { defineConfig } from "vite";
+import path from "node:path";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@tanstack/react-table": path.resolve(
+        "node_modules/@tanstack/react-table/build/lib/index.esm.js",
+      ),
+      "@tanstack/table-core": path.resolve(
+        "node_modules/@tanstack/table-core/build/lib/index.esm.js",
+      ),
+    },
+  },
   plugins: [
     TanStackRouterVite({ autoCodeSplitting: true }),
     react(),

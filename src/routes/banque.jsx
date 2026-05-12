@@ -164,19 +164,23 @@ function BanquePage() {
       rapprochData.map((row, i) => ({
         bordereau: `BR-${String(i + 1).padStart(3, "0")}`,
         banque: activeBanques[i % activeBanques.length],
-        agios: Math.round((row.nonRapproches || 0) * 120),
-        nbJour: Math.max(0, Math.round((100 - (row.taux || 0)) / 5)),
-        tauxAgios: Number((2 + Math.max(0, 100 - (row.taux || 0)) / 50).toFixed(2)),
+        agios: Math.round(row.agios || 0),
+        nbJour: row.nbJour ?? null,
+        tauxAgios: row.tauxAgios ?? null,
       })),
     [activeBanques, rapprochData],
   );
 
   const totalAgios = agiosData.reduce((sum, row) => sum + row.agios, 0);
-  const floatMoyen = agiosData.length
+  const nbJourValues = agiosData
+    .map((row) => row.nbJour)
+    .filter((value) => value !== null && value !== undefined);
+  const nbJourUnique = new Set(nbJourValues.map((value) => Number(value).toFixed(1)));
+  const floatMoyen = nbJourValues.length && nbJourUnique.size > 1
     ? parseFloat(
-        (agiosData.reduce((sum, row) => sum + row.nbJour, 0) / agiosData.length).toFixed(1),
+        (nbJourValues.reduce((sum, value) => sum + value, 0) / nbJourValues.length).toFixed(1),
       )
-    : 0;
+    : null;
 
   const nonRapproches = useMemo(
     () =>
@@ -241,7 +245,7 @@ function BanquePage() {
             />
             <KPICard
               label="Float bancaire moyen"
-              value={`${floatMoyen}j`}
+              value={floatMoyen === null ? "N/D" : `${floatMoyen}j`}
               subtitle="LB_NbJour AVG"
               icon={Clock}
             />
