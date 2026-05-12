@@ -1,106 +1,135 @@
-UI Redesign Prompt
+1. .env in the repo
+bash# In your project root
+echo "etl/.env" >> .gitignore
+git rm --cached etl/.env
+git commit -m "chore: remove .env from git tracking"
 
-Prompt:
+2. Delete debug_segment.py
+bashgit rm etl/debug_segment.py
+git commit -m "chore: remove debug script"
 
-You are a senior UX/UI designer specializing in modern AI SaaS dashboards.
+3. Extract SQL from main.py into a query layer
+Create a new file etl/api/queries.py and move all SQL there:
+python# etl/api/queries.py
 
-Redesign the following chatbot interface for a financial AI assistant called FinMAG AI, which is connected to a live data warehouse.
+CA_BY_MONTH = """
+    WITH latest AS ( ... )
+    SELECT ...
+"""
 
-🎯 Goal
+TOP_FAMILLES = """
+    SELECT TOP 8 ...
+"""
+# etc.
+Then in main.py import and use them:
+pythonfrom etl.api import queries
 
-Transform the current layout into a modern, premium AI workspace that feels:
+@app.get("/api/ventes/ca-by-month")
+def get_ca_by_month():
+    return [... for r in _rows(queries.CA_BY_MONTH)]
 
-highly professional (enterprise SaaS)
-clean and minimal
-interactive and dynamic
-focused on data + chat fusion (not just messaging)
-🧠 Context
+4. Add tests
+Create this structure:
+tests/
+├── __init__.py
+├── test_transform.py
+├── test_load.py
+└── test_extract.py
+Install pytest:
+bashpip install pytest
+Example tests/test_transform.py:
+pythonimport pandas as pd
+from etl.transform import add_fact_reglements_calcs, add_fact_ecritures_calcs
+from etl.config import hash_key
 
-The app provides real-time financial insights:
+def test_hash_key_basic():
+    assert hash_key("ABC") == hash_key("abc")  # normalized
+    assert hash_key(None) is None
+    assert hash_key("") is None
 
-revenue (CA)
-treasury (trésorerie)
-stock levels
-client risk analysis
-accounting anomalies
+def test_add_fact_reglements_calcs():
+    df = pd.DataFrame({
+        "RT_Date": ["2024-03-15"],
+        "DO_Date": ["2024-02-01"],
+        "RT_NbJour": [30],
+    })
+    result = add_fact_reglements_calcs(df)
+    assert "delai_reel_jours" in result.columns
+    assert "ecart_delai" in result.columns
+    assert result["delai_reel_jours"].iloc[0] == 43
 
-The assistant should feel like a financial copilot, not a simple chatbot.
+def test_add_fact_ecritures_calcs():
+    df = pd.DataFrame({
+        "AS_QteSto": [100],
+        "AS_QteRes": [90],
+        "AS_QteMini": [10],
+    })
+    result = add_fact_ecritures_calcs(df)
+    assert result["qte_disponible"].iloc[0] == 10
+    assert result["en_rupture"].iloc[0] == 0
+    assert result["alerte_tension"].iloc[0] == 1  # 90/10 > 0.8
+Run with:
+bashpytest tests/ -v
 
-🧱 Current Problems to Fix
-Layout feels too spaced out and empty
-Chat is not the main focus
-Suggestions look repetitive and static
-Input bar feels basic
-No strong hierarchy between dashboard elements
-Lack of visual depth and modern UI polish
-🎨 Required Improvements
-1. Layout Structure
+5. Replace CRC32 with SHA-256 in hash_key
+In etl/config.py, replace the hash_key function:
+python# BEFORE
+import zlib
+_CRC32_MOD: int = 2**31 - 1
 
-Redesign into:
+def hash_key(value):
+    if value is None:
+        return None
+    ...
+    return abs(zlib.crc32(normalized.encode("utf-8"))) % _CRC32_MOD
+python# AFTER
+import hashlib
 
-Left sidebar (navigation + history + quick analytics)
-Main chat workspace (center focus)
-Optional right panel for insights or KPI summaries
-2. Chat Experience
-Use modern chat bubbles (AI vs user clearly differentiated)
-Add smooth message animations
-Improve readability (max width, spacing, typography)
-AI messages should support structured blocks (not only text)
-3. AI Response Format (IMPORTANT)
+def hash_key(value):
+    if value is None:
+        return None
+    import pandas as pd
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    normalized = str(value).strip().upper()
+    if not normalized:
+        return None
+    digest = hashlib.sha256(normalized.encode("utf-8")).digest()
+    # Return a positive 32-bit int for SQL INT compatibility
+    return int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
+⚠️ Important: if you already have data in the DW, this will change all hash values. You'll need to do a full reload after this change:
+bashpython -m etl.pipeline --drop
 
-AI responses must support:
+6. Warn at startup if GEMINI_API_KEY is missing
+In etl/api/main.py, replace the silent fallback:
+python# BEFORE
+_GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+if _GEMINI_API_KEY:
+    _GEMINI_CLIENT = genai.Client(api_key=_GEMINI_API_KEY)
+    _LLM_READY = True
+else:
+    _GEMINI_CLIENT = None
+    _LLM_READY = False
+python# AFTER
+import logging
+_startup_logger = logging.getLogger("api.startup")
 
-KPI cards (revenue, stock alerts, risk clients)
-mini tables
-alert badges
-charts placeholders
-structured financial insights
+_GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+if _GEMINI_API_KEY:
+    _GEMINI_CLIENT = genai.Client(api_key=_GEMINI_API_KEY)
+    _LLM_READY = True
+    _startup_logger.info("Gemini LLM ready.")
+else:
+    _GEMINI_CLIENT = None
+    _LLM_READY = False
+    _startup_logger.warning(
+        "GEMINI_API_KEY not set — LLM assistant disabled. "
+        "Add it to etl/.env to enable."
+    )
 
-Make responses feel like a data dashboard inside chat
-
-4. Suggestions Section
-
-Replace static suggestion cards with:
-
-categorized quick actions
-shorter labels
-hover animations
-better grouping (Finance / Stock / Clients / Alerts)
-5. Input Bar
-
-Redesign to feel premium:
-
-floating input design
-attachment button + optional voice icon
-glowing focus state
-gradient or soft glass effect
-modern send button
-6. Visual Style
-modern SaaS design
-soft shadows + glassmorphism
-light neutral background with subtle gradient
-strong primary accent color (blue or indigo recommended)
-smooth rounded corners (12–16px)
-consistent spacing system (8pt grid)
-7. Motion & Interaction
-
-Add:
-
-hover elevation effects
-smooth transitions (150–250ms)
-typing indicator for AI
-subtle loading states
-micro-interactions for buttons/cards
-🧩 Output Required
-
-Provide:
-
-a redesigned layout description
-component structure (React or UI components)
-visual hierarchy explanation
-optionally a sample React + Tailwind layout
-🚀 Final Vision
-
-The result should feel like:
-
-“Bloomberg Terminal × ChatGPT × Modern SaaS dashboard”
+Order to apply these fixes
+#FixRiskEffort1.env in git🔴 do first2 min2Delete debug file🟢 safe1 min6Startup warning🟢 safe2 min3SQL query layer🟡 refactor1-2h4Add tests🟢 safe2-4h5CRC32 → SHA256🔴 needs full reload15 min + reload time
+Start with 1, 2, and 6 today — they're quick and risk-free.
