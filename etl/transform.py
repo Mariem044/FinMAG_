@@ -13,7 +13,6 @@ __all__ = [
     "add_fact_lignes_vente_calcs",
     "add_fact_ecritures_calcs",
     "add_fact_reglements_calcs",
-    "add_fact_reglements_bucket",
     "add_fact_reglements_banking_fees",
     "add_fact_ecritures_dsi",
     "transform_dim_date",
@@ -78,28 +77,6 @@ def add_fact_reglements_calcs(df: pd.DataFrame) -> pd.DataFrame:
     df["delai_reel_jours"] = (df["RT_Date"] - df["DO_Date"]).dt.days
     df["ecart_delai"]      = df["delai_reel_jours"] - df["RT_NbJour"]
     return df
-
-
-def add_fact_reglements_bucket(df: pd.DataFrame) -> pd.DataFrame:
-    def _bucket(row) -> Optional[int]:
-        if row.get("DR_Regle", 1) != 0:
-            return None
-        days = row.get("delai_reel_jours")
-        if days is None or pd.isna(days):
-            return None
-        days = int(days)
-        if days <= 30:
-            return 0
-        if days <= 60:
-            return 1
-        if days <= 90:
-            return 2
-        return 3
-
-    df = df.copy()
-    df["bucket_impaye"] = df.apply(_bucket, axis=1)
-    return df
-
 
 
 def transform_dim_date(df: pd.DataFrame) -> pd.DataFrame:

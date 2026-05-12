@@ -342,9 +342,6 @@ def _assemble_fait_reglements(
 
 
     df = transform.add_fact_reglements_calcs(df)
-
-
-    df = df.copy()
     df["bucket_impaye"] = df.apply(_bucket_from_echeance, axis=1)
 
 
@@ -490,13 +487,7 @@ def _assemble_fait_ecritures(
             id_journal   =lambda d: d["JO_Num"].apply(
                 lambda v: lookups.get("DIM_JOURNAL", {}).get(transform.hash_key(v))
             ),
-            id_banque=lambda d: d.apply(
-                lambda row: (
-                    lookups.get("DIM_BANQUE", {}).get(transform.hash_key(row.get("JO_Num")))
-                    if row.get("JO_Type") == 2 else None
-                ),
-                axis=1,
-            ),
+            id_banque=pd.NA,
             id_client=lambda d: d["CT_Num"].apply(
                 lambda v: lookups.get("DIM_CLIENT", {}).get(transform.hash_key(v))
             ),
@@ -684,7 +675,7 @@ def _compute_rfm_scores() -> None:
                 v.id_client,
                 DATEDIFF(DAY, MAX(d.date_val), CAST(GETDATE() AS DATE)) AS recence_jours,
                 COUNT(DISTINCT v.DO_Piece_hash)                          AS frequence,
-                SUM(v.DO_TotalHT)                                        AS montant_12m
+                SUM(v.DL_MontantHT)                                      AS montant_12m
             FROM FAIT_LIGNES_VENTE v
             JOIN DIM_DATE d   ON d.id_date   = v.id_date
             JOIN DIM_DOMAINE dom ON dom.id_domaine = v.id_domaine
@@ -711,9 +702,7 @@ def _load_dim_date(df: pd.DataFrame, table: str, mode: str) -> None:
 
 def _build_lignes_vente_transform(last_run_date):
     def _transform(df_vente: pd.DataFrame, lookups: Dict) -> pd.DataFrame:
-
-        df_achat = extract.extract_fait_lignes_achat(last_run_date)
-        df_raw = pd.concat([df_vente, df_achat], ignore_index=True, sort=False)
+        df_raw = df_vente
 
         return (
             transform.add_fact_lignes_vente_calcs(df_raw)
