@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-import zlib
+import hashlib
 from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
@@ -162,9 +162,6 @@ RFM_SEGMENTS: dict[str, list[str]] = {
 }
 
 
-_CRC32_MOD: int = 2**31 - 1
-
-
 def hash_key(value: Optional[str | int | float]) -> Optional[int]:
     if value is None:
         return None
@@ -177,7 +174,9 @@ def hash_key(value: Optional[str | int | float]) -> Optional[int]:
     normalized = str(value).strip().upper()
     if not normalized:
         return None
-    return abs(zlib.crc32(normalized.encode("utf-8"))) % _CRC32_MOD
+    digest = hashlib.sha256(normalized.encode("utf-8")).digest()
+    # Return a positive 32-bit int for SQL INT compatibility.
+    return int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
 
 
 

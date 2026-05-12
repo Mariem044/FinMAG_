@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import threading
@@ -18,6 +19,7 @@ from etl import pipeline
 app = FastAPI(title="FinMAG API")
 _ETL_RUN_LOCK = threading.Lock()
 _ETL_LAST_ERROR = None
+_startup_logger = logging.getLogger("api.startup")
 
 DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:8080",
@@ -45,9 +47,14 @@ _GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 if _GEMINI_API_KEY:
     _GEMINI_CLIENT = genai.Client(api_key=_GEMINI_API_KEY)
     _LLM_READY = True
+    _startup_logger.info("Gemini LLM ready.")
 else:
     _GEMINI_CLIENT = None
     _LLM_READY = False
+    _startup_logger.warning(
+        "GEMINI_API_KEY not set - LLM assistant disabled. "
+        "Add it to etl/.env to enable."
+    )
 
 _SYSTEM_PROMPT = (
     "Tu es FinMAG, assistant IA financier de MAG Distribution, avec un ton de CFO. "
