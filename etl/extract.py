@@ -1,26 +1,16 @@
 """
-extract.py — SIAD MAG Distribution ETL — v14.4
+extract.py — SIAD MAG Distribution ETL — v14.5
 Extraction from MAG_2020 (Sage Gestion Commerciale)
 and GRT_MAG (Sage Trésorerie).
 
-FIXES vs v14.2
+FIXES vs v14.4
 ──────────────────────────────────────────────────────────────────────────
-FIX-JOIN  : extract_fait_mvtcaisse() — GRT F_Caisse PK is CA_Numero,
-            aliased to CA_No so the rest of the pipeline stays consistent.
-FIX-DELTA : extract_fait_mvtcaisse() now accepts last_run and applies a
-            delta filter on MC_Date.
-FIX-BUG4  : extract_docregl_grt() had a duplicate definition — removed.
-FIX-BUG7  : extract_dim_client_grt() — runtime column-existence check for
-            CT_EchustTroisMois / CT_EchusTroisMois spelling variants.
-FIX-BUG10 : extract_fait_lignes_vente() — DE_No removed from SELECT.
-
-NEW in v14.4
-──────────────────────────────────────────────────────────────────────────
-KPI-16 FIX: extract_fait_lignes_achat() added — extracts purchase lines
-            (DO_Domaine=1) so KPI-16 (fournisseur concentration) can be
-            computed from FAIT_LIGNES_VENTE using id_domaine=1 as filter.
-            Previously, only sales lines (domaine=0) were loaded, making
-            KPI-16 impossible to calculate from the DW.
+KPI-10 FIX : extract_fait_reglech() added — extracts F_REGLECH (créances
+             réglées) so RC_Montant is populated in FAIT_REGLEMENTS.
+             Previously RC_Montant was always NULL, making the KPI-10
+             taux de recouvrement formula (RC_Montant / DR_Montant)
+             impossible.  F_REGLECH is joined by DO_Piece in the
+             pipeline's _assemble_fait_reglements() step.
 """
 from __future__ import annotations
 
@@ -309,6 +299,7 @@ def extract_fait_lignes_achat(last_run: Optional[datetime] = None) -> pd.DataFra
 def extract_fait_lignes_vente(last_run: Optional[datetime] = None) -> pd.DataFrame:
     """Sales lines from MAG_2020.
 
+    Filters DO_Domaine=0, DO_Type IN (6, 7) — Facture client + Avoir client.
     FIX-BUG10: DE_No removed — id_depot was dropped from FAIT_LIGNES_VENTE
     in schema v11.
     """
@@ -409,6 +400,30 @@ def extract_docentete_dates() -> pd.DataFrame:
         FROM F_DOCENTETE
     """
     return _read(MAG_ENGINE, sql)
+
+
+# ── KPI-10 FIX: Créances réglées from F_REGLECH ──────────────────────────────
+
+def extract_fait_reglech() -> pd.DataFrame:
+    """Extract F_REGLECH (créances réglées) for KPI-10 taux de recouvrement.
+
+    KPI-10 FIX: RC_Montant = montant réglé sur une échéance.
+    Formula: taux_recouvrement = SUM(RC_Montant) / SUM(DR_Montant) per client.
+    F_REGLECH has no cbModification — always a full reload.
+    Joined to FAIT_REGLEMENTS by DO_Piece in _assemble_fait_reglements().
+    """
+    sql = """
+        SELECT DO_Piece, SUM(RC_Montant) AS RC_Montant
+        FROM F_REGLECH
+        GROUP BY DO_Piece
+    """
+    try:
+        df = _read(GRT_ENGINE, sql)
+        logger.info(f"F_REGLECH extracted: {len(df)} rows")
+        return df
+    except Exception as exc:
+        logger.warning(f"F_REGLECH not available — RC_Montant will be NULL: {exc}")
+        return pd.DataFrame(columns=["DO_Piece", "RC_Montant"])
 
 
 # ════════════════════════════════════════════════════════════════════════════
