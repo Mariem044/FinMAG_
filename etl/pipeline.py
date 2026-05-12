@@ -327,6 +327,14 @@ def _assemble_fait_reglements(
         .assign(RT_NbJour=lambda d: d["RT_NbJour_contrat"])
     )
 
+    # Derive DR_Regle from RT_Etat when docregl join yields NULL
+    if "RT_Etat" in df.columns:
+        df["DR_Regle"] = df.apply(
+            lambda row: (1 if row.get("RT_Etat") == 2 else 0)
+            if pd.isna(row.get("DR_Regle")) else row.get("DR_Regle"),
+            axis=1,
+        )
+
     for _col, _default in {
         "DR_Regle":          None,
         "DR_Montant":        None,
@@ -998,3 +1006,4 @@ def run_pipeline() -> None:
 
 if __name__ == "__main__":
     run_pipeline()
+
