@@ -1,5 +1,7 @@
+// FIXED: Added dropdown loading skeleton rows while async search is pending.
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Search, X, ArrowRight,
   LayoutDashboard, TrendingUp, Wallet, Boxes, Users,
@@ -104,6 +106,22 @@ function runSearch(q, apiResults = {}) {
   }
 
   return results;
+}
+
+function SearchSkeletonRows() {
+  return (
+    <div className="px-3 py-3 space-y-2">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="flex items-center gap-3 px-1 py-1.5">
+          <Skeleton className="h-7 w-7 rounded-lg flex-shrink-0" />
+          <div className="flex-1 space-y-1.5">
+            <Skeleton className="h-3 w-2/5 rounded" />
+            <Skeleton className="h-2.5 w-3/5 rounded" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function SearchBar() {
@@ -223,7 +241,9 @@ export function SearchBar() {
       {/* Dropdown */}
       {showDropdown && (
         <div ref={dropdownRef} className="absolute left-0 right-0 top-full z-50 rounded-b-xl border border-t-0 border-border bg-popover shadow-2xl shadow-black/30 overflow-hidden">
-          {hasResults ? (
+          {searchLoading && !hasResults ? (
+            <SearchSkeletonRows />
+          ) : hasResults ? (
             <>
               <div className="max-h-[420px] overflow-y-auto">
                 {categories.map((cat) => {

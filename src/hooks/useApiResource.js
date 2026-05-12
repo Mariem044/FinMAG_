@@ -1,41 +1,91 @@
-import { useEffect, useRef, useState } from "react";
+// FIXED: Added stale-while-revalidate cache and in-flight request deduplication.
+import { useEffect, useMemo, useRef, useState } from "react";
+
+const DEFAULT_CACHE_TTL_MS = 30_000;
+const resourceCache = new Map();
+const pendingResources = new Map();
+const fetcherIds = new WeakMap();
+let fetcherIdSeq = 0;
+
+function getFetcherId(fetcher) {
+  if (!fetcherIds.has(fetcher)) {
+    fetcherIdSeq += 1;
+    fetcherIds.set(fetcher, fetcher.name || `fetcher-${fetcherIdSeq}`);
+  }
+  return fetcherIds.get(fetcher);
+}
+
+function getCacheKey(fetcher, deps, options) {
+  if (options.cacheKey) return options.cacheKey;
+  return `${getFetcherId(fetcher)}:${JSON.stringify(deps ?? [])}`;
+}
+
+function normalizeArgs(deps, options) {
+  if (Array.isArray(deps)) return { deps, options: options ?? {} };
+  return { deps: [], options: deps ?? {} };
+}
 
 /**
- * useApiResource — fetches data from an API endpoint and manages loading/error state.
- *
- * @param {Function} fetcher   — async function that returns a Promise<data>
- * @param {*}        initialData — default value used before the first successful fetch
- * @param {Array}    deps       — extra dependencies that should trigger a re-fetch
- *                               (in addition to `fetcher` identity changes)
- *
- * Fixes vs original:
- * 1. `initialData` is captured once via useRef so it never causes re-renders.
- * 2. `fetcher` is included in the effect dependency array, so changing the
- *    fetcher function (e.g. different endpoint) automatically re-fetches.
- * 3. A cancelled flag prevents setState after unmount.
- * 4. The state is reset to loading on every new fetch cycle.
+ * useApiResource fetches API data with stale-while-revalidate semantics.
+ * Cached data is returned immediately on remount, then refreshed in background.
  */
-export function useApiResource(fetcher, initialData, deps = []) {
-  // Capture initialData once — avoids the infinite-loop caused by inline [] / {}
+export function useApiResource(fetcher, initialData, deps = [], options = {}) {
+  const { deps: effectDeps, options: normalizedOptions } = normalizeArgs(deps, options);
+  const ttlMs = normalizedOptions.cacheTtlMs ?? normalizedOptions.ttlMs ?? DEFAULT_CACHE_TTL_MS;
   const initialDataRef = useRef(initialData);
+  const cacheKey = useMemo(
+    () => getCacheKey(fetcher, effectDeps, normalizedOptions),
+    [fetcher, normalizedOptions.cacheKey, ...effectDeps],
+  );
 
+  const cached = resourceCache.get(cacheKey);
   const [state, setState] = useState({
-    data: initialDataRef.current,
+    data: cached?.data ?? initialDataRef.current,
     error: null,
-    loading: true,
-    hasRealData: false,
+    loading: !cached,
+    hasRealData: Boolean(cached),
   });
 
   useEffect(() => {
     let cancelled = false;
+    const cachedEntry = resourceCache.get(cacheKey);
+    const now = Date.now();
+    const hasCachedData = Boolean(cachedEntry);
+    const isFresh = hasCachedData && now - cachedEntry.timestamp < ttlMs;
 
-    setState((prev) => ({ ...prev, loading: true, error: null }));
+    if (hasCachedData) {
+      setState({
+        data: cachedEntry.data ?? initialDataRef.current,
+        error: null,
+        loading: false,
+        hasRealData: true,
+      });
+      if (isFresh) {
+        return () => {
+          cancelled = true;
+        };
+      }
+    } else {
+      setState((prev) => ({ ...prev, loading: true, error: null }));
+    }
 
-    fetcher()
+    const pending =
+      pendingResources.get(cacheKey) ??
+      fetcher().finally(() => {
+        pendingResources.delete(cacheKey);
+      });
+
+    if (!pendingResources.has(cacheKey)) {
+      pendingResources.set(cacheKey, pending);
+    }
+
+    pending
       .then((data) => {
         if (cancelled) return;
+        const resolvedData = data ?? initialDataRef.current;
+        resourceCache.set(cacheKey, { data: resolvedData, timestamp: Date.now() });
         setState({
-          data: data ?? initialDataRef.current,
+          data: resolvedData,
           error: null,
           loading: false,
           hasRealData: true,
@@ -43,22 +93,22 @@ export function useApiResource(fetcher, initialData, deps = []) {
       })
       .catch((error) => {
         if (cancelled) return;
-        // Only log in dev to avoid noise in production
         if (import.meta.env?.DEV) {
           console.warn("[useApiResource] fetch failed:", error?.message ?? error);
         }
+        const fallback = resourceCache.get(cacheKey);
         setState({
-          data: initialDataRef.current,
+          data: fallback?.data ?? initialDataRef.current,
           error,
           loading: false,
-          hasRealData: false,
+          hasRealData: Boolean(fallback),
         });
       });
 
     return () => {
       cancelled = true;
     };
-  }, [fetcher, ...deps]);
+  }, [cacheKey, fetcher, ttlMs]);
 
   return state;
 }

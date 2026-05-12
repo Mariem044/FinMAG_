@@ -1,3 +1,4 @@
+// FIXED: Replaced unstable active month array dependencies with a primitive key.
 import { createFileRoute } from "@tanstack/react-router";
 import {
   useChartHeight,
@@ -83,6 +84,7 @@ function CaissePage() {
     [],
   );
   const activeIdx = getActiveMonthIndexes();
+  const activeIdxKey = activeIdx.join("");
   const chartH = useChartHeight();
   const kpiLoading = caissesLoading || fluxLoading;
   const chartsLoading = caissesLoading || fluxLoading || natureLoading;
@@ -110,7 +112,7 @@ function CaissePage() {
     const ratio = activeIdx.length / 12;
     const daysToShow = Math.max(5, Math.round(30 * ratio));
     return fluxData.slice(fluxData.length - daysToShow);
-  }, [activeIdx, fluxData]);
+  }, [activeIdxKey, fluxData]);
 
   // Net journalier from last day
   const lastFlux = filteredFlux[filteredFlux.length - 1];
@@ -182,7 +184,7 @@ function CaissePage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
-          key={`${depot}-${activeIdx.join("")}`}
+          key={`${depot}-${activeIdxKey}`}
           title={`Solde de caisse${depot !== "Tous" ? ` — ${depot}` : " par caisse"} — Espèces vs Chèques (KPI-22)`}
         >
           {filteredCaisses.length > 0 ? (

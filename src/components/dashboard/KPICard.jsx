@@ -1,3 +1,5 @@
+// FIXED: Memoized KPICard export to avoid unnecessary dashboard re-renders.
+import { memo } from "react";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
 /**
@@ -21,7 +23,7 @@ import { TrendingUp, TrendingDown } from "lucide-react";
  *    for sighted users but the icon needs an accessible name so it is not
  *    read as an unlabelled image by some AT.
  */
-export function KPICard({ label, value, trend, subtitle, icon: Icon }) {
+export const KPICard = memo(function KPICard({ label, value, trend, subtitle, icon: Icon }) {
   const isPositive = (trend ?? 0) >= 0;
   const trendDirection = isPositive ? "up" : "down";
   const trendAbs = Math.abs(trend ?? 0).toFixed(1);
@@ -112,4 +114,4 @@ export function KPICard({ label, value, trend, subtitle, icon: Icon }) {
       </div>
     </article>
   );
-}
+});

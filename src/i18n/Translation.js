@@ -1,3 +1,4 @@
+// FIXED: Expanded and normalized translations, language labels, and locale metadata.
 export const translations = {
   fr: {
     // ── Navigation ────────────────────────────────────────────────────────────
@@ -45,6 +46,19 @@ export const translations = {
     "params.saved": "✓ Modifications enregistrées",
     "params.cancel": "Annuler",
     "params.save": "Enregistrer",
+    "params.etlTitle": "Données réelles ETL",
+    "params.etlUnavailable":
+      "API indisponible : les tableaux ne peuvent pas charger les données DW.",
+    "params.etlLoading": "Lecture du statut ETL...",
+    "params.etlLastRun": "Dernier run",
+    "params.etlNoRun": "Aucun run ETL trouvé dans ETL_AUDIT.",
+    "params.etlRefresh": "Actualiser",
+    "params.etlRun": "Lancer ETL",
+    "params.etlRunning": "ETL en cours",
+    "params.etlStarting": "Démarrage ETL...",
+    "params.etlStarted": "ETL lancé en arrière-plan.",
+    "params.etlAlreadyRunning": "ETL déjà en cours.",
+    "params.etlStartFailed": "Impossible de lancer l'ETL depuis l'API.",
 
     // ── Aide ──────────────────────────────────────────────────────────────────
     "aide.title": "Centre d'aide",
@@ -111,6 +125,18 @@ export const translations = {
     "params.saved": "✓ Changes saved successfully",
     "params.cancel": "Cancel",
     "params.save": "Save Changes",
+    "params.etlTitle": "Live ETL data",
+    "params.etlUnavailable": "API unavailable: dashboards cannot load DW data.",
+    "params.etlLoading": "Reading ETL status...",
+    "params.etlLastRun": "Last run",
+    "params.etlNoRun": "No ETL run found in ETL_AUDIT.",
+    "params.etlRefresh": "Refresh",
+    "params.etlRun": "Run ETL",
+    "params.etlRunning": "ETL running",
+    "params.etlStarting": "Starting ETL...",
+    "params.etlStarted": "ETL started in the background.",
+    "params.etlAlreadyRunning": "ETL is already running.",
+    "params.etlStartFailed": "Unable to start ETL from the API.",
 
     // ── Help ──────────────────────────────────────────────────────────────────
     "aide.title": "Help Center",
@@ -177,6 +203,18 @@ export const translations = {
     "params.saved": "✓ تم حفظ التغييرات بنجاح",
     "params.cancel": "إلغاء",
     "params.save": "حفظ التغييرات",
+    "params.etlTitle": "بيانات ETL الفعلية",
+    "params.etlUnavailable": "واجهة API غير متاحة: لا يمكن للوحات تحميل بيانات المستودع.",
+    "params.etlLoading": "جاري قراءة حالة ETL...",
+    "params.etlLastRun": "آخر تشغيل",
+    "params.etlNoRun": "لا يوجد تشغيل ETL في ETL_AUDIT.",
+    "params.etlRefresh": "تحديث",
+    "params.etlRun": "تشغيل ETL",
+    "params.etlRunning": "ETL قيد التشغيل",
+    "params.etlStarting": "جاري بدء ETL...",
+    "params.etlStarted": "تم تشغيل ETL في الخلفية.",
+    "params.etlAlreadyRunning": "ETL قيد التشغيل بالفعل.",
+    "params.etlStartFailed": "تعذر تشغيل ETL من واجهة API.",
 
     // ── المساعدة ──────────────────────────────────────────────────────────────
     "aide.title": "مركز المساعدة",
@@ -202,4 +240,23 @@ export const langCodeMap = {
   Français: "fr",
   English: "en",
   العربية: "ar",
+  "FranÃ§ais": "fr",
+  "Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©": "ar",
 };
+
+export const localeMap = {
+  fr: "fr-TN",
+  en: "en-US",
+  ar: "ar-TN",
+};
+
+export const languageOptions = [
+  { label: "Français", code: "fr" },
+  { label: "English", code: "en" },
+  { label: "العربية", code: "ar" },
+];
+
+export function normalizeLanguage(langue) {
+  const code = langCodeMap[langue] ?? "fr";
+  return languageOptions.find((option) => option.code === code)?.label ?? "Français";
+}

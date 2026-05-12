@@ -1,35 +1,52 @@
+// FIXED: Added URL-level request deduplication for pending fetch calls.
 // src/lib/api.js
 //
 // All fetchers are plain functions (not closures created on every render),
 // so passing them directly to useApiResource is safe — their identity is stable.
 
-const BASE = ((typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "").replace(/\/$/, "");
+const BASE = ((typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "").replace(
+  /\/$/,
+  "",
+);
 
 const TIMEOUT_MS = Number(
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_TIMEOUT_MS) || 8000,
 );
+
+const pendingRequests = new Map();
 
 function url(path) {
   return `${BASE}${path}`;
 }
 
 async function fetchWithTimeout(path, options = {}) {
+  const requestUrl = url(path);
+  if (pendingRequests.has(requestUrl)) {
+    return pendingRequests.get(requestUrl);
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(url(path), {
-      headers: { Accept: "application/json" },
-      ...options,
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`API error ${res.status}${body ? `: ${body}` : ""}`);
+  const request = (async () => {
+    try {
+      const res = await fetch(requestUrl, {
+        headers: { Accept: "application/json" },
+        ...options,
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`API error ${res.status}${body ? `: ${body}` : ""}`);
+      }
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
+      pendingRequests.delete(requestUrl);
     }
-    return res.json();
-  } finally {
-    clearTimeout(timeout);
-  }
+  })();
+
+  pendingRequests.set(requestUrl, request);
+  return request;
 }
 
 function get(path) {

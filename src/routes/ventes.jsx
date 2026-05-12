@@ -1,3 +1,4 @@
+// FIXED: Replaced unstable active month array dependencies with a primitive key.
 import { createFileRoute } from "@tanstack/react-router";
 import {
   useChartHeight,
@@ -47,6 +48,7 @@ function VentesPage() {
     [],
   );
   const activeIdx = getActiveMonthIndexes();
+  const activeIdxKey = activeIdx.join("");
   const chartH = useChartHeight();
   const kpiLoading = monthlyLoading || regionLoading;
   const chartsLoading = monthlyLoading || familleLoading || regionLoading;
@@ -63,7 +65,7 @@ function VentesPage() {
           objectif: Math.round(m.objectif * sourceRatio),
           caN1: Math.round(m.caN1 * sourceRatio),
         })),
-    [activeIdx, sourceRatio, monthlyData],
+    [activeIdxKey, sourceRatio, monthlyData],
   );
 
   // Filter region data by depot
@@ -132,7 +134,7 @@ function VentesPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="line"
-          key={`${segment}-${depot}-${source}-${activeIdx.join("")}`}
+          key={`${segment}-${depot}-${source}-${activeIdxKey}`}
           title="Évolution mensuelle du CA vs Objectif (KPI-01)"
         >
           <ResponsiveContainer width="100%" height={chartH}>

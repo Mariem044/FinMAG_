@@ -1,11 +1,16 @@
-# api/main.py
 """
-FinMAG API — v14.3
-Adds POST /api/assistant/chat — a real LLM-powered endpoint backed by
-Google Gemini 1.5 Flash.  The endpoint:
-  1. Fetches a live snapshot from the DW (KPIs, articles, clients, impayes)
-  2. Injects it as JSON into a French financial analyst system prompt
-  3. Streams Gemini's answer back via SSE so the UI shows text word-by-word
+api/main.py — FinMAG API v14.4
+Fixes vs v14.3:
+  KPI-16 FIX : get_fournisseur_concentration() now sums DL_MontantHT
+               from FAIT_LIGNES_VENTE WHERE DO_Domaine=1 (achat), not
+               from article count which is a proxy, not the real KPI.
+  KPI-18 FIX : get_acteurs_rfm() now reads rfm_recence_jours,
+               rfm_frequence, rfm_montant_12m pre-computed by the ETL
+               pipeline from DIM_CLIENT, instead of doing an unbounded
+               COUNT(*) query without a time window.
+  KPI-01 NOTE: Filters use DO_Type IN (6,7) matching ETL extract scope.
+               The KPIs PDF says DO_Type=17 which is a copy-paste error
+               in the document — type 17 is "Avoir fournisseur" in Sage.
 """
 import json
 import os
@@ -26,12 +31,6 @@ from etl import pipeline
 
 app = FastAPI(title="FinMAG API")
 _ETL_RUN_LOCK = threading.Lock()
-# FIX-THREADING: _ETL_RUNNING (plain bool) was removed.
-# threading.Lock.locked() is the single, atomic source of truth for whether
-# the ETL background task is currently running.
-# A plain bool is not safe even within a single process because Python's GIL
-# does not protect read-modify-write sequences, and in multi-worker deployments
-# each worker process has its own copy of the bool anyway.
 _ETL_LAST_ERROR = None
 
 DEFAULT_ALLOWED_ORIGINS = [
@@ -57,28 +56,12 @@ app.add_middleware(
 # ─── Gemini LLM Setup ─────────────────────────────────────────────────────────
 _GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 _GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
-if _GEMINI_API_KEY and _GEMINI_API_KEY != "AIzaSyCXwsimUY1jGOy-ruNdtxpxATQWafYNOAg":
+if _GEMINI_API_KEY:
     _GEMINI_CLIENT = genai.Client(api_key=_GEMINI_API_KEY)
     _LLM_READY = True
 else:
     _GEMINI_CLIENT = None
     _LLM_READY = False
-
-_SYSTEM_PROMPT = (
-    "Tu es FinMAG, l'assistant IA financier de MAG Distribution. "
-    "Tu es direct, précis et professionnel — comme un CFO senior. "
-    "\n\n"
-    "RÈGLES STRICTES :"
-    "\n- Réponds TOUJOURS en français"
-    "\n- Maximum 4-5 phrases ou bullet points. Jamais de longues listes."
-    "\n- Va droit au but. Pas d'introduction, pas de répétition des données."
-    "\n- Donne UNE recommandation principale, claire et actionnable."
-    "\n- Utilise des chiffres précis quand tu en as."
-    "\n- Ton ton : confiant, factuel, sans alarmisme excessif."
-    "\n- Ne répète JAMAIS 'anomalie critique' ou 'données incohérentes' à chaque réponse."
-    "\n- Si la question n'est pas financière, réponds brièvement et redirige vers les données MAG."
-    "\n- Formate avec **gras** pour les chiffres clés uniquement."
-)
 
 _SYSTEM_PROMPT = (
     "Tu es FinMAG, assistant IA financier de MAG Distribution, avec un ton de CFO. "
@@ -117,12 +100,6 @@ def _date_str(value):
 
 
 def _run_etl_background():
-    """Background ETL worker.
-
-    Contract: _ETL_RUN_LOCK must be acquired by the caller (run_etl) before
-    this function is scheduled.  This function always releases the lock in its
-    finally block — whether the pipeline succeeds or raises.
-    """
     global _ETL_LAST_ERROR
     try:
         pipeline.run_pipeline()
@@ -181,9 +158,6 @@ def get_etl_status():
 
 @app.post("/api/etl/run")
 def run_etl(background_tasks: BackgroundTasks):
-    # FIX-THREADING: Use Lock.locked() — atomic and correct within one process.
-    # (Multi-worker deployments need an external mutex e.g. Redis; for a single
-    #  uvicorn worker this is fully safe.)
     if not _ETL_RUN_LOCK.acquire(blocking=False):
         return {"started": False, "running": True}
     background_tasks.add_task(_run_etl_background)
@@ -192,14 +166,14 @@ def run_etl(background_tasks: BackgroundTasks):
 
 @app.get("/api/dashboard/kpis")
 def get_dashboard_kpis():
-    # FIX-BUG-5: taux_recouvrement is now inlined into the same query block
-    # instead of calling get_tresorerie_summary() as a second DB round-trip.
-    # A failure in FAIT_REGLEMENTS previously caused the entire dashboard to crash.
+    # KPI-01: filter DO_Domaine=0 (vente) only for CA computation
     sql = """
         WITH latest AS (
             SELECT COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year
             FROM FAIT_LIGNES_VENTE f
+            JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
             LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
+            WHERE dom.DO_Domaine = 0
         )
         SELECT
             SUM(f.DL_MontantHT) AS ca_total,
@@ -207,10 +181,12 @@ def get_dashboard_kpis():
             COUNT(DISTINCT f.id_client) AS nb_clients_actifs,
             SUM(f.DL_MontantHT - (f.DL_Qte * COALESCE(a.AR_PrixAch, 0))) AS marge_brute
         FROM FAIT_LIGNES_VENTE f
+        JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
         LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
         LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
         CROSS JOIN latest
-        WHERE d.annee = latest.latest_year
+        WHERE dom.DO_Domaine = 0
+          AND d.annee = latest.latest_year
     """
     row = _row(sql)
     ca_total = _num(row.ca_total)
@@ -234,14 +210,18 @@ def get_ca_by_month():
         WITH latest AS (
             SELECT COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year
             FROM FAIT_LIGNES_VENTE f
+            JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
             LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
+            WHERE dom.DO_Domaine = 0
         ),
         monthly AS (
             SELECT d.annee, d.mois, SUM(f.DL_MontantHT) AS ca
             FROM FAIT_LIGNES_VENTE f
+            JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
             JOIN DIM_DATE d ON d.id_date = f.id_date
             CROSS JOIN latest
-            WHERE d.annee IN (latest.latest_year, latest.latest_year - 1)
+            WHERE dom.DO_Domaine = 0
+              AND d.annee IN (latest.latest_year, latest.latest_year - 1)
             GROUP BY d.annee, d.mois
         )
         SELECT cur.mois AS month_num,
@@ -269,10 +249,6 @@ def get_ca_by_month():
 
 @app.get("/api/ventes/top-familles")
 def get_top_familles():
-    # FIX-FAMILLE: join through DIM_ARTICLE to reach DIM_FAMILLE.
-    # DIM_FAMILLE has no libelle column (only FA_CodeFamille_code) so we fall
-    # back to the surrogate id as a label. Extend this query if you add a
-    # libelle_famille column to DIM_FAMILLE in a future migration.
     sql = """
         SELECT TOP 8
             COALESCE(
@@ -281,8 +257,10 @@ def get_top_familles():
             ) AS name,
             SUM(f.DL_MontantHT) AS ca
         FROM FAIT_LIGNES_VENTE f
+        JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
         LEFT JOIN DIM_ARTICLE a  ON a.id_article  = f.id_article
         LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
+        WHERE dom.DO_Domaine = 0
         GROUP BY fa.FA_CodeFamille_code
         ORDER BY ca DESC
     """
@@ -294,9 +272,6 @@ def get_top_familles():
 
 @app.get("/api/ventes/ca-by-region")
 def get_ca_by_region():
-    # FIX-DEPOT: FAIT_LIGNES_VENTE no longer has id_depot (removed in schema
-    # v11, FIX-9/BUG-10). Grouping by client segment is the closest meaningful
-    # breakdown available without a depot FK on the fact table.
     sql = """
         SELECT TOP 12
             COALESCE(s.libelle_segment, 'Sans segment') AS name,
@@ -304,8 +279,10 @@ def get_ca_by_region():
             COUNT(DISTINCT f.id_client)  AS clients,
             COUNT(DISTINCT f.DO_Piece_hash) AS commandes
         FROM FAIT_LIGNES_VENTE f
+        JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
         LEFT JOIN DIM_CLIENT  c ON c.id_client  = f.id_client
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+        WHERE dom.DO_Domaine = 0
         GROUP BY s.libelle_segment
         ORDER BY ca DESC
     """
@@ -377,8 +354,6 @@ def get_impayes():
 
 @app.get("/api/tresorerie/encaissements-by-mode")
 def get_encaissements_by_mode():
-    # FIX-CRASH-1: SQL Server cannot reference SELECT aliases in ORDER BY.
-    # Replaced 'ORDER BY mag + grt DESC' with the full SUM expressions.
     sql = """
         SELECT
             COALESCE(m.libelle_mode_reg, CONCAT('Mode ', r.DR_ModeReg)) AS mode,
@@ -407,6 +382,7 @@ def get_encaissements_by_mode():
 
 @app.get("/api/tresorerie/aging")
 def get_aging():
+    # KPI-08: bucket_impaye now computed from echeance date by the ETL
     sql = """
         SELECT TOP 8
             COALESCE(CONVERT(VARCHAR(30), c.CT_Num_code), 'Client') AS client,
@@ -434,9 +410,6 @@ def get_aging():
 
 @app.get("/api/produits/stock-alerts")
 def get_stock_alerts():
-    # tl.type_ligne is correct since v14 DDL rename (FIX-2 already applied in v14.1)
-    # FIX-BUG-4: Added IS NOT NULL guards so the query returns results even when
-    # ratio_tension or AS_QteSto are NULL (e.g. ETL has not yet computed them).
     sql = """
         SELECT TOP 20
             a.AR_Ref_code,
@@ -484,7 +457,9 @@ def get_articles():
                 id_article,
                 COALESCE(SUM(DL_Qte), 0) AS qte_vendue,
                 COALESCE(SUM(DL_MontantHT), 0) AS ca
-            FROM FAIT_LIGNES_VENTE
+            FROM FAIT_LIGNES_VENTE f
+            JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
+            WHERE dom.DO_Domaine = 0
             GROUP BY id_article
         ),
         stock AS (
@@ -529,7 +504,6 @@ def get_articles():
 
 @app.get("/api/acteurs/clients")
 def get_clients():
-    # BUG-11 fix: FORMAT() returns ISO-8601 'YYYY-MM-DD' directly from SQL Server.
     sql = """
         SELECT TOP 100
             c.CT_Num_code,
@@ -542,6 +516,7 @@ def get_clients():
         FROM DIM_CLIENT c
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
         LEFT JOIN FAIT_LIGNES_VENTE v ON v.id_client = c.id_client
+        LEFT JOIN DIM_DOMAINE dom ON dom.id_domaine = v.id_domaine AND dom.DO_Domaine = 0
         LEFT JOIN DIM_DATE d ON d.id_date = v.id_date
         GROUP BY c.CT_Num_code, s.libelle_segment, c.CT_SoldeActuel, c.CT_Sommeil
         ORDER BY ca_total DESC
@@ -565,28 +540,33 @@ def get_clients():
 
 @app.get("/api/acteurs/rfm")
 def get_acteurs_rfm():
+    """KPI-18 FIX: reads pre-computed RFM columns from DIM_CLIENT.
+
+    The ETL pipeline now stamps rfm_recence_jours, rfm_frequence, and
+    rfm_montant_12m on DIM_CLIENT using a 365-day rolling window.
+    Falls back to NULL for clients with no sales in the window.
+    """
     sql = """
         SELECT TOP 200
             c.CT_Num_code,
             COALESCE(s.libelle_segment, 'Sans segment') AS segment,
-            COUNT(DISTINCT v.DO_Piece_hash) AS frequence,
-            DATEDIFF(DAY, MAX(d.date_val), CAST(GETDATE() AS DATE)) AS recence,
-            COALESCE(SUM(v.DL_MontantHT), 0) AS montant
+            c.rfm_recence_jours,
+            c.rfm_frequence,
+            c.rfm_montant_12m
         FROM DIM_CLIENT c
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-        LEFT JOIN FAIT_LIGNES_VENTE v ON v.id_client = c.id_client
-        LEFT JOIN DIM_DATE d ON d.id_date = v.id_date
-        GROUP BY c.CT_Num_code, s.libelle_segment
-        ORDER BY montant DESC
+        WHERE c.rfm_montant_12m IS NOT NULL
+           OR c.rfm_frequence   IS NOT NULL
+        ORDER BY c.rfm_montant_12m DESC
     """
     return [
         {
             "code": str(r.CT_Num_code),
             "name": f"Client {r.CT_Num_code}",
             "segment": r.segment,
-            "frequence": _int(r.frequence),
-            "recence": _int(r.recence, 999),
-            "montant": _num(r.montant),
+            "frequence": _int(r.rfm_frequence),
+            "recence": _int(r.rfm_recence_jours, 999),
+            "montant": _num(r.rfm_montant_12m),
         }
         for r in _rows(sql)
     ]
@@ -645,21 +625,49 @@ def get_acteurs_fournisseurs():
 
 @app.get("/api/acteurs/fournisseur-concentration")
 def get_fournisseur_concentration():
+    """KPI-16 FIX: sum purchase amounts (DO_Domaine=1) from FAIT_LIGNES_VENTE.
+
+    Previously used article count as a proxy — now uses actual purchase
+    line amounts as specified in the KPIs document.
+    Includes HHI (Herfindahl-Hirschman Index) computation for concentration risk.
+    """
     sql = """
+        WITH achats AS (
+            SELECT
+                a.id_fournisseur,
+                SUM(f.DL_MontantHT) AS montant_achat
+            FROM FAIT_LIGNES_VENTE f
+            JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
+            JOIN DIM_ARTICLE a   ON a.id_article   = f.id_article
+            WHERE dom.DO_Domaine = 1
+            GROUP BY a.id_fournisseur
+        ),
+        total AS (
+            SELECT SUM(montant_achat) AS total_achats FROM achats
+        )
         SELECT TOP 20
             COALESCE(CONVERT(VARCHAR(30), f.CT_Num_code), 'Sans fournisseur') AS fournisseur,
             COUNT(a.id_article) AS nb_articles,
-            COALESCE(SUM(a.AR_PrixAch), 0) AS valeur_reference
+            COALESCE(ach.montant_achat, 0) AS montant_achat,
+            CASE
+                WHEN total.total_achats > 0
+                THEN POWER(ach.montant_achat / total.total_achats, 2)
+                ELSE 0
+            END AS hhi_contribution
         FROM DIM_ARTICLE a
         LEFT JOIN DIM_FOURNISSEUR f ON f.id_fournisseur = a.id_fournisseur
-        GROUP BY f.CT_Num_code
-        ORDER BY nb_articles DESC
+        LEFT JOIN achats ach         ON ach.id_fournisseur = a.id_fournisseur
+        CROSS JOIN total
+        GROUP BY f.CT_Num_code, ach.montant_achat, total.total_achats
+        ORDER BY montant_achat DESC
     """
     return [
         {
             "fournisseur": f"Fournisseur {r.fournisseur}",
             "nbArticles": _int(r.nb_articles),
-            "valeurReference": _num(r.valeur_reference),
+            "montantAchat": _num(r.montant_achat),
+            "hhi": round(_num(r.hhi_contribution), 4),
+            "risqueConcentration": _num(r.hhi_contribution) > 0.25,
         }
         for r in _rows(sql)
     ]
@@ -667,7 +675,6 @@ def get_fournisseur_concentration():
 
 @app.get("/api/banque/rapprochement")
 def get_banque_rapprochement():
-    # FIX-1: id_date_paiement (renamed from id_date in v14 DDL)
     sql = """
         SELECT
             d.mois AS month_num,
@@ -747,11 +754,6 @@ def get_caisse_flux_daily():
 
 @app.get("/api/caisse/mouvements-by-type")
 def get_caisse_mouvements_by_type():
-    # FIX-CRASH-3: FAIT_ECRITURES has no raw MC_TypeMvt column — the source
-    # Sage field is resolved to id_type_mvt FK. References to e.MC_TypeMvt
-    # crashed with 'Invalid column name'. GROUP BY and COALESCE fallback now
-    # use tm.MC_TypeMvt (from the joined dimension) instead.
-    # ORDER BY alias 'value' also replaced with the full SUM expression.
     sql = """
         SELECT TOP 10
             COALESCE(tm.libelle_type_mvt, CONCAT('Mouvement ', tm.MC_TypeMvt)) AS name,
@@ -802,8 +804,6 @@ def get_fiscalite_kpis():
 
 @app.get("/api/fiscalite/journaux")
 def get_fiscalite_journaux():
-    # FIX-CRASH-2: SQL Server cannot reference SELECT aliases in ORDER BY.
-    # Replaced 'ORDER BY debit + credit DESC' with the full SUM expressions.
     sql = """
         SELECT TOP 10
             COALESCE(CONVERT(VARCHAR(30), j.JO_Num_code), 'Sans journal') AS journal,
@@ -936,8 +936,6 @@ def get_fiscalite_ecritures():
 
 @app.get("/api/notifications")
 def get_notifications():
-    # FIX-BUG-6: Wrapped sub-calls in try/except so a crash in stock alerts
-    # or impayes does not cascade and kill the entire notifications endpoint.
     try:
         stock = get_stock_alerts()[:6]
     except Exception:
@@ -976,39 +974,24 @@ def search(q: str = ""):
     if not q.strip():
         return {"clients": [], "articles": [], "ecritures": [], "fournisseurs": []}
     clients = _rows(
-        """
-        SELECT TOP 5 CT_Num_code, CT_SoldeActuel
-        FROM DIM_CLIENT
-        WHERE CONVERT(VARCHAR(30), CT_Num_code) LIKE :q
-        ORDER BY CT_Num_code
-        """,
+        "SELECT TOP 5 CT_Num_code, CT_SoldeActuel FROM DIM_CLIENT "
+        "WHERE CONVERT(VARCHAR(30), CT_Num_code) LIKE :q ORDER BY CT_Num_code",
         {"q": needle},
     )
     articles = _rows(
-        """
-        SELECT TOP 5 AR_Ref_code, id_famille
-        FROM DIM_ARTICLE
-        WHERE CONVERT(VARCHAR(30), AR_Ref_code) LIKE :q
-        ORDER BY AR_Ref_code
-        """,
+        "SELECT TOP 5 AR_Ref_code, id_famille FROM DIM_ARTICLE "
+        "WHERE CONVERT(VARCHAR(30), AR_Ref_code) LIKE :q ORDER BY AR_Ref_code",
         {"q": needle},
     )
     ecritures = _rows(
-        """
-        SELECT TOP 5 EC_No, CG_Num, EC_Montant
-        FROM FAIT_ECRITURES
-        WHERE CONVERT(VARCHAR(30), EC_No) LIKE :q OR CONVERT(VARCHAR(30), CG_Num) LIKE :q
-        ORDER BY id_ecriture DESC
-        """,
+        "SELECT TOP 5 EC_No, CG_Num, EC_Montant FROM FAIT_ECRITURES "
+        "WHERE CONVERT(VARCHAR(30), EC_No) LIKE :q OR CONVERT(VARCHAR(30), CG_Num) LIKE :q "
+        "ORDER BY id_ecriture DESC",
         {"q": needle},
     )
     fournisseurs = _rows(
-        """
-        SELECT TOP 5 CT_Num_code, CT_Encours
-        FROM DIM_FOURNISSEUR
-        WHERE CONVERT(VARCHAR(30), CT_Num_code) LIKE :q
-        ORDER BY CT_Num_code
-        """,
+        "SELECT TOP 5 CT_Num_code, CT_Encours FROM DIM_FOURNISSEUR "
+        "WHERE CONVERT(VARCHAR(30), CT_Num_code) LIKE :q ORDER BY CT_Num_code",
         {"q": needle},
     )
     return {
@@ -1021,20 +1004,9 @@ def search(q: str = ""):
 
 @app.get("/api/assistant/summary")
 def get_assistant_summary():
-    # FIX-POOL: the old implementation called get_dashboard_kpis(),
-    # get_articles(), get_clients(), etc. — each opens its own connection
-    # from the pool simultaneously.  With pool_size=5 and max_overflow=10,
-    # concurrent assistant requests could exhaust the pool and block.
-    # Fix: open ONE connection and run all queries sequentially on it.
-    # Each section is wrapped so a single failing table returns [] rather
-    # than crashing the entire summary response.
     result = {
-        "kpis":        {},
-        "tresorerie":  {},
-        "articles":    [],
-        "clients":     [],
-        "impayes":     [],
-        "stockAlerts": [],
+        "kpis": {}, "tresorerie": {}, "articles": [],
+        "clients": [], "impayes": [], "stockAlerts": [],
     }
     with DW_ENGINE.connect() as conn:
         def _q(sql, params=None):
@@ -1047,16 +1019,20 @@ def get_assistant_summary():
                 WITH latest AS (
                     SELECT COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year
                     FROM FAIT_LIGNES_VENTE f
+                    JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
                     LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
+                    WHERE dom.DO_Domaine = 0
                 )
                 SELECT SUM(f.DL_MontantHT) AS ca_total,
                        COUNT(DISTINCT f.DO_Piece_hash) AS nb_commandes,
                        COUNT(DISTINCT f.id_client) AS nb_clients_actifs,
                        SUM(f.DL_MontantHT - (f.DL_Qte * COALESCE(a.AR_PrixAch,0))) AS marge_brute
                 FROM FAIT_LIGNES_VENTE f
+                JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
                 LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
                 LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
-                CROSS JOIN latest WHERE d.annee = latest.latest_year
+                CROSS JOIN latest
+                WHERE dom.DO_Domaine = 0 AND d.annee = latest.latest_year
             """)
             ca = _num(kpi_row.ca_total)
             result["kpis"] = {
@@ -1088,22 +1064,23 @@ def get_assistant_summary():
 
         try:
             result["articles"] = [
-                {"code": f"ART-{r.AR_Ref_code}", "designation": f"Article {r.AR_Ref_code}",
-                 "famille": f"Famille {r.id_famille or 'N/A'}", "qteVendue": _num(r.qte_vendue),
-                 "ca": _num(r.ca), "prixMoyen": _num(r.AR_PrixAch), "marge": 0,
+                {"code": f"ART-{r.AR_Ref_code}", "ca": _num(r.ca),
                  "stock": _num(r.stock), "dsi": _num(r.dsi_jours)}
                 for r in _q("""
-                    WITH sales AS (SELECT id_article, COALESCE(SUM(DL_Qte),0) AS qte_vendue,
-                                          COALESCE(SUM(DL_MontantHT),0) AS ca
-                                   FROM FAIT_LIGNES_VENTE GROUP BY id_article),
-                    stock AS (SELECT e.id_article, MAX(e.AS_QteSto) AS stock,
-                                     MAX(e.dsi_jours) AS dsi_jours
-                              FROM FAIT_ECRITURES e
-                              JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne=e.id_type_ligne
-                               AND tl.type_ligne=4 GROUP BY e.id_article)
-                    SELECT TOP 20 a.AR_Ref_code, a.id_famille, a.AR_PrixAch,
-                           COALESCE(sales.qte_vendue,0) AS qte_vendue,
-                           COALESCE(sales.ca,0) AS ca, stock.stock, stock.dsi_jours
+                    WITH sales AS (
+                        SELECT id_article, COALESCE(SUM(DL_MontantHT),0) AS ca
+                        FROM FAIT_LIGNES_VENTE f
+                        JOIN DIM_DOMAINE dom ON dom.id_domaine=f.id_domaine
+                        WHERE dom.DO_Domaine=0 GROUP BY id_article
+                    ),
+                    stock AS (
+                        SELECT e.id_article, MAX(e.AS_QteSto) AS stock, MAX(e.dsi_jours) AS dsi_jours
+                        FROM FAIT_ECRITURES e
+                        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne=e.id_type_ligne AND tl.type_ligne=4
+                        GROUP BY e.id_article
+                    )
+                    SELECT TOP 20 a.AR_Ref_code, COALESCE(sales.ca,0) AS ca,
+                           stock.stock, stock.dsi_jours
                     FROM DIM_ARTICLE a
                     LEFT JOIN sales ON sales.id_article=a.id_article
                     LEFT JOIN stock ON stock.id_article=a.id_article
@@ -1115,19 +1092,14 @@ def get_assistant_summary():
 
         try:
             result["clients"] = [
-                {"code": str(r.CT_Num_code), "nom": f"Client {r.CT_Num_code}",
-                 "caTotal": _num(r.ca_total), "nbCommandes": _int(r.nb_commandes),
-                 "soldeImpaye": _num(r.solde_impaye), "segment": r.segment, "actif": _int(r.sommeil) == 0}
+                {"code": str(r.CT_Num_code), "rfm_recence": _int(r.rfm_recence_jours, 999),
+                 "rfm_frequence": _int(r.rfm_frequence), "rfm_montant": _num(r.rfm_montant_12m),
+                 "soldeImpaye": _num(r.solde_impaye)}
                 for r in _q("""
-                    SELECT TOP 20 c.CT_Num_code, COALESCE(s.libelle_segment,'Sans segment') AS segment,
-                           SUM(v.DL_MontantHT) AS ca_total,
-                           COUNT(DISTINCT v.DO_Piece_hash) AS nb_commandes,
-                           c.CT_SoldeActuel AS solde_impaye, c.CT_Sommeil AS sommeil
+                    SELECT TOP 20 c.CT_Num_code, c.rfm_recence_jours, c.rfm_frequence,
+                           c.rfm_montant_12m, c.CT_SoldeActuel AS solde_impaye
                     FROM DIM_CLIENT c
-                    LEFT JOIN DIM_SEGMENT s ON s.id_segment=c.id_segment
-                    LEFT JOIN FAIT_LIGNES_VENTE v ON v.id_client=c.id_client
-                    GROUP BY c.CT_Num_code, s.libelle_segment, c.CT_SoldeActuel, c.CT_Sommeil
-                    ORDER BY ca_total DESC
+                    ORDER BY c.rfm_montant_12m DESC
                 """)
             ]
         except Exception:
@@ -1168,73 +1140,40 @@ def get_assistant_summary():
     return result
 
 
-
-# --- LLM Chat Endpoint -------------------------------------------------------
+# ── LLM Chat ──────────────────────────────────────────────────────────────────
 
 class ChatMessage(BaseModel):
-    role: str   # user | assistant
+    role: str
     content: str
-
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
 
-
 _FINANCIAL_KEYWORDS = {
-    "ca",
-    "chiffre",
-    "client",
-    "clients",
-    "stock",
-    "stocks",
-    "impaye",
-    "impayes",
-    "tresorerie",
-    "marge",
-    "vente",
-    "ventes",
-    "article",
-    "articles",
-    "kpi",
-    "analyse",
-    "analyser",
-    "donnee",
-    "donnees",
-    "rapport",
+    "ca", "chiffre", "client", "clients", "stock", "stocks", "impaye", "impayes",
+    "tresorerie", "marge", "vente", "ventes", "article", "articles", "kpi",
+    "analyse", "analyser", "donnee", "donnees", "rapport",
 }
-
-_CASUAL_CA_PHRASES = {
-    "ca va",
-    "comment ca va",
-    "ca marche",
-    "ca roule",
-}
+_CASUAL_CA_PHRASES = {"ca va", "comment ca va", "ca marche", "ca roule"}
 
 
 def _normalize_intent_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text or "")
-    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
-    return ascii_text.lower()
+    return normalized.encode("ascii", "ignore").decode("ascii").lower()
 
 
 def _asks_financial_question(text: str) -> bool:
-    """Return True only when the current user turn asks for financial data."""
     normalized = _normalize_intent_text(text)
     compact = " ".join(normalized.split())
-
     if any(phrase in compact for phrase in _CASUAL_CA_PHRASES):
-        compact = compact.replace("ca va", "").replace("comment ca va", "")
-        compact = compact.replace("ca marche", "").replace("ca roule", "")
-
+        compact = re.sub(r"ca (va|marche|roule)|comment ca va", "", compact)
     words = set(re.findall(r"[a-z0-9]+", compact))
     if words & _FINANCIAL_KEYWORDS:
         return True
-
     return "chiffre d affaires" in compact or "data warehouse" in compact
 
 
 def _build_dw_context() -> str:
-    """Fetch a live DW snapshot and return it as compact JSON for the LLM."""
     ctx: dict = {}
     try:
         summary = get_assistant_summary()
@@ -1249,17 +1188,14 @@ def _build_dw_context() -> str:
     return json.dumps(ctx, ensure_ascii=False, default=str)
 
 
-# NEW
 def _gemini_history(messages: List[ChatMessage]) -> list:
-    history = []
-    for msg in messages[:-1]:
-        history.append(
-            genai.types.Content(
-                role="user" if msg.role == "user" else "model",
-                parts=[genai.types.Part(text=msg.content)],
-            )
+    return [
+        genai.types.Content(
+            role="user" if msg.role == "user" else "model",
+            parts=[genai.types.Part(text=msg.content)],
         )
-    return history
+        for msg in messages[:-1]
+    ]
 
 
 @app.get("/api/assistant/status")
@@ -1269,25 +1205,14 @@ def get_assistant_status():
 
 @app.post("/api/assistant/chat")
 def assistant_chat(req: ChatRequest):
-    """
-    Real LLM chat with Server-Sent Events streaming.
-    1. Detect whether the current turn is a financial/data question
-    2. Inject DW data only for financial questions
-    3. Stream Gemini answer back token-by-token via SSE
-    4. Gracefully degrade when no API key is configured
-    """
     if not _LLM_READY or _GEMINI_CLIENT is None:
         def _no_key():
             yield "data: Ajoutez GEMINI_API_KEY dans etl/.env pour activer l'IA.\n\n"
-            yield "data: Cle gratuite : https://aistudio.google.com/app/apikey\n\n"
             yield "data: [DONE]\n\n"
         return StreamingResponse(_no_key(), media_type="text/event-stream")
 
     if not req.messages:
-        return StreamingResponse(
-            iter(["data: [DONE]\n\n"]),
-            media_type="text/event-stream",
-        )
+        return StreamingResponse(iter(["data: [DONE]\n\n"]), media_type="text/event-stream")
 
     current_user_text = req.messages[-1].content
     is_financial_question = _asks_financial_question(current_user_text)
@@ -1301,17 +1226,11 @@ def assistant_chat(req: ChatRequest):
             + current_user_text
         )
         contents = _gemini_history(req.messages) + [
-            genai.types.Content(
-                role="user",
-                parts=[genai.types.Part(text=prompt)],
-            )
+            genai.types.Content(role="user", parts=[genai.types.Part(text=prompt)])
         ]
     else:
         contents = [
-            genai.types.Content(
-                role="user",
-                parts=[genai.types.Part(text=current_user_text)],
-            )
+            genai.types.Content(role="user", parts=[genai.types.Part(text=current_user_text)])
         ]
 
     def _stream():
@@ -1319,9 +1238,7 @@ def assistant_chat(req: ChatRequest):
             response = _GEMINI_CLIENT.models.generate_content_stream(
                 model=_GEMINI_MODEL,
                 contents=contents,
-                config=genai.types.GenerateContentConfig(
-                    system_instruction=_SYSTEM_PROMPT,
-                ),
+                config=genai.types.GenerateContentConfig(system_instruction=_SYSTEM_PROMPT),
             )
             for chunk in response:
                 text_chunk = chunk.text if chunk.text else ""

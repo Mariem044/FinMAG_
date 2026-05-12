@@ -1,3 +1,4 @@
+// FIXED: Auto-detected CSV separator from navigator.language.
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useMemo, Fragment } from "react";
 import {
@@ -22,6 +23,11 @@ import {
 function csvEscape(value) {
   const text = value == null ? "" : String(value);
   return /[",\n\r;]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function getCsvSeparator() {
+  const locale = typeof navigator !== "undefined" ? navigator.language?.toLowerCase() : "";
+  return locale?.startsWith("fr") ? ";" : ",";
 }
 
 function getExportValue(row, column) {
@@ -73,14 +79,15 @@ export function DataTable({ data, columns, expandable, renderSubRow, exportFilen
   const from = pageIndex * pageSize + 1;
   const to = Math.min((pageIndex + 1) * pageSize, totalRows);
   const exportCsv = () => {
+    const separator = getCsvSeparator();
     const exportColumns = columns.filter((c) => c.accessorKey || c.accessorFn);
     const headers = exportColumns.map((c) =>
       typeof c.header === "string" ? c.header : c.accessorKey || c.id || "",
     );
     const rows = table.getFilteredRowModel().rows.map((row) =>
-      exportColumns.map((column) => csvEscape(getExportValue(row.original, column))).join(";"),
+      exportColumns.map((column) => csvEscape(getExportValue(row.original, column))).join(separator),
     );
-    const csv = [headers.map(csvEscape).join(";"), ...rows].join("\n");
+    const csv = [headers.map(csvEscape).join(separator), ...rows].join("\n");
     const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");

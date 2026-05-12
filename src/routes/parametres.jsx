@@ -1,8 +1,10 @@
+// FIXED: Replaced hardcoded settings-page text with translation keys.
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useParametres } from "@/store/useParametres";
 import { api } from "@/lib/api";
 import { useApiResource } from "@/hooks/useApiResource";
+import { languageOptions } from "@/i18n/Translation";
 
 export const Route = createFileRoute("/parametres")({
   component: ParametresPage,
@@ -12,7 +14,7 @@ function ParametresPage() {
   const {
     langue, setLangue,
     devise, setDevise,
-    t,
+    t, locale,
   } = useParametres();
 
   const [draft, setDraft] = useState({
@@ -41,13 +43,13 @@ function ParametresPage() {
   }
 
   async function handleRunEtl() {
-    setEtlAction("Démarrage ETL...");
+    setEtlAction(t("params.etlStarting"));
     try {
       const result = await api.etl.run();
-      setEtlAction(result.started ? "ETL lancé en arrière-plan." : "ETL déjà en cours.");
+      setEtlAction(result.started ? t("params.etlStarted") : t("params.etlAlreadyRunning"));
       setRefreshKey((v) => v + 1);
     } catch {
-      setEtlAction("Impossible de lancer l'ETL depuis l'API.");
+      setEtlAction(t("params.etlStartFailed"));
     }
   }
 
@@ -69,9 +71,11 @@ function ParametresPage() {
                   onChange={(e) => setDraft({ ...draft, langue: e.target.value })}
                   className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-foreground focus:border-primary outline-none"
                 >
-                  <option>Français</option>
-                  <option>English</option>
-                  <option>العربية</option>
+                  {languageOptions.map((option) => (
+                    <option key={option.code} value={option.label}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -90,26 +94,26 @@ function ParametresPage() {
           </section>
 
           <section className="border-t border-border pt-5">
-            <h2 className="text-lg font-semibold text-foreground mb-4">Données réelles ETL</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-4">{t("params.etlTitle")}</h2>
             <div className="rounded-lg border border-border bg-secondary/30 p-4 space-y-3">
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
                 {["clients", "articles", "ventes", "reglements", "ecritures"].map((key) => (
                   <div key={key}>
                     <p className="text-text-dim uppercase text-[10px]">{key}</p>
                     <p className="text-foreground font-semibold">
-                      {(etlStatus.counts?.[key] ?? 0).toLocaleString("fr-TN")}
+                      {(etlStatus.counts?.[key] ?? 0).toLocaleString(locale())}
                     </p>
                   </div>
                 ))}
               </div>
               <div className="text-sm text-text-dim">
                 {etlError
-                  ? "API indisponible: les tableaux ne peuvent pas charger les données DW."
+                  ? t("params.etlUnavailable")
                   : etlLoading
-                    ? "Lecture du statut ETL..."
+                    ? t("params.etlLoading")
                     : etlStatus.lastRun
-                      ? `Dernier run: ${etlStatus.lastRun.status} - ${etlStatus.lastRun.date}`
-                      : "Aucun run ETL trouvé dans ETL_AUDIT."}
+                      ? `${t("params.etlLastRun")}: ${etlStatus.lastRun.status} - ${etlStatus.lastRun.date}`
+                      : t("params.etlNoRun")}
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-xs text-text-dim">{etlAction}</span>
@@ -119,7 +123,7 @@ function ParametresPage() {
                     onClick={() => setRefreshKey((v) => v + 1)}
                     className="px-3 py-2 border border-border rounded-lg text-foreground hover:bg-secondary transition-colors text-sm"
                   >
-                    Actualiser
+                    {t("params.etlRefresh")}
                   </button>
                   <button
                     type="button"
@@ -127,7 +131,7 @@ function ParametresPage() {
                     disabled={etlStatus.running}
                     className="px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors text-sm"
                   >
-                    {etlStatus.running ? "ETL en cours" : "Lancer ETL"}
+                    {etlStatus.running ? t("params.etlRunning") : t("params.etlRun")}
                   </button>
                 </div>
               </div>

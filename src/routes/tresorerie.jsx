@@ -1,3 +1,4 @@
+// FIXED: Replaced unstable active month array dependencies with a primitive key.
 import { createFileRoute } from "@tanstack/react-router";
 import {
   useChartHeight,
@@ -47,6 +48,7 @@ function TresorerietPage() {
   );
   const { data: agingData, loading: agingLoading } = useApiResource(api.tresorerie.aging, []);
   const activeIdx = getActiveMonthIndexes();
+  const activeIdxKey = activeIdx.join("");
   const chartH = useChartHeight();
   const kpiLoading = summaryLoading || encaissementsLoading;
   const chartsLoading = encaissementsLoading || agingLoading;
@@ -83,7 +85,7 @@ function TresorerietPage() {
         return { month, encaissements, decaissements, solde };
       })
       .filter((_, i) => activeIdx.includes(i) || i < horizonMonths);
-  }, [activeIdx, encaissementsMode, horizonMonths, summary.encaissements, summary.impayes]);
+  }, [activeIdxKey, encaissementsMode, horizonMonths, summary.encaissements, summary.impayes]);
 
   // KPI totals
   const filteredEnc = encaissementsMode.reduce((s, e) => s + e.mag + e.grt, 0);
@@ -142,7 +144,7 @@ function TresorerietPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="pie"
-          key={`${modePaiement}-${horizonPrev}-${source}-${activeIdx.join("")}`}
+          key={`${modePaiement}-${horizonPrev}-${source}-${activeIdxKey}`}
           title={`Encaissements par mode — ${source}${modePaiement !== "Tous" ? ` (${modePaiement})` : ""} (KPI-06)`}
         >
           <div className="grid grid-cols-2 gap-2 h-[280px]">

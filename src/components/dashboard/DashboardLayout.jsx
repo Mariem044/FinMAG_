@@ -1,8 +1,11 @@
+// FIXED: Added route error boundary, filter URL sync, and disabled status polling on static routes.
 import { Outlet, useLocation } from "@tanstack/react-router";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { FiltersBar } from "./FiltersBar";
 import { DataSourceStatus } from "./DataSourceStatus";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { useSyncFiltersWithUrl } from "@/store/useFilters";
 
 // Pages that don't need the filter bar
 const NO_FILTER_PAGES = ["/", "/parametres", "/aide", "/profil", "/assistant"];
@@ -10,6 +13,8 @@ const NO_FILTER_PAGES = ["/", "/parametres", "/aide", "/profil", "/assistant"];
 export function DashboardLayout() {
   const location = useLocation();
   const showFilters = !NO_FILTER_PAGES.includes(location.pathname);
+  const statusDisabled = ["/parametres", "/aide", "/profil", "/assistant"].includes(location.pathname);
+  useSyncFiltersWithUrl();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background/98 to-background/95 relative overflow-hidden">
@@ -21,9 +26,11 @@ export function DashboardLayout() {
       <Header pathname={location.pathname} />
 
       <main className="ml-0 lg:ml-[264px] pt-20 px-4 md:px-6 lg:px-8 pb-8 min-h-[calc(100vh-3.5rem)] transition-all duration-500 relative z-10">
-        <DataSourceStatus />
+        <DataSourceStatus disabled={statusDisabled} />
         {showFilters && <FiltersBar />}
-        <Outlet />
+        <ErrorBoundary resetKey={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   );

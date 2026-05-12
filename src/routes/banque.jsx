@@ -1,3 +1,4 @@
+// FIXED: Replaced unstable active month array dependencies with a primitive key.
 import { createFileRoute } from "@tanstack/react-router";
 import { KPICard } from "@/components/dashboard/KPICard";
 import {
@@ -127,6 +128,7 @@ function BanquePage() {
     [],
   );
   const activeIdx = getActiveMonthIndexes();
+  const activeIdxKey = activeIdx.join("");
   const chartH = useChartHeight();
   const kpiLoading = rapprochementLoading;
   const chartsLoading = rapprochementLoading;
@@ -157,7 +159,7 @@ function BanquePage() {
   // Rapprochement filtered by banque and months
   const rapprochData = useMemo(
     () => rapprochementApi.filter((_, i) => activeIdx.includes(i)),
-    [activeIdx, rapprochementApi],
+    [activeIdxKey, rapprochementApi],
   );
 
   // Current taux — average if multiple banks
@@ -259,7 +261,7 @@ function BanquePage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
-          key={`${banque}-${modeBanque}-${activeIdx.join("")}`}
+          key={`${banque}-${modeBanque}-${activeIdxKey}`}
           title={`Bordereaux${banque !== "Toutes" ? ` — ${banque}` : " par banque"}${modeBanque !== "Tous" ? ` — ${modeBanque}` : ""} (KPI-25)`}
         >
           <ResponsiveContainer width="100%" height={chartH}>

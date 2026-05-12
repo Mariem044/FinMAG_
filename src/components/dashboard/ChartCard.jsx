@@ -1,6 +1,7 @@
+// FIXED: Removed card hover transforms and memoized ChartCard export.
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 
 /**
  * Shimmer skeleton variants for different chart types.
@@ -346,7 +347,7 @@ export function useSimulatedLoading(delay) {
  *   minHeight   {number}  Minimum height in px applied to the skeleton wrapper
  *   className   {string}  Extra classes on the root element
  */
-export function ChartCard({
+export const ChartCard = memo(function ChartCard({
   title,
   subtitle,
   children,
@@ -360,7 +361,7 @@ export function ChartCard({
       className={`
         group relative bg-gradient-to-br from-card via-card/98 to-card/95 border border-border/60 rounded-xl md:rounded-2xl p-4 md:p-5 lg:p-6
         hover:border-primary/50 hover:shadow-lg hover:shadow-primary/25
-        transition-all duration-500 ease-out transform hover:scale-[1.02] hover:-translate-y-1
+        transition-all duration-500 ease-out
         overflow-hidden backdrop-blur-sm before:absolute before:inset-0 before:bg-gradient-to-br before:from-primary/5 before:to-transparent before:opacity-0 hover:before:opacity-100 before:transition-opacity before:duration-500
         ${className}
       `.trim()}
@@ -405,7 +406,7 @@ export function ChartCard({
       {/* Keyframe styles injected once */}
     </div>
   );
-}
+});
 
 /**
  * useChartHeight — returns a chart height appropriate for the screen size.

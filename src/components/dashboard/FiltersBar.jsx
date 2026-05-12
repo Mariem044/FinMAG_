@@ -1,3 +1,4 @@
+// FIXED: Adjusted sticky filter z-index and top offset.
 import { useLocation } from "@tanstack/react-router";
 import { Filter, Calendar, Building2, Users, Database, ChevronDown, X } from "lucide-react";
 import { useFilters } from "@/store/useFilters";
@@ -187,7 +188,7 @@ export function FiltersBar() {
 
   if (isMobile) {
     return (
-      <div className="mb-4 border border-border/40 rounded-xl bg-background/40 backdrop-blur-sm sticky top-14 z-20" role="search" aria-label={t("filters.label")}>
+      <div className="mb-4 border border-border/40 rounded-xl bg-background/40 backdrop-blur-sm sticky top-14 z-10" role="search" aria-label={t("filters.label")}>
         <button onClick={() => setExpanded(!expanded)} className="w-full flex items-center justify-between px-3 py-2.5" aria-expanded={expanded} aria-controls="filters-panel">
           <div className="flex items-center gap-2 text-text-dim">
             <Filter size={13} aria-hidden="true" />
@@ -218,7 +219,7 @@ export function FiltersBar() {
   }
 
   return (
-    <fieldset className="flex flex-wrap items-center gap-2 px-3 py-2 mb-4 border border-border/40 rounded-xl bg-background/40 backdrop-blur-sm sticky top-16 z-20" role="search" aria-label={t("filters.label")}>
+    <fieldset className="flex flex-wrap items-center gap-2 px-3 py-2 mb-4 border border-border/40 rounded-xl bg-background/40 backdrop-blur-sm sticky top-14 z-10" role="search" aria-label={t("filters.label")}>
       <legend className="sr-only">{t("filters.label")}</legend>
 
       <div className="flex items-center gap-1.5 text-text-dim pr-2 border-r border-border/60 flex-shrink-0" aria-hidden="true">

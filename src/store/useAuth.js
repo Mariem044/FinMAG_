@@ -1,16 +1,20 @@
+// FIXED: Separated mock auth behind VITE_USE_MOCK_AUTH and added backend login stub.
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+const USE_MOCK_AUTH = import.meta.env?.VITE_USE_MOCK_AUTH === "true";
+const API_BASE = (import.meta.env?.VITE_API_URL || "").replace(/\/$/, "");
+
 // ─── Mock users database ──────────────────────────────────────────────────────
-// In production, replace with real API calls
+// Demo credentials only. Production auth must use a real backend endpoint
+// with server-side password verification, hashing, rate limiting, and sessions.
 const MOCK_USERS = [
   {
     id: "usr-001",
     prenom: "Ahmed",
     nom: "Dridi",
     email: "ahmed.dridi@magdistribution.tn",
-    // Demo-only hash. Production auth must be handled by a backend.
-    passwordHash: "QWRtaW5AMjAyNF9maW5tYWdfc2FsdF8yMDI0",
+    password: "Admin@2024",
     telephone: "+216 98 765 432",
     poste: "Responsable Financier",
     departement: "Finance",
@@ -26,7 +30,7 @@ const MOCK_USERS = [
     prenom: "Sarra",
     nom: "Ben Salah",
     email: "sarra.bensalah@magdistribution.tn",
-    passwordHash: "TWFuYWdlckAyMDI0X2Zpbm1hZ19zYWx0XzIwMjQ=",
+    password: "Manager@2024",
     telephone: "+216 97 654 321",
     poste: "Manager Commercial",
     departement: "Commercial",
@@ -42,7 +46,7 @@ const MOCK_USERS = [
     prenom: "Karim",
     nom: "Maaloul",
     email: "karim.maaloul@magdistribution.tn",
-    passwordHash: "QW5hbHlzdGVAMjAyNF9maW5tYWdfc2FsdF8yMDI0",
+    password: "Analyste@2024",
     telephone: "+216 96 543 210",
     poste: "Analyste Financier",
     departement: "Finance",
@@ -118,13 +122,8 @@ export const ROLE_PERMISSIONS = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function hashPassword(password) {
-  // In production: use bcrypt. This is a simple demo hash.
-  return btoa(password + "_finmag_salt_2024");
-}
-
-function verifyPassword(plain, stored) {
-  return hashPassword(plain) === stored;
+function verifyMockPassword(plain, stored) {
+  return plain === stored;
 }
 
 function generateSessionToken() {
@@ -147,8 +146,41 @@ export const useAuth = create()(
       isLoading: false,
 
       // ── Login ──────────────────────────────────────────────────────────────
+      loginWithApi: async (email, password) => {
+        const res = await fetch(`${API_BASE}/api/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          throw new Error(body || "Connexion API impossible.");
+        }
+        return res.json();
+      },
+
       login: async (email, password) => {
         set({ isLoading: true, loginError: null });
+
+        if (!USE_MOCK_AUTH) {
+          try {
+            const result = await get().loginWithApi(email, password);
+            set({
+              user: result.user,
+              sessionToken: result.sessionToken,
+              isAuthenticated: true,
+              loginError: null,
+              isLoading: false,
+            });
+            return true;
+          } catch (error) {
+            set({
+              isLoading: false,
+              loginError: error?.message || "Connexion API impossible.",
+            });
+            return false;
+          }
+        }
 
         // Simulate network delay
         await new Promise((r) => setTimeout(r, 800));
@@ -168,12 +200,12 @@ export const useAuth = create()(
           return false;
         }
 
-        if (!verifyPassword(password, found.passwordHash)) {
+        if (!verifyMockPassword(password, found.password)) {
           set({ isLoading: false, loginError: "Mot de passe incorrect." });
           return false;
         }
 
-        const { passwordHash: _passwordHash, ...safeUser } = found;
+        const { password: _password, ...safeUser } = found;
         const sessionToken = generateSessionToken();
 
         set({
@@ -209,11 +241,11 @@ export const useAuth = create()(
 
         // Find full user record to verify current password
         const found = MOCK_USERS.find((u) => u.id === user.id);
-        if (!found || !verifyPassword(currentPassword, found.passwordHash)) {
+        if (!found || !verifyMockPassword(currentPassword, found.password)) {
           return { success: false, error: "Mot de passe actuel incorrect." };
         }
 
-        found.passwordHash = hashPassword(newPassword);
+        found.password = newPassword;
         return { success: true };
       },
 

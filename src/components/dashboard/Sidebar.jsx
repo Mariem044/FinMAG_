@@ -1,3 +1,5 @@
+// FIXED: Memoized Sidebar export to reduce layout re-renders.
+import { memo } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { useSidebar } from "@/store/useSidebar";
 import { useParametres } from "@/store/useParametres";
@@ -17,7 +19,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
-export function Sidebar() {
+export const Sidebar = memo(function Sidebar() {
   const location = useLocation();
   const path = location.pathname;
   const { open, setOpen } = useSidebar();
@@ -141,4 +143,4 @@ export function Sidebar() {
       </aside>
     </>
   );
-}
+});

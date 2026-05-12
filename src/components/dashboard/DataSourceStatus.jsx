@@ -1,3 +1,4 @@
+// FIXED: Added disabled prop to skip ETL status display/polling on irrelevant routes.
 import { Link } from "@tanstack/react-router";
 import { AlertTriangle, Database, Loader2 } from "lucide-react";
 import { useEffect, useCallback, useState } from "react";
@@ -6,7 +7,7 @@ import { api } from "@/lib/api";
 const POLL_RUNNING_MS  = 3_000;   // fast poll while ETL is active
 const POLL_IDLE_MS     = 30_000;  // slow poll when nothing is running
 
-export function DataSourceStatus() {
+export function DataSourceStatus({ disabled = false }) {
   const defaultData = { running: false, lastRun: null, counts: {} };
   const [data,      setData]      = useState(defaultData);
   const [error,     setError]     = useState(null);
@@ -31,11 +32,13 @@ export function DataSourceStatus() {
   // Use a short interval while the ETL is running so the UI transitions
   // to "done" promptly; use a long interval when idle to save DB load.
   useEffect(() => {
+    if (disabled) return undefined;
     fetch(); // immediate first fetch
     const interval = setInterval(fetch, data.running ? POLL_RUNNING_MS : POLL_IDLE_MS);
     return () => clearInterval(interval);
-  }, [fetch, data.running]);
+  }, [disabled, fetch, data.running]);
 
+  if (disabled) return null;
 
   if (loading) {
     return (

@@ -1,3 +1,6 @@
+// FIXED: Added URL search-param hydration and mirroring for dashboard filters.
+import { useEffect, useState } from "react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { create } from "zustand";
 
 export const FILTER_DEFAULTS = {
@@ -15,6 +18,38 @@ export const FILTER_DEFAULTS = {
   horizonPrev: "30j",
   statutArticle: "Tous",
 };
+
+const FILTER_KEYS = Object.keys(FILTER_DEFAULTS);
+
+function readSearchValue(search, key) {
+  const value = search?.[key];
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+function filtersFromSearch(search) {
+  return FILTER_KEYS.reduce((next, key) => {
+    const raw = readSearchValue(search, key);
+    if (raw === undefined || raw === null || raw === "") {
+      next[key] = FILTER_DEFAULTS[key];
+      return next;
+    }
+    next[key] = key === "year" ? Number(raw) || FILTER_DEFAULTS.year : String(raw);
+    return next;
+  }, {});
+}
+
+function filtersToSearch(filters) {
+  return FILTER_KEYS.reduce((next, key) => {
+    next[key] = String(filters[key] ?? FILTER_DEFAULTS[key]);
+    return next;
+  }, {});
+}
+
+function sameFilterSearch(search, filters) {
+  const target = filtersToSearch(filters);
+  return FILTER_KEYS.every((key) => String(readSearchValue(search, key) ?? "") === target[key]);
+}
 
 export const useFilters = create((set, get) => ({
   ...FILTER_DEFAULTS,
@@ -43,3 +78,42 @@ export const useFilters = create((set, get) => ({
     return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
   },
 }));
+
+export function useSyncFiltersWithUrl() {
+  const search = useSearch({ strict: false });
+  const navigate = useNavigate();
+  const [hydrated, setHydrated] = useState(false);
+  const filters = useFilters();
+
+  useEffect(() => {
+    if (hydrated) return;
+    useFilters.setState(filtersFromSearch(search));
+    setHydrated(true);
+  }, [hydrated, search]);
+
+  useEffect(() => {
+    if (!hydrated || sameFilterSearch(search, filters)) return;
+    const nextFilters = filtersToSearch(filters);
+    navigate({
+      replace: true,
+      search: (old) => ({ ...old, ...nextFilters }),
+    });
+  }, [
+    hydrated,
+    navigate,
+    search,
+    filters.year,
+    filters.quarter,
+    filters.month,
+    filters.region,
+    filters.famille,
+    filters.segment,
+    filters.depot,
+    filters.banque,
+    filters.modeBanque,
+    filters.modePaiement,
+    filters.source,
+    filters.horizonPrev,
+    filters.statutArticle,
+  ]);
+}
