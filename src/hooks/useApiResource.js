@@ -1,4 +1,3 @@
-// FIXED: Added stale-while-revalidate cache and in-flight request deduplication.
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const DEFAULT_CACHE_TTL_MS = 30_000;
@@ -25,10 +24,6 @@ function normalizeArgs(deps, options) {
   return { deps: [], options: deps ?? {} };
 }
 
-/**
- * useApiResource fetches API data with stale-while-revalidate semantics.
- * Cached data is returned immediately on remount, then refreshed in background.
- */
 export function useApiResource(fetcher, initialData, deps = [], options = {}) {
   const { deps: effectDeps, options: normalizedOptions } = normalizeArgs(deps, options);
   const ttlMs = normalizedOptions.cacheTtlMs ?? normalizedOptions.ttlMs ?? DEFAULT_CACHE_TTL_MS;

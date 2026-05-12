@@ -1,9 +1,3 @@
-"""
-utils/audit.py - SIAD MAG Distribution ETL
-
-Audit helpers for ETL_AUDIT: run locking, per-table metrics, and last
-successful run lookup.
-"""
 from __future__ import annotations
 
 import time
@@ -23,7 +17,6 @@ _STALE_RUNNING_HOURS = 24
 
 
 def _abort_stale_runs(conn) -> None:
-    """Abort RUNNING audit rows old enough to be considered abandoned."""
     conn.execute(
         text(
             f"UPDATE {_TABLE} "
@@ -39,12 +32,6 @@ def _abort_stale_runs(conn) -> None:
 
 
 def acquire_lock() -> bool:
-    """
-    Return True when no ETL run is currently marked RUNNING.
-
-    If ETL_AUDIT does not exist yet, this is probably the first run before
-    DDL creation, so the pipeline is allowed to continue.
-    """
     try:
         with DW_ENGINE.begin() as conn:
             _abort_stale_runs(conn)
@@ -69,7 +56,6 @@ def acquire_lock() -> bool:
 
 
 def release_lock(run_id: int) -> None:
-    """Mark a still-running pipeline row as ABORTED."""
     try:
         with DW_ENGINE.begin() as conn:
             conn.execute(
@@ -84,12 +70,6 @@ def release_lock(run_id: int) -> None:
 
 
 def get_last_run_info() -> tuple[Optional[datetime], str]:
-    """
-    Return (last_run_date, mode).
-
-    - Empty or missing ETL_AUDIT -> (None, "full")
-    - Existing successful pipeline run -> (MAX(run_date), "delta")
-    """
     try:
         with DW_ENGINE.connect() as conn:
             result = conn.execute(
@@ -112,7 +92,6 @@ def get_last_run_info() -> tuple[Optional[datetime], str]:
 
 
 def start_run(mode: str) -> int:
-    """Atomically insert the main RUNNING row into ETL_AUDIT and return run_id."""
     with DW_ENGINE.begin() as conn:
         result = conn.execute(
             text(
@@ -157,7 +136,6 @@ def log_table(
     status: str,
     error_msg: Optional[str] = None,
 ) -> None:
-    """Insert one audit row for a processed table."""
     try:
         with DW_ENGINE.begin() as conn:
             conn.execute(
@@ -182,7 +160,6 @@ def log_table(
 
 
 def end_run(run_id: int, status: str, error_msg: Optional[str] = None) -> None:
-    """Update the main pipeline audit row with final status and error text."""
     try:
         with DW_ENGINE.begin() as conn:
             conn.execute(
@@ -211,14 +188,6 @@ def table_timer(
     rows_inserted: int = 0,
     rows_updated: int = 0,
 ) -> Generator[dict, None, None]:
-    """
-    Time a table load and write its audit row.
-
-    The context dict lets callers update row counts:
-        with table_timer(run_id, "DIM_CLIENT") as ctx:
-            ...
-            ctx["rows_inserted"] = n
-    """
     ctx: dict = {"rows_inserted": rows_inserted, "rows_updated": rows_updated}
     t0 = time.perf_counter()
 

@@ -1,10 +1,5 @@
-// FIXED: Replaced unstable active month array dependencies with a primitive key.
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  useChartHeight,
-  ChartCard,
-  KPICardSkeleton,
-} from "@/components/dashboard/ChartCard";
+import { useChartHeight, ChartCard, KPICardSkeleton } from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
 import { Banknote, AlertCircle, Clock, TrendingUp } from "lucide-react";
@@ -53,7 +48,6 @@ function TresorerietPage() {
   const kpiLoading = summaryLoading || encaissementsLoading;
   const chartsLoading = encaissementsLoading || agingLoading;
 
-  // Filter encaissements by mode
   const encaissementsMode = useMemo(() => {
     const rows =
       modePaiement === "Tous"
@@ -68,7 +62,6 @@ function TresorerietPage() {
 
   const donutData = encaissementsMode.map((d) => ({ name: d.mode, value: d.mag + d.grt }));
 
-  // Filter waterfall by month selection AND horizon
   const horizonMonths = horizonPrev === "30j" ? 3 : horizonPrev === "60j" ? 6 : 9;
   const waterfallFlat = useMemo(() => {
     const baseEncaissements =
@@ -78,16 +71,17 @@ function TresorerietPage() {
 
     return MONTHS.slice(0, horizonMonths)
       .map((month, i) => {
-        const monthFactor = 0.72 + ((i % 4) * 0.08);
+        const monthFactor = 0.72 + (i % 4) * 0.08;
         const encaissements = Math.round((baseEncaissements / horizonMonths) * monthFactor);
-        const decaissements = -Math.round((baseDecaissements / horizonMonths) * (1.05 - (i % 3) * 0.05));
+        const decaissements = -Math.round(
+          (baseDecaissements / horizonMonths) * (1.05 - (i % 3) * 0.05),
+        );
         solde += encaissements + decaissements;
         return { month, encaissements, decaissements, solde };
       })
       .filter((_, i) => activeIdx.includes(i) || i < horizonMonths);
   }, [activeIdxKey, encaissementsMode, horizonMonths, summary.encaissements, summary.impayes]);
 
-  // KPI totals
   const filteredEnc = encaissementsMode.reduce((s, e) => s + e.mag + e.grt, 0);
   const totalEnc = summary.encaissements || filteredEnc;
   const impayes = summary.impayes || 0;

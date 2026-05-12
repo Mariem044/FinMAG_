@@ -1,11 +1,6 @@
-// FIXED: Replaced unstable active month array dependencies with a primitive key.
 import { createFileRoute } from "@tanstack/react-router";
 import { KPICard } from "@/components/dashboard/KPICard";
-import {
-  useChartHeight,
-  ChartCard,
-  KPICardSkeleton,
-} from "@/components/dashboard/ChartCard";
+import { useChartHeight, ChartCard, KPICardSkeleton } from "@/components/dashboard/ChartCard";
 import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
 import { Landmark, CheckCircle, Receipt, Clock } from "lucide-react";
 import {
@@ -35,7 +30,6 @@ export const Route = createFileRoute("/banque")({
 const ALL_BANQUES = ["AMEN", "ZITOUNA", "QNB", "BT"];
 const ALL_MODES = ["Chèque", "Traite", "Virement"];
 const priorityColor = { Chèque: "#3b82f6", Traite: "#ef4444", Virement: "#22c55e" };
-
 
 function GaugeRapprochement({ value }) {
   const pct = value / 100;
@@ -139,7 +133,6 @@ function BanquePage() {
     [modeBanque],
   );
 
-  // Bordereau data filtered by banque and mode
   const banqueMode = useMemo(
     () =>
       activeBanques.map((b, bankIndex) => {
@@ -156,13 +149,11 @@ function BanquePage() {
     [activeBanques, activeModes, rapprochementApi],
   );
 
-  // Rapprochement filtered by banque and months
   const rapprochData = useMemo(
     () => rapprochementApi.filter((_, i) => activeIdx.includes(i)),
     [activeIdxKey, rapprochementApi],
   );
 
-  // Current taux — average if multiple banks
   const currentTaux =
     rapprochData.length > 0
       ? Math.round(rapprochData.reduce((s, d) => s + d.taux, 0) / rapprochData.length)
@@ -182,7 +173,9 @@ function BanquePage() {
 
   const totalAgios = agiosData.reduce((sum, row) => sum + row.agios, 0);
   const floatMoyen = agiosData.length
-    ? parseFloat((agiosData.reduce((sum, row) => sum + row.nbJour, 0) / agiosData.length).toFixed(1))
+    ? parseFloat(
+        (agiosData.reduce((sum, row) => sum + row.nbJour, 0) / agiosData.length).toFixed(1),
+      )
     : 0;
 
   const nonRapproches = useMemo(
@@ -212,7 +205,6 @@ function BanquePage() {
     [activeBanques, activeModes, rapprochData],
   );
 
-  // Total remis
   const totalRemis = banqueMode.reduce((s, b) => {
     return s + activeModes.reduce((ms, m) => ms + (b[m] || 0), 0);
   }, 0);

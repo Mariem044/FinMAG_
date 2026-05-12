@@ -1,4 +1,3 @@
-// FIXED: Normalized persisted language values and exposed locale-aware translation helpers.
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { translations, langCodeMap, localeMap, normalizeLanguage } from "@/i18n/Translation";

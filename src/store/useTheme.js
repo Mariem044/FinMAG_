@@ -15,7 +15,7 @@ export const useTheme = create()(
 );
 const LEGACY_THEME_KEY = "siad-theme";
 const THEME_KEY = "finmag-theme";
-/** Call once on app boot to apply persisted theme */
+
 export function applyStoredTheme() {
   try {
     const legacy = localStorage.getItem(LEGACY_THEME_KEY);

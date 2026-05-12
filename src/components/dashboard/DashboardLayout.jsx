@@ -1,4 +1,3 @@
-// FIXED: Added route error boundary, filter URL sync, and disabled status polling on static routes.
 import { Outlet, useLocation } from "@tanstack/react-router";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
@@ -7,13 +6,14 @@ import { DataSourceStatus } from "./DataSourceStatus";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useSyncFiltersWithUrl } from "@/store/useFilters";
 
-// Pages that don't need the filter bar
 const NO_FILTER_PAGES = ["/", "/parametres", "/aide", "/profil", "/assistant"];
 
 export function DashboardLayout() {
   const location = useLocation();
   const showFilters = !NO_FILTER_PAGES.includes(location.pathname);
-  const statusDisabled = ["/parametres", "/aide", "/profil", "/assistant"].includes(location.pathname);
+  const statusDisabled = ["/parametres", "/aide", "/profil", "/assistant"].includes(
+    location.pathname,
+  );
   useSyncFiltersWithUrl();
 
   return (

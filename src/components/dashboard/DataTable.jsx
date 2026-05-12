@@ -1,4 +1,3 @@
-// FIXED: Auto-detected CSV separator from navigator.language.
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useMemo, Fragment } from "react";
 import {
@@ -36,7 +35,13 @@ function getExportValue(row, column) {
   return "";
 }
 
-export function DataTable({ data, columns, expandable, renderSubRow, exportFilename = "export.csv" }) {
+export function DataTable({
+  data,
+  columns,
+  expandable,
+  renderSubRow,
+  exportFilename = "export.csv",
+}) {
   const [sorting, setSorting] = useState([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [expanded, setExpanded] = useState({});
@@ -84,9 +89,13 @@ export function DataTable({ data, columns, expandable, renderSubRow, exportFilen
     const headers = exportColumns.map((c) =>
       typeof c.header === "string" ? c.header : c.accessorKey || c.id || "",
     );
-    const rows = table.getFilteredRowModel().rows.map((row) =>
-      exportColumns.map((column) => csvEscape(getExportValue(row.original, column))).join(separator),
-    );
+    const rows = table
+      .getFilteredRowModel()
+      .rows.map((row) =>
+        exportColumns
+          .map((column) => csvEscape(getExportValue(row.original, column)))
+          .join(separator),
+      );
     const csv = [headers.map(csvEscape).join(separator), ...rows].join("\n");
     const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);

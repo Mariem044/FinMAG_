@@ -1,17 +1,3 @@
-"""
-extract.py — SIAD MAG Distribution ETL — v14.5
-Extraction from MAG_2020 (Sage Gestion Commerciale)
-and GRT_MAG (Sage Trésorerie).
-
-FIXES vs v14.4
-──────────────────────────────────────────────────────────────────────────
-KPI-10 FIX : extract_fait_reglech() added — extracts F_REGLECH (créances
-             réglées) so RC_Montant is populated in FAIT_REGLEMENTS.
-             Previously RC_Montant was always NULL, making the KPI-10
-             taux de recouvrement formula (RC_Montant / DR_Montant)
-             impossible.  F_REGLECH is joined by DO_Piece in the
-             pipeline's _assemble_fait_reglements() step.
-"""
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -29,9 +15,9 @@ import os as _os
 _QUERY_TIMEOUT: int = int(_os.getenv("ETL_QUERY_TIMEOUT", "120"))
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# HELPERS
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def _read(engine, sql: str, params: Optional[dict] = None) -> pd.DataFrame:
     with engine.connect() as conn:
@@ -68,9 +54,9 @@ def _column_exists(engine, table: str, column: str) -> bool:
         return conn.execute(text(sql), {"tbl": table, "col": column}).scalar() > 0
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# MAG_2020
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def extract_exercices_fiscaux() -> list[tuple[date, date]]:
     sql = """
@@ -164,11 +150,6 @@ def extract_dim_client_mag(last_run: Optional[datetime] = None) -> pd.DataFrame:
 
 
 def extract_dim_client_grt() -> pd.DataFrame:
-    """Extract client financial data from GRT_MAG.
-
-    FIX-BUG7: Runtime check for CT_EchustTroisMois (Sage typo) vs
-    CT_EchusTroisMois (standard spelling).
-    """
     if _column_exists(GRT_ENGINE, "F_COMPTET", "CT_EchustTroisMois"):
         echust_col = "CT_EchustTroisMois AS CT_EchusTroisMois"
         logger.debug("GRT F_COMPTET: using CT_EchustTroisMois (Sage typo variant)")
@@ -230,12 +211,10 @@ def extract_dim_banque_mag() -> pd.DataFrame:
 
 
 def extract_dim_banque_grt() -> pd.DataFrame:
-    """GRT has no bank master table — return empty frame with expected columns."""
     return pd.DataFrame(columns=["EB_Abrege", "EB_Banque"])
 
 
 def extract_dim_caisse_mag() -> pd.DataFrame:
-    """MAG cash-register master data. CA_Type existence is checked at runtime."""
     check_sql = (
         "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
         "WHERE TABLE_NAME = 'F_CAISSE' AND COLUMN_NAME = 'CA_Type'"
@@ -252,16 +231,9 @@ def extract_dim_caisse_mag() -> pd.DataFrame:
     return _read(MAG_ENGINE, sql)
 
 
-# ── KPI-16 FIX: Purchase lines (DO_Domaine=1) ────────────────────────────────
+
 
 def extract_fait_lignes_achat(last_run: Optional[datetime] = None) -> pd.DataFrame:
-    """Purchase lines from MAG_2020 (DO_Domaine=1) for KPI-16.
-
-    Loaded into FAIT_LIGNES_VENTE alongside sales lines. Use id_domaine=1
-    as the discriminant in BI queries to isolate purchase data.
-
-    DO_Type 16 = Facture fournisseur, 17 = Avoir fournisseur.
-    """
     delta_clause, params = _delta_filter("dl.cbModification", last_run)
     sql = f"""
         SELECT
@@ -297,12 +269,6 @@ def extract_fait_lignes_achat(last_run: Optional[datetime] = None) -> pd.DataFra
 
 
 def extract_fait_lignes_vente(last_run: Optional[datetime] = None) -> pd.DataFrame:
-    """Sales lines from MAG_2020.
-
-    Filters DO_Domaine=0, DO_Type IN (6, 7) — Facture client + Avoir client.
-    FIX-BUG10: DE_No removed — id_depot was dropped from FAIT_LIGNES_VENTE
-    in schema v11.
-    """
     delta_clause, params = _delta_filter("dl.cbModification", last_run)
     sql = f"""
         SELECT
@@ -377,7 +343,6 @@ def extract_fait_regtaxe(last_run: Optional[datetime] = None) -> pd.DataFrame:
 
 
 def extract_fait_artstock() -> pd.DataFrame:
-    """Full stock snapshot — always a complete reload."""
     sql = """
         SELECT AR_Ref, DE_No, AS_MontSto, AS_QteSto, AS_QteMini, AS_QteRes
         FROM F_ARTSTOCK
@@ -386,7 +351,6 @@ def extract_fait_artstock() -> pd.DataFrame:
 
 
 def extract_reglementt() -> pd.DataFrame:
-    """Contractual payment terms from MAG."""
     sql = """
         SELECT CT_Num, N_Reglement, RT_NbJour
         FROM F_REGLEMENTT
@@ -402,16 +366,9 @@ def extract_docentete_dates() -> pd.DataFrame:
     return _read(MAG_ENGINE, sql)
 
 
-# ── KPI-10 FIX: Créances réglées from F_REGLECH ──────────────────────────────
+
 
 def extract_fait_reglech() -> pd.DataFrame:
-    """Extract F_REGLECH (créances réglées) for KPI-10 taux de recouvrement.
-
-    KPI-10 FIX: RC_Montant = montant réglé sur une échéance.
-    Formula: taux_recouvrement = SUM(RC_Montant) / SUM(DR_Montant) per client.
-    F_REGLECH has no cbModification — always a full reload.
-    Joined to FAIT_REGLEMENTS by DO_Piece in _assemble_fait_reglements().
-    """
     sql = """
         SELECT DO_Piece, SUM(RC_Montant) AS RC_Montant
         FROM F_REGLECH
@@ -426,9 +383,9 @@ def extract_fait_reglech() -> pd.DataFrame:
         return pd.DataFrame(columns=["DO_Piece", "RC_Montant"])
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# GRT_MAG
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("rc.RT_Date", last_run)
@@ -475,12 +432,6 @@ def extract_fait_reglements_fournisseurs(last_run: Optional[datetime] = None) ->
 
 
 def extract_docregl_grt(last_run: Optional[datetime] = None) -> pd.DataFrame:
-    """Document règlement data from GRT_MAG.
-
-    FIX-BUG4: only ONE definition kept (duplicate removed).
-    GRT F_DOCREGL has no cbModification — always a full reload.
-    last_run is accepted for API compatibility but ignored.
-    """
     sql = """
         SELECT DO_Piece, DR_Montant, DR_EtatRegle AS DR_Regle, DR_ModeReg
         FROM F_DOCREGL
@@ -489,11 +440,6 @@ def extract_docregl_grt(last_run: Optional[datetime] = None) -> pd.DataFrame:
 
 
 def extract_fait_mvtcaisse(last_run: Optional[datetime] = None) -> pd.DataFrame:
-    """Cash movements from GRT.
-
-    FIX-JOIN : GRT F_Caisse PK column is CA_Numero, aliased to CA_No.
-    FIX-DELTA: delta filter on MC_Date.
-    """
     delta_clause, params = _delta_filter("mc.MC_Date", last_run)
     sql = f"""
         SELECT
@@ -525,9 +471,9 @@ def extract_dim_type_mvt_caisse() -> pd.DataFrame:
     return _read(GRT_ENGINE, sql)
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# STATIC DIMENSIONS
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def extract_static_dims() -> dict[str, pd.DataFrame]:
     from etl.config import (

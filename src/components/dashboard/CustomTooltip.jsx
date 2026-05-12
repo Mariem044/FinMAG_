@@ -1,4 +1,3 @@
-// FIXED: Used parameter store language for tooltip number locale.
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useParametres } from "@/store/useParametres";
 
@@ -35,7 +34,8 @@ export function CustomTooltip({ active, payload, label }) {
                 }),
                 _jsx("span", {
                   className: "text-foreground font-medium tabular-nums",
-                  children: typeof p.value === "number" ? p.value.toLocaleString(locale()) : p.value,
+                  children:
+                    typeof p.value === "number" ? p.value.toLocaleString(locale()) : p.value,
                 }),
               ],
             },

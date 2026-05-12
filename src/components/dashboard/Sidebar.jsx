@@ -1,4 +1,3 @@
-// FIXED: Memoized Sidebar export to reduce layout re-renders.
 import { memo } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { useSidebar } from "@/store/useSidebar";
@@ -27,23 +26,22 @@ export const Sidebar = memo(function Sidebar() {
   const { canAccessRoute } = useAuth();
 
   const allNavItems = [
-    { to: "/",           label: t("nav.dashboard"), icon: LayoutDashboard },
-    { to: "/ventes",     label: t("nav.ventes"),    icon: TrendingUp },
+    { to: "/", label: t("nav.dashboard"), icon: LayoutDashboard },
+    { to: "/ventes", label: t("nav.ventes"), icon: TrendingUp },
     { to: "/tresorerie", label: t("nav.tresorerie"), icon: Wallet },
-    { to: "/produits",   label: t("nav.produits"),  icon: Boxes },
-    { to: "/acteurs",    label: t("nav.acteurs"),   icon: Users },
-    { to: "/fiscalite",  label: t("nav.fiscalite"), icon: Receipt },
-    { to: "/caisse",     label: t("nav.caisse"),    icon: Banknote },
-    { to: "/banque",     label: t("nav.banque"),    icon: Landmark },
+    { to: "/produits", label: t("nav.produits"), icon: Boxes },
+    { to: "/acteurs", label: t("nav.acteurs"), icon: Users },
+    { to: "/fiscalite", label: t("nav.fiscalite"), icon: Receipt },
+    { to: "/caisse", label: t("nav.caisse"), icon: Banknote },
+    { to: "/banque", label: t("nav.banque"), icon: Landmark },
   ];
 
-  // Filter nav items based on user's role permissions
   const navItems = allNavItems.filter((item) => canAccessRoute(item.to));
 
   const bottomItems = [
     { to: "/assistant", label: t("nav.assistant"), icon: Sparkles },
-    { to: "/parametres",label: t("nav.parametres"),icon: Settings },
-    { to: "/aide",      label: t("nav.aide"),      icon: HelpCircle },
+    { to: "/parametres", label: t("nav.parametres"), icon: Settings },
+    { to: "/aide", label: t("nav.aide"), icon: HelpCircle },
   ].filter((item) => canAccessRoute(item.to));
 
   return (
@@ -64,7 +62,6 @@ export const Sidebar = memo(function Sidebar() {
           backdrop-blur-sm
         `}
       >
-        {/* Logo */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-border">
           <div>
             <h1 className="text-[22px] leading-none font-extrabold text-foreground tracking-tight">
@@ -82,7 +79,6 @@ export const Sidebar = memo(function Sidebar() {
           </button>
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
           <p className="text-[10px] font-semibold text-text-dim uppercase tracking-widest px-3 mb-2">
             {t("nav.domains")}
@@ -117,7 +113,6 @@ export const Sidebar = memo(function Sidebar() {
           })}
         </nav>
 
-        {/* Bottom section */}
         <div className="border-t border-border px-3 py-3 space-y-0.5">
           {bottomItems.map((item) => {
             const active = path === item.to;
@@ -127,12 +122,16 @@ export const Sidebar = memo(function Sidebar() {
                 to={item.to}
                 onClick={() => setOpen(false)}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] w-full transition-colors border
-                  ${active
-                    ? "bg-primary/10 text-primary border-primary/20"
-                    : "text-text-muted hover:bg-surface-hover hover:text-foreground border-transparent"
+                  ${
+                    active
+                      ? "bg-primary/10 text-primary border-primary/20"
+                      : "text-text-muted hover:bg-surface-hover hover:text-foreground border-transparent"
                   }`}
               >
-                <item.icon size={16} className={active ? "text-primary flex-shrink-0" : "text-text-dim flex-shrink-0"} />
+                <item.icon
+                  size={16}
+                  className={active ? "text-primary flex-shrink-0" : "text-text-dim flex-shrink-0"}
+                />
                 {item.label}
               </Link>
             );

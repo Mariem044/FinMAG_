@@ -3,11 +3,6 @@ import { useNavigate, useLocation } from "@tanstack/react-router";
 import { useAuth } from "@/store/useAuth";
 import { ShieldOff } from "lucide-react";
 
-/**
- * ProtectedRoute — wraps any component that requires authentication.
- * Redirects to /login if not authenticated.
- * Shows access denied if role doesn't have permission for current route.
- */
 export function ProtectedRoute({ children }) {
   const { isAuthenticated, canAccessRoute } = useAuth();
   const navigate = useNavigate();

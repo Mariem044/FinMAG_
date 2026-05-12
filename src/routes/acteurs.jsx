@@ -28,16 +28,12 @@ export const Route = createFileRoute("/acteurs")({
   component: ActeursPage,
 });
 
-// ── Constants ──────────────────────────────────────────────────────────────────
-
 const rfmSegmentColors = {
   Champion: "#22c55e",
   Fidèle: "#3b82f6",
   Risque: "#f97316",
   Dormant: "#ef4444",
 };
-
-// ── Gauge component ────────────────────────────────────────────────────────────
 
 function GaugeSimple({ pct, color, label, value }) {
   const r = 55,
@@ -63,8 +59,6 @@ function GaugeSimple({ pct, color, label, value }) {
   );
 }
 
-// ── Empty state helper ─────────────────────────────────────────────────────────
-
 function EmptyState({ message = "Aucune donnée pour ce filtre" }) {
   return (
     <div className="flex items-center justify-center h-full min-h-[160px] text-text-dim text-[13px] italic">
@@ -72,8 +66,6 @@ function EmptyState({ message = "Aucune donnée pour ce filtre" }) {
     </div>
   );
 }
-
-// ── Page ───────────────────────────────────────────────────────────────────────
 
 function ActeursPage() {
   const { segment, depot } = useFilters();
@@ -105,18 +97,15 @@ function ActeursPage() {
     () =>
       clients.map((c) => ({
         ...c,
-        attritionScore:
-          (c.nbCommandes || 0) === 0 || Number(c.soldeImpaye || 0) > 0 ? 0.75 : 0.25,
+        attritionScore: (c.nbCommandes || 0) === 0 || Number(c.soldeImpaye || 0) > 0 ? 0.75 : 0.25,
       })),
     [clients],
   );
 
-  // ── Filtered clients ────────────────────────────────────────────────────────
   const filteredClients = useMemo(() => {
     return clients.filter((c) => {
-      // segment filter — matches "Grand compte" / "PME" / "Petit client"
       if (segment !== "Tous" && c.segment !== segment) return false;
-      // depot filter — depot names like "Tunis Nord" map to region "Tunis"
+
       if (depot !== "Tous") {
         const regionFragment = depot.replace("Dépôt ", "");
         if (!c.region?.toLowerCase().includes(regionFragment.toLowerCase())) return false;
@@ -130,13 +119,11 @@ function ActeursPage() {
     [filteredClients],
   );
 
-  // ── RFM scatter ─────────────────────────────────────────────────────────────
   const rfmData = useMemo(
     () => rfmSeed.filter((d) => filteredCodes.has(d.code)),
     [filteredCodes, rfmSeed],
   );
 
-  // ── Aging (top 8 by >90j, from the filtered set) ───────────────────────────
   const agingGRT = useMemo(
     () =>
       agingRows
@@ -146,10 +133,8 @@ function ActeursPage() {
     [filteredCodes, agingRows],
   );
 
-  // ── Livreurs filtered by depot ──────────────────────────────────────────────
   const livreurs = useMemo(() => [], [depot]);
 
-  // ── Attrition ───────────────────────────────────────────────────────────────
   const atRiskClients = useMemo(
     () =>
       attritionSeed
@@ -159,7 +144,6 @@ function ActeursPage() {
     [filteredCodes, attritionSeed],
   );
 
-  // ── KPIs ────────────────────────────────────────────────────────────────────
   const nbActifs = filteredClients.filter((c) => c.actif).length;
 
   const attritionPct =
@@ -169,7 +153,6 @@ function ActeursPage() {
 
   return (
     <div className="space-y-6">
-      {/* KPI row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KPICard
           label="Clients actifs"
@@ -198,7 +181,6 @@ function ActeursPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* ── Widget 1: RFM Matrix ─────────────────────────────────────────── */}
         <ChartCard
           key={`rfm-${segment}-${depot}`}
           title={`Matrice RFM clients${segment !== "Tous" ? ` — ${segment}` : ""} (KPI-22)`}
@@ -254,7 +236,6 @@ function ActeursPage() {
           )}
         </ChartCard>
 
-        {/* ── Widget 2: Aging GRT ──────────────────────────────────────────── */}
         <ChartCard
           key={`aging-${segment}-${depot}`}
           title="Vieillissement créances GRT — par client (KPI-22b)"
@@ -288,7 +269,6 @@ function ActeursPage() {
           )}
         </ChartCard>
 
-        {/* ── Widget 3: Livreurs ───────────────────────────────────────────── */}
         <ChartCard
           key={`livreurs-${depot}`}
           title={`Performance livreurs${depot !== "Tous" ? ` — ${depot}` : ""} (KPI-23)`}
@@ -323,10 +303,8 @@ function ActeursPage() {
           )}
         </ChartCard>
 
-        {/* ── Widget 4: Attrition + HHI ────────────────────────────────────── */}
         <ChartCard title="Score attrition clients & Concentration fournisseur (KPI-24/20)">
           <div className="flex gap-4 h-[280px]">
-            {/* Attrition gauge + top at-risk list */}
             <div className="flex flex-col items-center pt-2 flex-shrink-0">
               <GaugeSimple
                 pct={attritionPct / 100}
@@ -360,7 +338,6 @@ function ActeursPage() {
               )}
             </div>
 
-            {/* Supplier concentration table */}
             <div className="flex-1 overflow-auto border-l border-border/40 pl-4">
               <p className="text-[10px] text-text-dim font-semibold uppercase tracking-wider mb-2 mt-2">
                 Concentration fournisseur

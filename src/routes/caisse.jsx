@@ -1,10 +1,5 @@
-// FIXED: Replaced unstable active month array dependencies with a primitive key.
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  useChartHeight,
-  ChartCard,
-  KPICardSkeleton,
-} from "@/components/dashboard/ChartCard";
+import { useChartHeight, ChartCard, KPICardSkeleton } from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
 import { Banknote, Wallet, TrendingUp, Activity } from "lucide-react";
@@ -71,14 +66,8 @@ function MultiGauge({ caisses }) {
 
 function CaissePage() {
   const { depot, modePaiement, getActiveMonthIndexes } = useFilters();
-  const { data: caissesData, loading: caissesLoading } = useApiResource(
-    api.caisse.caisses,
-    [],
-  );
-  const { data: fluxData, loading: fluxLoading } = useApiResource(
-    api.caisse.fluxDaily,
-    [],
-  );
+  const { data: caissesData, loading: caissesLoading } = useApiResource(api.caisse.caisses, []);
+  const { data: fluxData, loading: fluxLoading } = useApiResource(api.caisse.fluxDaily, []);
   const { data: natureMvt, loading: natureLoading } = useApiResource(
     api.caisse.mouvementsByType,
     [],
@@ -89,7 +78,6 @@ function CaissePage() {
   const kpiLoading = caissesLoading || fluxLoading;
   const chartsLoading = caissesLoading || fluxLoading || natureLoading;
 
-  // Filter caisses by depot
   const filteredCaisses = useMemo(() => {
     if (depot === "Tous") return caissesData;
     return caissesData.filter(
@@ -97,7 +85,6 @@ function CaissePage() {
     );
   }, [depot, caissesData]);
 
-  // Compute KPIs from filtered caisses
   const totalEspeces = useMemo(
     () => filteredCaisses.reduce((s, c) => s + c.especes, 0),
     [filteredCaisses],
@@ -107,24 +94,22 @@ function CaissePage() {
     [filteredCaisses],
   );
 
-  // Filter daily flux by active month indexes
   const filteredFlux = useMemo(() => {
     const ratio = activeIdx.length / 12;
     const daysToShow = Math.max(5, Math.round(30 * ratio));
     return fluxData.slice(fluxData.length - daysToShow);
   }, [activeIdxKey, fluxData]);
 
-  // Net journalier from last day
   const lastFlux = filteredFlux[filteredFlux.length - 1];
   const netJournalier = lastFlux ? lastFlux.net : 0;
 
-  // Local projection for solde caisse
   const prophetData = useMemo(() => {
     const base = totalEspeces + totalCheques;
     const lastCumul = filteredFlux[filteredFlux.length - 1]?.cumul ?? base;
     return Array.from({ length: 40 }, (_, i) => {
       const isHistorique = i < 30;
-      const trend = i < filteredFlux.length ? filteredFlux[i]?.cumul : lastCumul + (i - 29) * netJournalier;
+      const trend =
+        i < filteredFlux.length ? filteredFlux[i]?.cumul : lastCumul + (i - 29) * netJournalier;
       const seasonal = Math.sin(i / 7) * Math.max(base * 0.04, 1);
       const val = (trend ?? base) + seasonal;
       return {

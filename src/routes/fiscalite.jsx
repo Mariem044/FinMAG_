@@ -48,12 +48,19 @@ const columns = [
   },
 ];
 
-// Custom dot for anomaly scatter
 function AnomalyDot(props) {
   const { cx, cy, payload } = props;
   if (payload?.anomalie) {
     return (
-      <circle cx={cx} cy={cy} r={6} fill="#ef4444" stroke="#ff000044" strokeWidth={3} opacity={0.9} />
+      <circle
+        cx={cx}
+        cy={cy}
+        r={6}
+        fill="#ef4444"
+        stroke="#ff000044"
+        strokeWidth={3}
+        opacity={0.9}
+      />
     );
   }
   return <circle cx={cx} cy={cy} r={3} fill="#3b82f6" opacity={0.4} />;
@@ -95,7 +102,6 @@ function FiscalitePage() {
 
   return (
     <div className="space-y-6">
-      {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {kpiLoading ? (
           <>
@@ -136,7 +142,6 @@ function FiscalitePage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Widget A: Grouped bar Débit vs Crédit top 10 journaux (KPI-19) */}
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
@@ -166,14 +171,12 @@ function FiscalitePage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* Widget B: TVA collectée vs déductible (KPI-20) */}
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
           title="TVA collectée vs déductible (KPI-20)"
         >
           <ResponsiveContainer width="100%" height={chartH}>
-            {/* Use ComposedChart so Bar + Line can coexist */}
             <ComposedChart data={tvaData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
               <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
@@ -222,7 +225,6 @@ function FiscalitePage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* Widget C: Anomaly scatter (KPI-21) */}
         <ChartCard
           loading={chartsLoading}
           skeleton="scatter"
@@ -273,7 +275,6 @@ function FiscalitePage() {
           </p>
         </ChartCard>
 
-        {/* Widget D: Waterfall mensuel débit/crédit — use ComposedChart to support Bar+Cell */}
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
@@ -291,7 +292,13 @@ function FiscalitePage() {
               <Tooltip content={<CustomTooltip />} />
               <Legend wrapperStyle={{ fontSize: 12, color: "#888" }} />
               <ReferenceLine y={0} stroke="#555" />
-              <Bar dataKey="debit" fill="#3b82f6" name="Débit" radius={[4, 4, 0, 0]} opacity={0.8} />
+              <Bar
+                dataKey="debit"
+                fill="#3b82f6"
+                name="Débit"
+                radius={[4, 4, 0, 0]}
+                opacity={0.8}
+              />
               <Bar
                 dataKey="credit"
                 fill="#6366f1"
@@ -309,7 +316,6 @@ function FiscalitePage() {
         </ChartCard>
       </div>
 
-      {/* Écritures data table */}
       <DataTable data={ecritures || []} columns={columns} />
     </div>
   );

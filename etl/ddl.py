@@ -1,34 +1,3 @@
-"""
-ddl.py — SIAD MAG Distribution ETL
-Génération DDL SQL Server complet — schéma constellation v14.2-fixed.
-
-BUG FIXES APPLIED IN THIS VERSION
-─────────────────────────────────────────────────────────────────────────
-BUG-1  FIX : DIM_COLLABORATEUR — CO_Fonction is INT NULL because source
-             data can contain Sage codes outside SMALLINT range.
-
-BUG-2  FIX : DIM_SEGMENT — cbIndice_code INT is an ETL-computed surrogate
-             column (CRC32 of cbIndice) that must exist for the FK lookup
-             but was undeclared in the DBML.  Documented here with a
-             comment; the schema DBML has been updated accordingly.  The
-             column itself is correct and is kept as-is.
-
-BUG-3  FIX : FAIT_REGLEMENTS — id_mode_reg changed from NOT NULL to NULL.
-             Supplier payment rows (F_ReglementFournisseur) do not always
-             carry RT_Mode, so NOT NULL caused silent insert failures.
-             The DBML schema has been updated to reflect nullable.
-
-BUG-4  FIX : DIM_CAISSE — CA_Type is NULL for GRT-only registers that have
-             no corresponding MAG F_CAISSE row.  The DDL keeps it nullable
-             (the migration already did this) and the DBML schema note is
-             updated to "nullable for GRT-only registers".
-
-BUG-6  FIX : DIM_DOMAINE DDL note corrected: "3=Interne" not "4=Interne".
-             There is no domain code 4 in standard Sage GC.
-
-(All earlier FIX-* and BUG-* from previous versions are preserved below.)
-"""
-
 from __future__ import annotations
 
 from sqlalchemy import text
@@ -38,9 +7,9 @@ from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# GROUP 1 — no outgoing FK
-# ═══════════════════════════════════════════════════════════════════════════════
+
+
+
 
 _DDL_GROUPE_1: list[tuple[str, str]] = [
 
@@ -60,7 +29,7 @@ CREATE TABLE DIM_DATE (
     exercice         SMALLINT NULL
 )"""),
 
-    # BUG-6 FIX: note corrected — 3=Interne (no code 4 in Sage GC)
+
     ("DIM_DOMAINE", """
 CREATE TABLE DIM_DOMAINE (
     id_domaine       INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -134,17 +103,17 @@ CREATE TABLE DIM_BANQUE (
 )"""),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# GROUP 2
-# ═══════════════════════════════════════════════════════════════════════════════
+
+
+
 
 _DDL_GROUPE_2: list[tuple[str, str]] = [
 
-    # BUG-2 FIX: cbIndice_code is an ETL-computed CRC32 surrogate for
-    # cbIndice (SMALLINT natural key).  It is kept as INT because CRC32
-    # values exceed SMALLINT range.  The DBML schema is updated to document
-    # this column.  Both cbIndice and cbIndice_code carry UNIQUE constraints
-    # so the lookup table is correct either way.
+
+
+
+
+
     ("DIM_SEGMENT", """
 CREATE TABLE DIM_SEGMENT (
     id_segment         INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -155,7 +124,7 @@ CREATE TABLE DIM_SEGMENT (
     row_hash           BINARY(32) NULL
 )"""),
 
-    # CO_Fonction can contain Sage codes outside SMALLINT range.
+
     ("DIM_COLLABORATEUR", """
 CREATE TABLE DIM_COLLABORATEUR (
     id_collab          INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -184,9 +153,9 @@ CREATE TABLE DIM_FOURNISSEUR (
 )"""),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# GROUP 3
-# ═══════════════════════════════════════════════════════════════════════════════
+
+
+
 
 _DDL_GROUPE_3: list[tuple[str, str]] = [
 
@@ -201,9 +170,9 @@ CREATE TABLE DIM_FAMILLE (
 )"""),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# GROUP 4
-# ═══════════════════════════════════════════════════════════════════════════════
+
+
+
 
 _DDL_GROUPE_4: list[tuple[str, str]] = [
 
@@ -231,9 +200,9 @@ CREATE TABLE DIM_CLIENT (
 )"""),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# GROUP 5
-# ═══════════════════════════════════════════════════════════════════════════════
+
+
+
 
 _DDL_GROUPE_5: list[tuple[str, str]] = [
 
@@ -252,9 +221,9 @@ CREATE TABLE DIM_ARTICLE (
 )"""),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# GROUP 6
-# ═══════════════════════════════════════════════════════════════════════════════
+
+
+
 
 _DDL_GROUPE_6: list[tuple[str, str]] = [
 
@@ -266,9 +235,9 @@ CREATE TABLE DIM_DEPOT (
     row_hash           BINARY(32) NULL
 )"""),
 
-    # BUG-4 FIX: CA_Type is NULL for GRT-only cash registers that have no
-    # MAG F_CAISSE master row.  Keeping nullable is correct behaviour; the
-    # DBML schema note is updated accordingly.
+
+
+
     ("DIM_CAISSE", """
 CREATE TABLE DIM_CAISSE (
     id_caisse          INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -280,9 +249,9 @@ CREATE TABLE DIM_CAISSE (
 )"""),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# GROUP 7 — Facts
-# ═══════════════════════════════════════════════════════════════════════════════
+
+
+
 
 _DDL_GROUPE_7: list[tuple[str, str]] = [
 
@@ -315,11 +284,11 @@ CREATE TABLE FAIT_LIGNES_VENTE (
     date_extraction    DATE NOT NULL
 )"""),
 
-    # BUG-3 FIX: id_mode_reg is now NULL (was NOT NULL in previous DDL).
-    # F_ReglementFournisseur rows do not always carry RT_Mode, so a NOT NULL
-    # constraint caused silent insert failures for supplier payment rows.
-    # The DBML schema [not null] annotation is incorrect for this fact table
-    # and has been corrected to nullable.
+
+
+
+
+
     ("FAIT_REGLEMENTS", """
 CREATE TABLE FAIT_REGLEMENTS (
     id_reglement       INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -420,9 +389,9 @@ CREATE TABLE FAIT_ECRITURES (
 )"""),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# GROUP 8
-# ═══════════════════════════════════════════════════════════════════════════════
+
+
+
 
 _DDL_GROUPE_8: list[tuple[str, str]] = [
 
@@ -440,7 +409,7 @@ CREATE TABLE ETL_AUDIT (
 )"""),
 ]
 
-# ── All groups in dependency order ───────────────────────────────────────────
+
 
 ALL_DDL: list[tuple[str, str]] = (
     _DDL_GROUPE_1
@@ -453,13 +422,13 @@ ALL_DDL: list[tuple[str, str]] = (
     + _DDL_GROUPE_8
 )
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Additive migrations — safe to re-run every pipeline start
-# ═══════════════════════════════════════════════════════════════════════════════
+
+
+
 
 _MIGRATIONS: list[tuple[str, str]] = [
 
-    # ── DIM_DATE ─────────────────────────────────────────────────────────────
+
     (
         "DIM_DATE.trimestre",
         "IF COL_LENGTH('DIM_DATE','trimestre') IS NULL "
@@ -483,7 +452,7 @@ _MIGRATIONS: list[tuple[str, str]] = [
         "EXEC sp_rename 'DIM_DATE.semaine_iso', 'semaine', 'COLUMN'",
     ),
 
-    # ── DIM_SEGMENT ──────────────────────────────────────────────────────────
+
     (
         "DIM_SEGMENT.cbIndice_code",
         "IF COL_LENGTH('DIM_SEGMENT','cbIndice_code') IS NULL "
@@ -515,8 +484,8 @@ _MIGRATIONS: list[tuple[str, str]] = [
         "ALTER TABLE [DIM_SEGMENT] ALTER COLUMN libelle_segment NVARCHAR(100) NULL",
     ),
 
-    # ── DIM_COLLABORATEUR ────────────────────────────────────────────────────
-    # Rename CO_Fonction_code -> CO_Fonction if needed, then ensure INT.
+
+
     (
         "DIM_COLLABORATEUR.CO_Fonction_rename",
         "IF COL_LENGTH('DIM_COLLABORATEUR','CO_Fonction') IS NULL AND "
@@ -538,7 +507,7 @@ _MIGRATIONS: list[tuple[str, str]] = [
         "ALTER TABLE [DIM_COLLABORATEUR] ALTER COLUMN CO_Fonction INT NULL",
     ),
 
-    # ── DIM_BANQUE ───────────────────────────────────────────────────────────
+
     (
         "DIM_BANQUE.EB_Banque",
         "IF COL_LENGTH('DIM_BANQUE','EB_Banque') IS NULL AND "
@@ -556,14 +525,14 @@ _MIGRATIONS: list[tuple[str, str]] = [
         "ALTER TABLE [DIM_BANQUE] ADD source SMALLINT NOT NULL DEFAULT 1",
     ),
 
-    # ── DIM_CAISSE ───────────────────────────────────────────────────────────
+
     (
         "DIM_CAISSE.id_journal",
         "IF COL_LENGTH('DIM_CAISSE','id_journal') IS NULL "
         "ALTER TABLE [DIM_CAISSE] ADD id_journal INT NULL "
         "REFERENCES DIM_JOURNAL(id_journal)",
     ),
-    # BUG-4 FIX: ensure CA_Type is nullable on existing DBs that had NOT NULL.
+
     (
         "DIM_CAISSE.CA_Type_nullable",
         "IF EXISTS ("
@@ -574,7 +543,7 @@ _MIGRATIONS: list[tuple[str, str]] = [
         "ALTER TABLE [DIM_CAISSE] ALTER COLUMN CA_Type SMALLINT NULL",
     ),
 
-    # ── Codification dims — rename generic code_* to Sage names ─────────────
+
     (
         "DIM_DOMAINE.DO_Domaine",
         "IF COL_LENGTH('DIM_DOMAINE','DO_Domaine') IS NULL AND "
@@ -630,7 +599,7 @@ _MIGRATIONS: list[tuple[str, str]] = [
         "EXEC sp_rename 'DIM_TYPE_MVT_CAISSE.code_type_mvt', 'MC_TypeMvt', 'COLUMN'",
     ),
 
-    # ── FAIT_REGLEMENTS ──────────────────────────────────────────────────────
+
     (
         "FAIT_REGLEMENTS.id_date_paiement",
         "IF COL_LENGTH('FAIT_REGLEMENTS','id_date_paiement') IS NULL AND "
@@ -692,7 +661,7 @@ _MIGRATIONS: list[tuple[str, str]] = [
         ") "
         "ALTER TABLE [FAIT_REGLEMENTS] ALTER COLUMN ecart_delai INT NULL",
     ),
-    # BUG-3 FIX: relax id_mode_reg to NULL on existing DBs that had NOT NULL.
+
     (
         "FAIT_REGLEMENTS.id_mode_reg_nullable",
         "IF EXISTS ("
@@ -730,7 +699,7 @@ END
 """,
     ),
 
-    # ── FAIT_ECRITURES ───────────────────────────────────────────────────────
+
     (
         "FAIT_ECRITURES.id_banque",
         "IF COL_LENGTH('FAIT_ECRITURES','id_banque') IS NULL "
@@ -754,7 +723,7 @@ END
         "ALTER TABLE [FAIT_ECRITURES] ADD alerte_tension SMALLINT NULL",
     ),
 
-    # ── source_hash columns ──────────────────────────────────────────────────
+
     (
         "FAIT_LIGNES_VENTE.source_hash",
         "IF COL_LENGTH('FAIT_LIGNES_VENTE','source_hash') IS NULL "
@@ -771,7 +740,7 @@ END
         "ALTER TABLE [FAIT_ECRITURES] ADD source_hash BINARY(32) NULL",
     ),
 
-    # ── DIM_SEGMENT — ensure cbIndice unique constraint on existing DBs ──────
+
     (
         "DIM_SEGMENT.cbIndice_unique",
         "IF NOT EXISTS ("
@@ -784,7 +753,7 @@ END
     ),
 ]
 
-# ── Unique indexes on source_hash ────────────────────────────────────────────
+
 
 _INDEX_MIGRATIONS: list[tuple[str, str]] = [
     (
@@ -800,9 +769,9 @@ _INDEX_MIGRATIONS: list[tuple[str, str]] = [
     for t in ("FAIT_LIGNES_VENTE", "FAIT_REGLEMENTS", "FAIT_ECRITURES")
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Public API
-# ═══════════════════════════════════════════════════════════════════════════════
+
+
+
 
 _DROP_IF_EXISTS = (
     "IF OBJECT_ID(N'[dbo].[{name}]', N'U') IS NOT NULL "
@@ -811,7 +780,6 @@ _DROP_IF_EXISTS = (
 
 
 def table_exists(table_name: str) -> bool:
-    """Return True when *table_name* exists in the DW."""
     with DW_ENGINE.connect() as conn:
         result = conn.execute(
             text(
@@ -824,12 +792,6 @@ def table_exists(table_name: str) -> bool:
 
 
 def create_all_tables(drop_existing: bool = False) -> None:
-    """
-    Create all DW tables in FK-dependency order.
-
-    drop_existing=True  → DROP TABLE IF EXISTS before each CREATE.
-    drop_existing=False → skip tables that already exist.
-    """
     logger.info("=== DDL : début création schéma DW ===")
 
     if drop_existing:
@@ -851,11 +813,6 @@ def create_all_tables(drop_existing: bool = False) -> None:
 
 
 def _apply_schema_migrations(conn) -> None:
-    """
-    Apply all additive/rename migrations using an existing *conn*.
-    Called internally by apply_schema_migrations() and by pipeline.py
-    after create_all_tables(). Safe to re-run at every pipeline start.
-    """
     for label, sql in _MIGRATIONS:
         try:
             conn.execute(text(sql))
@@ -872,13 +829,11 @@ def _apply_schema_migrations(conn) -> None:
 
 
 def apply_schema_migrations() -> None:
-    """Public entry-point: open a transaction and run all migrations."""
     with DW_ENGINE.begin() as conn:
         _apply_schema_migrations(conn)
 
 
 def disable_all_fk(conn) -> None:
-    """Disable all FK constraints on every DW table (full-load helper)."""
     for table_name, _ in ALL_DDL:
         try:
             conn.execute(
@@ -889,7 +844,6 @@ def disable_all_fk(conn) -> None:
 
 
 def enable_all_fk(conn) -> None:
-    """Re-enable and validate all FK constraints (full-load helper)."""
     for table_name, _ in ALL_DDL:
         try:
             conn.execute(
@@ -903,7 +857,6 @@ def enable_all_fk(conn) -> None:
 
 
 def _drop_all_tables() -> None:
-    """DROP all tables in reverse FK order."""
     reversed_tables = [name for name, _ in reversed(ALL_DDL)]
     logger.warning("DDL : DROP ALL TABLES")
 

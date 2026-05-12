@@ -113,7 +113,9 @@ function RoleBadge({ role }) {
     Auditeur: "bg-teal-500/15 border-teal-500/25 text-teal-400",
   };
   return (
-    <span className={`px-2.5 py-0.5 rounded-full border text-[11px] font-semibold ${colors[role] || "bg-primary/15 border-primary/25 text-primary"}`}>
+    <span
+      className={`px-2.5 py-0.5 rounded-full border text-[11px] font-semibold ${colors[role] || "bg-primary/15 border-primary/25 text-primary"}`}
+    >
       {role}
     </span>
   );
@@ -130,7 +132,6 @@ function ProfilPage() {
   const [avatarPreview, setAvatarPreview] = useState(null);
   const [pwLoading, setPwLoading] = useState(false);
 
-  // Password state
   const [pwForm, setPwForm] = useState({ current: "", nouveau: "", confirm: "" });
   const [pwError, setPwError] = useState("");
 
@@ -229,7 +230,7 @@ function ProfilPage() {
   const field = (key, label, icon, type = "text", options = null) => {
     const Icon = icon;
     const val = currentData?.[key] ?? "";
-    // Only admins can change roles
+
     const readOnly = key === "role" && !hasPermission("canEditUsers");
 
     return (
@@ -279,13 +280,9 @@ function ProfilPage() {
 
   return (
     <div className="max-w-4xl space-y-6">
-      {toast && (
-        <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
-      )}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      {/* Header card */}
       <div className="bg-gradient-to-br from-card via-card/98 to-card/95 border border-border/60 rounded-2xl p-6 flex items-start gap-6 flex-wrap">
-        {/* Avatar */}
         <div className="relative flex-shrink-0">
           <div className="w-24 h-24 rounded-2xl border-2 border-primary/30 overflow-hidden bg-primary/10 flex items-center justify-center">
             {currentAvatar ? (
@@ -312,10 +309,15 @@ function ProfilPage() {
               )}
             </div>
           )}
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleAvatarChange}
+          />
         </div>
 
-        {/* Info */}
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold text-foreground">
             {user.prenom} {user.nom}
@@ -335,7 +337,6 @@ function ProfilPage() {
           )}
         </div>
 
-        {/* Actions */}
         <div className="flex items-start gap-2 flex-shrink-0 flex-wrap">
           {editing ? (
             <>
@@ -375,7 +376,6 @@ function ProfilPage() {
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1 p-1 bg-secondary/50 rounded-xl border border-border/50 w-fit">
         {[
           { id: "info", label: "Informations" },
@@ -396,7 +396,6 @@ function ProfilPage() {
         ))}
       </div>
 
-      {/* ── Tab: Info ── */}
       {activeTab === "info" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-gradient-to-br from-card to-card/95 border border-border/60 rounded-2xl p-5 space-y-4">
@@ -436,7 +435,13 @@ function ProfilPage() {
             </h2>
             {field("poste", "Poste", Building2)}
             {field("departement", "Département", Building2, "text", DEPARTMENTS)}
-            {field("role", "Rôle système", Lock, "text", hasPermission("canEditUsers") ? ROLES : null)}
+            {field(
+              "role",
+              "Rôle système",
+              Lock,
+              "text",
+              hasPermission("canEditUsers") ? ROLES : null,
+            )}
 
             <div className="mt-4 pt-4 border-t border-border/50">
               <p className="text-[11px] font-semibold text-text-dim uppercase tracking-wider mb-3">
@@ -460,7 +465,6 @@ function ProfilPage() {
         </div>
       )}
 
-      {/* ── Tab: Sécurité ── */}
       {activeTab === "securite" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-gradient-to-br from-card to-card/95 border border-border/60 rounded-2xl p-5 space-y-4">
@@ -479,20 +483,29 @@ function ProfilPage() {
             <PasswordField
               label="Mot de passe actuel"
               value={pwForm.current}
-              onChange={(v) => { setPwForm({ ...pwForm, current: v }); setPwError(""); }}
+              onChange={(v) => {
+                setPwForm({ ...pwForm, current: v });
+                setPwError("");
+              }}
               placeholder="••••••••"
             />
             <PasswordField
               label="Nouveau mot de passe"
               value={pwForm.nouveau}
-              onChange={(v) => { setPwForm({ ...pwForm, nouveau: v }); setPwError(""); }}
+              onChange={(v) => {
+                setPwForm({ ...pwForm, nouveau: v });
+                setPwError("");
+              }}
               placeholder="Min. 8 car., 1 maj., 1 chiffre"
             />
             <StrengthBar password={pwForm.nouveau} />
             <PasswordField
               label="Confirmer le mot de passe"
               value={pwForm.confirm}
-              onChange={(v) => { setPwForm({ ...pwForm, confirm: v }); setPwError(""); }}
+              onChange={(v) => {
+                setPwForm({ ...pwForm, confirm: v });
+                setPwError("");
+              }}
               placeholder="Répétez le mot de passe"
             />
 
@@ -515,16 +528,14 @@ function ProfilPage() {
               <p className="text-[11px] text-text-dim font-semibold uppercase tracking-wider mb-2">
                 Règles
               </p>
-              {[
-                "Minimum 8 caractères",
-                "Au moins une lettre majuscule",
-                "Au moins un chiffre",
-              ].map((r) => (
-                <p key={r} className="text-[11px] text-text-dim flex items-center gap-1.5 mb-1">
-                  <span className="w-1 h-1 rounded-full bg-text-dim" />
-                  {r}
-                </p>
-              ))}
+              {["Minimum 8 caractères", "Au moins une lettre majuscule", "Au moins un chiffre"].map(
+                (r) => (
+                  <p key={r} className="text-[11px] text-text-dim flex items-center gap-1.5 mb-1">
+                    <span className="w-1 h-1 rounded-full bg-text-dim" />
+                    {r}
+                  </p>
+                ),
+              )}
             </div>
           </div>
 
@@ -534,11 +545,29 @@ function ProfilPage() {
               Sécurité du compte
             </h2>
             {[
-              { label: "Authentification 2FA", status: "Désactivée", color: "text-orange-400", bg: "bg-orange-500/10 border-orange-500/20" },
-              { label: "Connexions suspectes", status: "Aucune détectée", color: "text-green-400", bg: "bg-green-500/10 border-green-500/20" },
-              { label: "Niveau de sécurité", status: "Moyen", color: "text-yellow-400", bg: "bg-yellow-500/10 border-yellow-500/20" },
+              {
+                label: "Authentification 2FA",
+                status: "Désactivée",
+                color: "text-orange-400",
+                bg: "bg-orange-500/10 border-orange-500/20",
+              },
+              {
+                label: "Connexions suspectes",
+                status: "Aucune détectée",
+                color: "text-green-400",
+                bg: "bg-green-500/10 border-green-500/20",
+              },
+              {
+                label: "Niveau de sécurité",
+                status: "Moyen",
+                color: "text-yellow-400",
+                bg: "bg-yellow-500/10 border-yellow-500/20",
+              },
             ].map((item) => (
-              <div key={item.label} className={`flex items-center justify-between px-3 py-2.5 rounded-lg border ${item.bg}`}>
+              <div
+                key={item.label}
+                className={`flex items-center justify-between px-3 py-2.5 rounded-lg border ${item.bg}`}
+              >
                 <span className="text-[12px] text-foreground">{item.label}</span>
                 <span className={`text-[11px] font-semibold ${item.color}`}>{item.status}</span>
               </div>
@@ -568,7 +597,6 @@ function ProfilPage() {
         </div>
       )}
 
-      {/* ── Tab: Permissions ── */}
       {activeTab === "permissions" && (
         <div className="bg-gradient-to-br from-card to-card/95 border border-border/60 rounded-2xl p-5">
           <h2 className="text-[13px] font-bold text-foreground uppercase tracking-wider flex items-center gap-2 mb-5">
@@ -577,7 +605,6 @@ function ProfilPage() {
           </h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Capabilities */}
             <div>
               <p className="text-[11px] font-semibold text-text-dim uppercase tracking-wider mb-3">
                 Capacités
@@ -589,7 +616,10 @@ function ProfilPage() {
                   { key: "canExport", label: "Export des données" },
                   { key: "canChangeSettings", label: "Modification des paramètres" },
                 ].map((p) => (
-                  <div key={p.key} className="flex items-center justify-between py-2 border-b border-border/30 last:border-0">
+                  <div
+                    key={p.key}
+                    className="flex items-center justify-between py-2 border-b border-border/30 last:border-0"
+                  >
                     <span className="text-[12px] text-foreground">{p.label}</span>
                     {permissions[p.key] ? (
                       <span className="flex items-center gap-1 text-[11px] font-semibold text-green-400">
@@ -605,7 +635,6 @@ function ProfilPage() {
               </div>
             </div>
 
-            {/* Accessible routes */}
             <div>
               <p className="text-[11px] font-semibold text-text-dim uppercase tracking-wider mb-3">
                 Pages accessibles
@@ -617,9 +646,14 @@ function ProfilPage() {
                   </p>
                 ) : (
                   permissions.routes?.map((route) => (
-                    <div key={route} className="flex items-center gap-2 text-[12px] text-foreground">
+                    <div
+                      key={route}
+                      className="flex items-center gap-2 text-[12px] text-foreground"
+                    >
                       <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
-                      <span className="font-mono text-[11px] bg-secondary px-2 py-0.5 rounded">{route}</span>
+                      <span className="font-mono text-[11px] bg-secondary px-2 py-0.5 rounded">
+                        {route}
+                      </span>
                     </div>
                   ))
                 )}

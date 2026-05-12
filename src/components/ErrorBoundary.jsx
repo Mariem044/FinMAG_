@@ -1,4 +1,3 @@
-// FIXED: Added reusable per-route error boundary with retry recovery.
 import { Component } from "react";
 
 export class ErrorBoundary extends Component {

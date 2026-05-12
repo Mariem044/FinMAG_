@@ -25,7 +25,6 @@ export const Route = createFileRoute("/assistant")({
   component: AssistantIAPage,
 });
 
-// ─── API base (same origin as other endpoints) ─────────────────────────────
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const SUGGESTIONS = [
@@ -61,7 +60,6 @@ const SUGGESTIONS = [
   },
 ];
 
-// ─── Typing indicator ─────────────────────────────────────────────────────────
 function TypingIndicator() {
   return (
     <div className="flex items-end gap-3">
@@ -83,13 +81,15 @@ function TypingIndicator() {
   );
 }
 
-// ─── Markdown-lite renderer ───────────────────────────────────────────────────
 function renderMarkdown(text) {
   return text.split("\n").map((line, i, arr) => {
     const formatted = line
       .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
       .replace(/_(.*?)_/g, "<em>$1</em>")
-      .replace(/`(.*?)`/g, "<code style='background:rgba(99,102,241,.15);padding:1px 5px;border-radius:4px;font-size:11px'>$1</code>");
+      .replace(
+        /`(.*?)`/g,
+        "<code style='background:rgba(99,102,241,.15);padding:1px 5px;border-radius:4px;font-size:11px'>$1</code>",
+      );
     return (
       <span key={i}>
         <span dangerouslySetInnerHTML={{ __html: formatted }} />
@@ -99,7 +99,6 @@ function renderMarkdown(text) {
   });
 }
 
-// ─── Message bubble ───────────────────────────────────────────────────────────
 function MessageBubble({ msg }) {
   const [copied, setCopied] = useState(false);
   const isUser = msg.role === "user";
@@ -119,10 +118,16 @@ function MessageBubble({ msg }) {
             : "bg-gradient-to-br from-primary to-primary/70 shadow-primary/30"
         }`}
       >
-        {isUser ? <User size={14} className="text-white" /> : <Bot size={14} className="text-white" />}
+        {isUser ? (
+          <User size={14} className="text-white" />
+        ) : (
+          <Bot size={14} className="text-white" />
+        )}
       </div>
 
-      <div className={`max-w-[75%] relative flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
+      <div
+        className={`max-w-[75%] relative flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}
+      >
         <div
           className={`px-4 py-3 rounded-2xl text-[13px] leading-relaxed ${
             isUser
@@ -155,7 +160,6 @@ function MessageBubble({ msg }) {
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
 function AssistantIAPage() {
   const [messages, setMessages] = useState(() => [
     {
@@ -174,12 +178,10 @@ function AssistantIAPage() {
   const inputRef = useRef(null);
   const abortRef = useRef(null);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Check LLM status on mount
   useEffect(() => {
     fetch(`${API_BASE}/api/assistant/status`)
       .then((r) => r.json())
@@ -196,11 +198,8 @@ function AssistantIAPage() {
 
     const userMsg = { id: Date.now(), role: "user", content, time: now(), streaming: false };
 
-    // Build full conversation history for multi-turn context
     const historyForApi = [
-      ...messages
-        .filter((m) => !m.streaming)
-        .map((m) => ({ role: m.role, content: m.content })),
+      ...messages.filter((m) => !m.streaming).map((m) => ({ role: m.role, content: m.content })),
       { role: "user", content },
     ];
 
@@ -208,7 +207,6 @@ function AssistantIAPage() {
     setInput("");
     setIsStreaming(true);
 
-    // Placeholder assistant message that streams into
     const assistantId = Date.now() + 1;
     setMessages((prev) => [
       ...prev,
@@ -232,7 +230,6 @@ function AssistantIAPage() {
       const decoder = new TextDecoder();
       let buffer = "";
 
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -243,15 +240,11 @@ function AssistantIAPage() {
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
-          const chunk = line.slice(6); // strip "data: "
+          const chunk = line.slice(6);
           if (chunk === "[DONE]") break;
 
           setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? { ...m, content: m.content + chunk }
-                : m
-            )
+            prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + chunk } : m)),
           );
         }
       }
@@ -266,17 +259,13 @@ function AssistantIAPage() {
                     m.content ||
                     "❌ Impossible de contacter l'IA. Vérifiez que le serveur API est démarré et que GEMINI_API_KEY est configuré dans `etl/.env`.",
                 }
-              : m
-          )
+              : m,
+          ),
         );
       }
     } finally {
       setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? { ...m, streaming: false, time: now() }
-            : m
-        )
+        prev.map((m) => (m.id === assistantId ? { ...m, streaming: false, time: now() } : m)),
       );
       setIsStreaming(false);
       abortRef.current = null;
@@ -309,7 +298,6 @@ function AssistantIAPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] max-w-4xl mx-auto">
-      {/* Header */}
       <div className="flex items-center justify-between mb-4 flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg shadow-primary/30">
@@ -331,7 +319,9 @@ function AssistantIAPage() {
               ) : (
                 <>
                   <AlertCircle size={11} className="text-amber-400" />
-                  <span className="text-[11px] text-amber-400">Clé API manquante — voir etl/.env</span>
+                  <span className="text-[11px] text-amber-400">
+                    Clé API manquante — voir etl/.env
+                  </span>
                 </>
               )}
             </div>
@@ -346,14 +336,11 @@ function AssistantIAPage() {
         </button>
       </div>
 
-      {/* Chat area */}
       <div className="flex-1 overflow-y-auto space-y-4 pr-1 pb-4">
         {messages.map((msg) => (
           <MessageBubble key={msg.id} msg={msg} />
         ))}
-        {isStreaming && messages[messages.length - 1]?.role !== "assistant" && (
-          <TypingIndicator />
-        )}
+        {isStreaming && messages[messages.length - 1]?.role !== "assistant" && <TypingIndicator />}
         <div ref={messagesEndRef} />
 
         {showSuggestions && (
@@ -374,10 +361,17 @@ function AssistantIAPage() {
                     <s.icon size={13} className="text-primary" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-[12px] font-semibold text-foreground leading-none mb-1">{s.label}</p>
-                    <p className="text-[11px] text-text-dim leading-relaxed line-clamp-2">{s.text}</p>
+                    <p className="text-[12px] font-semibold text-foreground leading-none mb-1">
+                      {s.label}
+                    </p>
+                    <p className="text-[11px] text-text-dim leading-relaxed line-clamp-2">
+                      {s.text}
+                    </p>
                   </div>
-                  <ChevronRight size={12} className="text-text-dim flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-opacity ml-auto" />
+                  <ChevronRight
+                    size={12}
+                    className="text-text-dim flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
+                  />
                 </button>
               ))}
             </div>
@@ -385,7 +379,6 @@ function AssistantIAPage() {
         )}
       </div>
 
-      {/* Input area */}
       <div className="flex-shrink-0 mt-2">
         <div className="flex gap-2 p-2 bg-card border border-border/60 rounded-2xl shadow-lg">
           <textarea
@@ -416,7 +409,8 @@ function AssistantIAPage() {
           </button>
         </div>
         <p className="text-[10px] text-text-dim text-center mt-1.5">
-          Entrée pour envoyer · Maj+Entrée pour nouvelle ligne · Réponses basées sur vos données live
+          Entrée pour envoyer · Maj+Entrée pour nouvelle ligne · Réponses basées sur vos données
+          live
         </p>
       </div>
     </div>

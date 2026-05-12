@@ -1,17 +1,3 @@
-"""
-api/main.py — FinMAG API v14.4
-Fixes vs v14.3:
-  KPI-16 FIX : get_fournisseur_concentration() now sums DL_MontantHT
-               from FAIT_LIGNES_VENTE WHERE DO_Domaine=1 (achat), not
-               from article count which is a proxy, not the real KPI.
-  KPI-18 FIX : get_acteurs_rfm() now reads rfm_recence_jours,
-               rfm_frequence, rfm_montant_12m pre-computed by the ETL
-               pipeline from DIM_CLIENT, instead of doing an unbounded
-               COUNT(*) query without a time window.
-  KPI-01 NOTE: Filters use DO_Type IN (6,7) matching ETL extract scope.
-               The KPIs PDF says DO_Type=17 which is a copy-paste error
-               in the document — type 17 is "Avoir fournisseur" in Sage.
-"""
 import json
 import os
 import re
@@ -53,7 +39,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── Gemini LLM Setup ─────────────────────────────────────────────────────────
+
 _GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 _GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 if _GEMINI_API_KEY:
@@ -166,7 +152,7 @@ def run_etl(background_tasks: BackgroundTasks):
 
 @app.get("/api/dashboard/kpis")
 def get_dashboard_kpis():
-    # KPI-01: filter DO_Domaine=0 (vente) only for CA computation
+
     sql = """
         WITH latest AS (
             SELECT COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year
@@ -382,7 +368,7 @@ def get_encaissements_by_mode():
 
 @app.get("/api/tresorerie/aging")
 def get_aging():
-    # KPI-08: bucket_impaye now computed from echeance date by the ETL
+
     sql = """
         SELECT TOP 8
             COALESCE(CONVERT(VARCHAR(30), c.CT_Num_code), 'Client') AS client,
@@ -540,12 +526,6 @@ def get_clients():
 
 @app.get("/api/acteurs/rfm")
 def get_acteurs_rfm():
-    """KPI-18 FIX: reads pre-computed RFM columns from DIM_CLIENT.
-
-    The ETL pipeline now stamps rfm_recence_jours, rfm_frequence, and
-    rfm_montant_12m on DIM_CLIENT using a 365-day rolling window.
-    Falls back to NULL for clients with no sales in the window.
-    """
     sql = """
         SELECT TOP 200
             c.CT_Num_code,
@@ -625,12 +605,6 @@ def get_acteurs_fournisseurs():
 
 @app.get("/api/acteurs/fournisseur-concentration")
 def get_fournisseur_concentration():
-    """KPI-16 FIX: sum purchase amounts (DO_Domaine=1) from FAIT_LIGNES_VENTE.
-
-    Previously used article count as a proxy — now uses actual purchase
-    line amounts as specified in the KPIs document.
-    Includes HHI (Herfindahl-Hirschman Index) computation for concentration risk.
-    """
     sql = """
         WITH achats AS (
             SELECT
@@ -1140,7 +1114,7 @@ def get_assistant_summary():
     return result
 
 
-# ── LLM Chat ──────────────────────────────────────────────────────────────────
+
 
 class ChatMessage(BaseModel):
     role: str

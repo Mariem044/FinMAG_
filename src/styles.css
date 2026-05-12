@@ -100,7 +100,6 @@
   --trend-down: #ef4444;
 }
 
-/* ── Light mode overrides ─────────────────────────────── */
 .light {
   --background: #f5f6fa;
   --foreground: #0f172a;
@@ -138,7 +137,6 @@
   --trend-down: #dc2626;
 }
 
-/* Light mode scrollbar */
 .light ::-webkit-scrollbar-track {
   background: #e2e8f0;
 }

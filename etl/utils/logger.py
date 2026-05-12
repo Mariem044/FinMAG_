@@ -1,7 +1,3 @@
-"""
-utils/logger.py — SIAD MAG Distribution ETL
-Logging fichier + console avec rotation, niveau configurable via .env
-"""
 from __future__ import annotations
 
 import logging
@@ -18,7 +14,7 @@ _LOG_LEVEL_MAP: dict[str, int] = {
     "CRITICAL": logging.CRITICAL,
 }
 
-_LOG_DIR = Path(__file__).parent.parent          # dossier etl/
+_LOG_DIR = Path(__file__).parent.parent
 _LOG_FILE = _LOG_DIR / os.getenv("ETL_LOG_FILE", "etl_run.log")
 _LOG_LEVEL = _LOG_LEVEL_MAP.get(
     os.getenv("ETL_LOG_LEVEL", "INFO").upper(), logging.INFO
@@ -29,7 +25,7 @@ _DATE_FMT = "%Y-%m-%d %H:%M:%S"
 
 _handler_file = RotatingFileHandler(
     _LOG_FILE,
-    maxBytes=10 * 1024 * 1024,   # 10 Mo
+    maxBytes=10 * 1024 * 1024,
     backupCount=5,
     encoding="utf-8",
 )
@@ -40,14 +36,6 @@ _handler_console.setFormatter(logging.Formatter(_FMT, datefmt=_DATE_FMT))
 
 
 def get_logger(name: str) -> logging.Logger:
-    """
-    Retourne un logger nommé configuré avec handlers fichier + console.
-
-    Usage :
-        from utils.logger import get_logger
-        logger = get_logger(__name__)
-        logger.info("message")
-    """
     logger = logging.getLogger(name)
     if not logger.handlers:
         logger.setLevel(_LOG_LEVEL)

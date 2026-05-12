@@ -1,10 +1,5 @@
-// FIXED: Replaced unstable active month array dependencies with a primitive key.
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  useChartHeight,
-  ChartCard,
-  KPICardSkeleton,
-} from "@/components/dashboard/ChartCard";
+import { useChartHeight, ChartCard, KPICardSkeleton } from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
 import { DollarSign, ShoppingCart, TrendingUp, Percent } from "lucide-react";
@@ -35,18 +30,9 @@ export const Route = createFileRoute("/ventes")({
 
 function VentesPage() {
   const { segment, depot, source, getActiveMonthIndexes } = useFilters();
-  const { data: monthlyData, loading: monthlyLoading } = useApiResource(
-    api.ventes.caByMonth,
-    [],
-  );
-  const { data: familleData, loading: familleLoading } = useApiResource(
-    api.ventes.topFamilles,
-    [],
-  );
-  const { data: regionData, loading: regionLoading } = useApiResource(
-    api.ventes.caByRegion,
-    [],
-  );
+  const { data: monthlyData, loading: monthlyLoading } = useApiResource(api.ventes.caByMonth, []);
+  const { data: familleData, loading: familleLoading } = useApiResource(api.ventes.topFamilles, []);
+  const { data: regionData, loading: regionLoading } = useApiResource(api.ventes.caByRegion, []);
   const activeIdx = getActiveMonthIndexes();
   const activeIdxKey = activeIdx.join("");
   const chartH = useChartHeight();
@@ -54,7 +40,6 @@ function VentesPage() {
   const chartsLoading = monthlyLoading || familleLoading || regionLoading;
   const sourceRatio = 1;
 
-  // Filter monthly data by active quarter/months
   const filteredMonthly = useMemo(
     () =>
       monthlyData
@@ -68,7 +53,6 @@ function VentesPage() {
     [activeIdxKey, sourceRatio, monthlyData],
   );
 
-  // Filter region data by depot
   const filteredRegions = useMemo(() => {
     const rows =
       depot === "Tous"
@@ -119,7 +103,10 @@ function VentesPage() {
               label="Croissance vs N-1"
               value={`${(
                 ((totalCA - filteredMonthly.reduce((s, m) => s + m.caN1, 0)) /
-                  Math.max(filteredMonthly.reduce((s, m) => s + m.caN1, 0), 1)) *
+                  Math.max(
+                    filteredMonthly.reduce((s, m) => s + m.caN1, 0),
+                    1,
+                  )) *
                 100
               ).toFixed(1)}%`}
               subtitle="Comparaison annuelle"
@@ -130,7 +117,6 @@ function VentesPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* CA Evolution */}
         <ChartCard
           loading={chartsLoading}
           skeleton="line"
@@ -177,7 +163,6 @@ function VentesPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* Top Familles */}
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
@@ -214,7 +199,6 @@ function VentesPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* CA by Region */}
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
@@ -239,7 +223,6 @@ function VentesPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* Monthly trend */}
         <ChartCard
           loading={chartsLoading}
           skeleton="line"

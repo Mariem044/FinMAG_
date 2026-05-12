@@ -18,24 +18,23 @@ export function Header({ pathname }) {
   const dropdownRef = useRef(null);
 
   const pageNameKeys = {
-    "/":           "nav.dashboard",
-    "/ventes":     "nav.ventes",
+    "/": "nav.dashboard",
+    "/ventes": "nav.ventes",
     "/tresorerie": "nav.tresorerie",
-    "/produits":   "nav.produits",
-    "/acteurs":    "nav.acteurs",
-    "/fiscalite":  "nav.fiscalite",
-    "/caisse":     "nav.caisse",
-    "/banque":     "nav.banque",
+    "/produits": "nav.produits",
+    "/acteurs": "nav.acteurs",
+    "/fiscalite": "nav.fiscalite",
+    "/caisse": "nav.caisse",
+    "/banque": "nav.banque",
     "/parametres": "nav.parametres",
-    "/aide":       "nav.aide",
-    "/profil":     "nav.profil",
-    "/assistant":  "nav.assistant",
+    "/aide": "nav.aide",
+    "/profil": "nav.profil",
+    "/assistant": "nav.assistant",
   };
 
   const titleKey = pageNameKeys[pathname];
   const title = titleKey ? t(titleKey) : "SIAD";
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handler(e) {
       if (!dropdownRef.current?.contains(e.target)) setDropdownOpen(false);
@@ -51,10 +50,10 @@ export function Header({ pathname }) {
 
   const roleColors = {
     Administrateur: "bg-red-500",
-    Manager:        "bg-blue-500",
-    Analyste:       "bg-violet-500",
-    Consultant:     "bg-orange-500",
-    Auditeur:       "bg-teal-500",
+    Manager: "bg-blue-500",
+    Analyste: "bg-violet-500",
+    Consultant: "bg-orange-500",
+    Auditeur: "bg-teal-500",
   };
 
   const iconBtn =
@@ -62,8 +61,6 @@ export function Header({ pathname }) {
 
   return (
     <header className="fixed top-0 left-0 right-0 lg:left-[264px] h-14 bg-sidebar-bg/95 backdrop-blur border-b border-border/90 shadow-[0_1px_0_0_rgba(59,130,246,0.18)] flex items-center justify-between px-4 z-30 gap-3">
-
-      {/* Left */}
       <div className="flex items-center gap-3 min-w-0 flex-shrink-0">
         <button onClick={toggleSidebar} className={`${iconBtn} lg:hidden`} title="Menu">
           <Menu size={18} />
@@ -73,10 +70,8 @@ export function Header({ pathname }) {
         </h2>
       </div>
 
-      {/* Center — global search */}
       <SearchBar />
 
-      {/* Right */}
       <div className="flex items-center gap-1.5 flex-shrink-0">
         <Link
           to="/assistant"
@@ -92,13 +87,16 @@ export function Header({ pathname }) {
           <span>{t("header.aiAssistant")}</span>
         </Link>
 
-        <button onClick={toggleTheme} title={isDark ? "Mode clair" : "Mode sombre"} className={iconBtn}>
+        <button
+          onClick={toggleTheme}
+          title={isDark ? "Mode clair" : "Mode sombre"}
+          className={iconBtn}
+        >
           {isDark ? <Sun size={16} /> : <Moon size={16} />}
         </button>
 
         <NotificationBell />
 
-        {/* User avatar dropdown */}
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
@@ -116,19 +114,19 @@ export function Header({ pathname }) {
 
           {dropdownOpen && (
             <div className="absolute right-0 top-full mt-2 w-56 bg-popover border border-border/70 rounded-xl shadow-2xl shadow-black/40 z-50 overflow-hidden">
-              {/* User info */}
               <div className="px-4 py-3 border-b border-border/60">
                 <p className="text-[13px] font-semibold text-foreground">
                   {user?.prenom} {user?.nom}
                 </p>
                 <p className="text-[11px] text-text-dim truncate mt-0.5">{user?.email}</p>
                 <div className="flex items-center gap-1.5 mt-2">
-                  <span className={`w-2 h-2 rounded-full ${roleColors[user?.role] ?? "bg-primary"}`} />
+                  <span
+                    className={`w-2 h-2 rounded-full ${roleColors[user?.role] ?? "bg-primary"}`}
+                  />
                   <span className="text-[11px] text-text-dim">{user?.role}</span>
                 </div>
               </div>
 
-              {/* Links */}
               <div className="p-1.5">
                 <Link
                   to="/profil"
@@ -136,7 +134,9 @@ export function Header({ pathname }) {
                   className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-foreground hover:bg-surface-hover transition-colors"
                 >
                   <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">
-                    <span className="text-[10px] font-bold text-primary">{user?.initiales ?? "-"}</span>
+                    <span className="text-[10px] font-bold text-primary">
+                      {user?.initiales ?? "-"}
+                    </span>
                   </div>
                   Mon profil
                 </Link>
@@ -152,7 +152,6 @@ export function Header({ pathname }) {
                 </Link>
               </div>
 
-              {/* Logout */}
               <div className="p-1.5 border-t border-border/60">
                 <button
                   onClick={handleLogout}

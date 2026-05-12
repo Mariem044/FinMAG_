@@ -1,13 +1,9 @@
-// FIXED: Separated mock auth behind VITE_USE_MOCK_AUTH and added backend login stub.
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 const USE_MOCK_AUTH = import.meta.env?.VITE_USE_MOCK_AUTH === "true";
 const API_BASE = (import.meta.env?.VITE_API_URL || "").replace(/\/$/, "");
 
-// ─── Mock users database ──────────────────────────────────────────────────────
-// Demo credentials only. Production auth must use a real backend endpoint
-// with server-side password verification, hashing, rate limiting, and sessions.
 const MOCK_USERS = [
   {
     id: "usr-001",
@@ -59,14 +55,13 @@ const MOCK_USERS = [
   },
 ];
 
-// ─── Role permissions ─────────────────────────────────────────────────────────
 export const ROLE_PERMISSIONS = {
   Administrateur: {
     canViewAll: true,
     canEditUsers: true,
     canExport: true,
     canChangeSettings: true,
-    routes: ["*"], // all routes
+    routes: ["*"],
   },
   Manager: {
     canViewAll: true,
@@ -121,7 +116,6 @@ export const ROLE_PERMISSIONS = {
   },
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 function verifyMockPassword(plain, stored) {
   return plain === stored;
 }
@@ -135,7 +129,6 @@ function generateSessionToken() {
     .join("");
 }
 
-// ─── Store ────────────────────────────────────────────────────────────────────
 export const useAuth = create()(
   persist(
     (set, get) => ({
@@ -145,7 +138,6 @@ export const useAuth = create()(
       loginError: null,
       isLoading: false,
 
-      // ── Login ──────────────────────────────────────────────────────────────
       loginWithApi: async (email, password) => {
         const res = await fetch(`${API_BASE}/api/auth/login`, {
           method: "POST",
@@ -182,7 +174,6 @@ export const useAuth = create()(
           }
         }
 
-        // Simulate network delay
         await new Promise((r) => setTimeout(r, 800));
 
         const found = MOCK_USERS.find((u) => u.email.toLowerCase() === email.toLowerCase().trim());
@@ -219,27 +210,22 @@ export const useAuth = create()(
         return true;
       },
 
-      // ── Logout ─────────────────────────────────────────────────────────────
       logout: () => {
         set({ user: null, sessionToken: null, isAuthenticated: false, loginError: null });
       },
 
-      // ── Update profile ─────────────────────────────────────────────────────
       updateProfile: (updates) => {
         const { user } = get();
         if (!user) return;
         set({ user: { ...user, ...updates } });
-        // In production: PATCH /api/users/:id
       },
 
-      // ── Change password ────────────────────────────────────────────────────
       changePassword: async (currentPassword, newPassword) => {
         const { user } = get();
         if (!user) return { success: false, error: "Non authentifié." };
 
         await new Promise((r) => setTimeout(r, 600));
 
-        // Find full user record to verify current password
         const found = MOCK_USERS.find((u) => u.id === user.id);
         if (!found || !verifyMockPassword(currentPassword, found.password)) {
           return { success: false, error: "Mot de passe actuel incorrect." };
@@ -249,7 +235,6 @@ export const useAuth = create()(
         return { success: true };
       },
 
-      // ── Permission check ───────────────────────────────────────────────────
       hasPermission: (permission) => {
         const { user } = get();
         if (!user) return false;
@@ -271,7 +256,7 @@ export const useAuth = create()(
     }),
     {
       name: "finmag-auth",
-      // Only persist these fields — don't persist loading/error states
+
       partialize: (state) => ({
         user: state.user,
         sessionToken: state.sessionToken,

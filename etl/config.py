@@ -1,23 +1,3 @@
-"""
-config.py — SIAD MAG Distribution ETL
-Configuration centrale : engines SQLAlchemy, hash_key, constantes métier.
-
-FIXES
-──────────────────────────────────────────────────────────────────────────
-FIX-HASH : hash_key() defined ONLY here. transform.py imports it from here
-           instead of duplicating it — eliminates silent drift risk.
-
-BUG-6 FIX : DOMAINES dict corrected.
-  The DBML schema comment said "4=Interne" but Sage Gestion Commerciale
-  defines DO_Domaine as:
-    0 = Vente, 1 = Achat, 2 = Stock, 3 = Interne
-  There is no code 4 in standard Sage GC.  The DDL DIM_DOMAINE note also
-  listed "4=Interne" — that note is a copy-paste error from the DBML.
-  The extract filter in extract.py correctly uses domain 0 (Vente) only,
-  so no data was lost, but the reference dict was wrong and would have
-  produced a wrong libelle_domaine label for any domain-3 row loaded into
-  DIM_DOMAINE.  Fixed: 3 -> "Interne" (removed the spurious 4 entry).
-"""
 from __future__ import annotations
 
 import os
@@ -33,13 +13,12 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, Engine, event
 from sqlalchemy.pool import QueuePool
 
-# ── .env loading ─────────────────────────────────────────────────────────────
+
 _ENV_PATH = Path(__file__).parent / ".env"
 load_dotenv(_ENV_PATH)
 
-# ── Engine factory ────────────────────────────────────────────────────────────
+
 def _sqlserver_tls_compat(conn_str: str) -> str:
-    """Add SQL Server ODBC TLS flags when .env does not specify them."""
     lowered = conn_str.lower()
     if "encrypt=" in lowered or "trustservercertificate=" in lowered:
         return conn_str
@@ -64,7 +43,6 @@ def _sqlserver_tls_compat(conn_str: str) -> str:
 
 
 def _make_engine(conn_str: str, pool_size: int = 5) -> Engine:
-    """SQLAlchemy engine with pyodbc fast_executemany and pool."""
     engine = create_engine(
         _sqlserver_tls_compat(conn_str),
         poolclass=QueuePool,
@@ -90,12 +68,12 @@ DW_ENGINE:  Engine = _make_engine(os.environ["DW_CONN"],  pool_size=5)
 MAG_ENGINE: Engine = _make_engine(os.environ["MAG_CONN"], pool_size=3)
 GRT_ENGINE: Engine = _make_engine(os.environ["GRT_CONN"], pool_size=3)
 
-# ── ETL parameters ────────────────────────────────────────────────────────────
+
 CHUNK_SIZE:     int = int(os.getenv("ETL_CHUNK_SIZE", "10000"))
 DIM_DATE_START: str = os.getenv("DIM_DATE_START", "2015-01-01")
 DIM_DATE_END:   str = os.getenv("DIM_DATE_END",   "2030-12-31")
 
-# ── Business constants ────────────────────────────────────────────────────────
+
 SEGMENTS: dict[int, str] = {
     1: "DÉTAILLANTS",
     2: "GROSSISTES",
@@ -159,11 +137,11 @@ TYPES_DOC: dict[int, str] = {
     17: "Avoir fournisseur",
 }
 
-# BUG-6 FIX: corrected Sage GC domain codes.
-# Standard Sage GC: 0=Vente, 1=Achat, 2=Stock, 3=Interne.
-# The previous version had 3="Interne" (correct) BUT the DBML comment
-# and DIM_DOMAINE DDL note incorrectly wrote "4=Interne".
-# There is no domain code 4 in Sage GC — removed the spurious entry.
+
+
+
+
+
 DOMAINES: dict[int, str] = {
     0: "Vente",
     1: "Achat",
@@ -175,21 +153,11 @@ SEUIL_TENSION_STOCK: float = 0.8
 FENETRE_RFM_JOURS:   int   = 365
 BUCKETS_IMPAYE:      list[int] = [0, 30, 60, 90]
 
-# ── Canonical hash function (SINGLE definition for the whole project) ─────────
-_CRC32_MOD: int = 2**31 - 1   # max signed SQL Server INT
+
+_CRC32_MOD: int = 2**31 - 1
 
 
 def hash_key(value: Optional[str | int | float]) -> Optional[int]:
-    """
-    CRC32-based surrogate for Sage natural keys.
-
-    Rules:
-      - strip + upper to normalise
-      - abs + modulo to stay within signed SQL Server INT
-      - None / NaN / empty string → None  (unknown key, not 0)
-
-    Returns None instead of 0 so FK joins stay NULL-safe.
-    """
     if value is None:
         return None
     import pandas as pd
@@ -204,7 +172,7 @@ def hash_key(value: Optional[str | int | float]) -> Optional[int]:
     return abs(zlib.crc32(normalized.encode("utf-8"))) % _CRC32_MOD
 
 
-# ── DW table creation order ───────────────────────────────────────────────────
+
 DW_TABLES_ORDER: list[str] = [
     "DIM_DATE",
     "DIM_DOMAINE",

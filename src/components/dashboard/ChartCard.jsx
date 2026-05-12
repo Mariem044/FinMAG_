@@ -1,13 +1,6 @@
-// FIXED: Removed card hover transforms and memoized ChartCard export.
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Skeleton } from "@/components/ui/skeleton";
 import { memo, useEffect, useState } from "react";
-
-/**
- * Shimmer skeleton variants for different chart types.
- * Used internally by ChartCard when `loading` prop is true.
- */
-
 
 if (typeof document !== "undefined" && !document.getElementById("chart-card-keyframes")) {
   const s = document.createElement("style");
@@ -18,7 +11,6 @@ if (typeof document !== "undefined" && !document.getElementById("chart-card-keyf
   `;
   document.head.appendChild(s);
 }
-
 
 function BarChartSkeleton({ bars = 7, horizontal = false }) {
   const heights = [65, 85, 50, 95, 70, 80, 55];
@@ -55,13 +47,12 @@ function BarChartSkeleton({ bars = 7, horizontal = false }) {
 function LineChartSkeleton() {
   return (
     <div className="relative h-full w-full px-2 py-4 overflow-hidden">
-      {/* Y-axis ticks */}
       <div className="absolute left-0 top-4 bottom-8 flex flex-col justify-between">
         {[0, 1, 2, 3, 4].map((i) => (
           <Skeleton key={i} className="h-2 w-8 rounded" style={{ animationDelay: `${i * 60}ms` }} />
         ))}
       </div>
-      {/* SVG wave lines */}
+
       <svg
         className="absolute inset-0 w-full h-full opacity-20"
         preserveAspectRatio="none"
@@ -92,7 +83,7 @@ function LineChartSkeleton() {
           }}
         />
       </svg>
-      {/* Horizontal grid lines */}
+
       <div className="absolute inset-x-10 top-4 bottom-8 flex flex-col justify-between pointer-events-none">
         {[0, 1, 2, 3, 4].map((i) => (
           <Skeleton
@@ -102,7 +93,7 @@ function LineChartSkeleton() {
           />
         ))}
       </div>
-      {/* X-axis ticks */}
+
       <div className="absolute bottom-0 left-10 right-2 flex justify-between">
         {[0, 1, 2, 3, 4, 5, 6].map((i) => (
           <Skeleton key={i} className="h-2 w-5 rounded" style={{ animationDelay: `${i * 60}ms` }} />
@@ -151,12 +142,20 @@ function AreaChartSkeleton() {
 function PieChartSkeleton() {
   return (
     <div className="flex items-center justify-center gap-6 h-full py-4">
-      {/* Donut ring */}
       <div className="relative flex-shrink-0">
         <svg width={140} height={140} viewBox="0 0 140 140">
-          <circle cx={70} cy={70} r={52} fill="none" stroke="hsl(var(--primary) / 0.08)" strokeWidth={20} />
           <circle
-            cx={70} cy={70} r={52}
+            cx={70}
+            cy={70}
+            r={52}
+            fill="none"
+            stroke="hsl(var(--primary) / 0.08)"
+            strokeWidth={20}
+          />
+          <circle
+            cx={70}
+            cy={70}
+            r={52}
             fill="none"
             stroke="hsl(var(--primary) / 0.18)"
             strokeWidth={20}
@@ -165,7 +164,9 @@ function PieChartSkeleton() {
             style={{ animation: "skelPulse 1.8s ease-in-out infinite" }}
           />
           <circle
-            cx={70} cy={70} r={52}
+            cx={70}
+            cy={70}
+            r={52}
             fill="none"
             stroke="hsl(var(--muted-foreground) / 0.10)"
             strokeWidth={20}
@@ -176,12 +177,18 @@ function PieChartSkeleton() {
           />
         </svg>
       </div>
-      {/* Legend lines */}
+
       <div className="flex flex-col gap-2.5">
         {[70, 55, 45, 60, 40].map((w, i) => (
           <div key={i} className="flex items-center gap-2">
-            <Skeleton className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ animationDelay: `${i * 80}ms` }} />
-            <Skeleton className="h-2.5 rounded" style={{ width: w, animationDelay: `${i * 80 + 20}ms` }} />
+            <Skeleton
+              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+              style={{ animationDelay: `${i * 80}ms` }}
+            />
+            <Skeleton
+              className="h-2.5 rounded"
+              style={{ width: w, animationDelay: `${i * 80 + 20}ms` }}
+            />
           </div>
         ))}
       </div>
@@ -190,7 +197,6 @@ function PieChartSkeleton() {
 }
 
 function ScatterChartSkeleton() {
-  // Generate stable dot positions using a seeded pattern
   const dots = Array.from({ length: 20 }, (_, i) => ({
     x: 10 + ((i * 37 + 13) % 80),
     y: 10 + ((i * 53 + 7) % 75),
@@ -199,7 +205,11 @@ function ScatterChartSkeleton() {
   }));
   return (
     <div className="relative h-full w-full px-2 py-4 overflow-hidden">
-      <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 100">
+      <svg
+        className="absolute inset-0 w-full h-full"
+        preserveAspectRatio="none"
+        viewBox="0 0 100 100"
+      >
         {dots.map((d, i) => (
           <circle
             key={i}
@@ -210,9 +220,25 @@ function ScatterChartSkeleton() {
             style={{ animation: `skelPulse 2s ease-in-out ${d.delay}ms infinite` }}
           />
         ))}
-        {/* Reference lines */}
-        <line x1="50" y1="5" x2="50" y2="95" stroke="hsl(var(--border))" strokeWidth="0.5" strokeDasharray="3 2" />
-        <line x1="5" y1="50" x2="95" y2="50" stroke="hsl(var(--border))" strokeWidth="0.5" strokeDasharray="3 2" />
+
+        <line
+          x1="50"
+          y1="5"
+          x2="50"
+          y2="95"
+          stroke="hsl(var(--border))"
+          strokeWidth="0.5"
+          strokeDasharray="3 2"
+        />
+        <line
+          x1="5"
+          y1="50"
+          x2="95"
+          y2="50"
+          stroke="hsl(var(--border))"
+          strokeWidth="0.5"
+          strokeDasharray="3 2"
+        />
       </svg>
     </div>
   );
@@ -221,10 +247,13 @@ function ScatterChartSkeleton() {
 function TableSkeleton({ rows = 6 }) {
   return (
     <div className="space-y-0">
-      {/* Header */}
       <div className="flex gap-3 px-3 py-2 border-b border-border/40">
         {[120, 80, 90, 70, 100].map((w, i) => (
-          <Skeleton key={i} className="h-2.5 rounded" style={{ width: w, animationDelay: `${i * 40}ms` }} />
+          <Skeleton
+            key={i}
+            className="h-2.5 rounded"
+            style={{ width: w, animationDelay: `${i * 40}ms` }}
+          />
         ))}
       </div>
       {Array.from({ length: rows }).map((_, i) => (
@@ -236,7 +265,10 @@ function TableSkeleton({ rows = 6 }) {
             <Skeleton
               key={j}
               className="h-2 rounded"
-              style={{ width: w * (0.6 + (j * i % 4) * 0.1), animationDelay: `${(i * 5 + j) * 35}ms` }}
+              style={{
+                width: w * (0.6 + ((j * i) % 4) * 0.1),
+                animationDelay: `${(i * 5 + j) * 35}ms`,
+              }}
             />
           ))}
         </div>
@@ -271,39 +303,22 @@ function GaugeSkeleton() {
   );
 }
 
-/**
- * ChartSkeleton — auto-selects the right skeleton variant based on `variant` prop.
- *
- * Supported variants:
- *   "bar"      – vertical grouped/stacked bars
- *   "bar-h"    – horizontal bar chart
- *   "line"     – line chart with axis ticks
- *   "area"     – area/filled chart
- *   "pie"      – donut + legend
- *   "scatter"  – scatter plot with reference lines
- *   "table"    – tabular data with header row
- *   "gauge"    – semicircular gauge
- *   "kpi"      – compact KPI card row
- */
 export function ChartSkeleton({ variant = "bar", height }) {
   const style = height ? { height } : {};
   return (
     <div className="w-full animate-in fade-in-0 duration-300" style={style}>
-      {variant === "bar"     && <BarChartSkeleton />}
-      {variant === "bar-h"   && <BarChartSkeleton horizontal />}
-      {variant === "line"    && <LineChartSkeleton />}
-      {variant === "area"    && <AreaChartSkeleton />}
-      {variant === "pie"     && <PieChartSkeleton />}
+      {variant === "bar" && <BarChartSkeleton />}
+      {variant === "bar-h" && <BarChartSkeleton horizontal />}
+      {variant === "line" && <LineChartSkeleton />}
+      {variant === "area" && <AreaChartSkeleton />}
+      {variant === "pie" && <PieChartSkeleton />}
       {variant === "scatter" && <ScatterChartSkeleton />}
-      {variant === "table"   && <TableSkeleton />}
-      {variant === "gauge"   && <GaugeSkeleton />}
+      {variant === "table" && <TableSkeleton />}
+      {variant === "gauge" && <GaugeSkeleton />}
     </div>
   );
 }
 
-/**
- * KPICardSkeleton — matches the exact layout of KPICard.
- */
 export function KPICardSkeleton() {
   return (
     <div className="relative bg-gradient-to-br from-card via-card/95 to-card/80 border border-border/50 rounded-lg md:rounded-xl p-3 md:p-4 lg:p-5 flex flex-col gap-2.5 overflow-hidden">
@@ -320,12 +335,6 @@ export function KPICardSkeleton() {
   );
 }
 
-/**
- * useSimulatedLoading — returns `true` for a simulated delay, then flips to `false`.
- * Simulates async data fetching so skeletons appear naturally on page mount.
- *
- * @param {number} delay  ms before resolving (default: random 600–1100ms)
- */
 export function useSimulatedLoading(delay) {
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -336,17 +345,6 @@ export function useSimulatedLoading(delay) {
   return loading;
 }
 
-/**
- * ChartCard — wraps chart content with a consistent card shell.
- *
- * Props:
- *   title       {string}  Card heading
- *   subtitle    {string}  Optional sub-heading
- *   loading     {boolean} When true, renders skeleton instead of children
- *   skeleton    {string}  Variant passed to ChartSkeleton ("bar" | "line" | "area" | "pie" | …)
- *   minHeight   {number}  Minimum height in px applied to the skeleton wrapper
- *   className   {string}  Extra classes on the root element
- */
 export const ChartCard = memo(function ChartCard({
   title,
   subtitle,
@@ -366,7 +364,6 @@ export const ChartCard = memo(function ChartCard({
         ${className}
       `.trim()}
     >
-      {/* Header */}
       <div className="mb-4 md:mb-5 relative z-10 flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           {loading ? (
@@ -392,25 +389,17 @@ export const ChartCard = memo(function ChartCard({
         </div>
       </div>
 
-      {/* Content */}
       <div className="relative z-10" style={minHeight && loading ? { minHeight } : {}}>
         {loading ? (
           <ChartSkeleton variant={skeleton} height={minHeight} />
         ) : (
-          <div className="animate-in fade-in-0 duration-500">
-            {children}
-          </div>
+          <div className="animate-in fade-in-0 duration-500">{children}</div>
         )}
       </div>
-
-      {/* Keyframe styles injected once */}
     </div>
   );
 });
 
-/**
- * useChartHeight — returns a chart height appropriate for the screen size.
- */
 export function useChartHeight(desktop = 280, mobile = 200) {
   const isMobile = useIsMobile();
   return isMobile ? mobile : desktop;

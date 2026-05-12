@@ -1,21 +1,21 @@
-// FIXED: Added disabled prop to skip ETL status display/polling on irrelevant routes.
 import { Link } from "@tanstack/react-router";
 import { AlertTriangle, Database, Loader2 } from "lucide-react";
 import { useEffect, useCallback, useState } from "react";
 import { api } from "@/lib/api";
 
-const POLL_RUNNING_MS  = 3_000;   // fast poll while ETL is active
-const POLL_IDLE_MS     = 30_000;  // slow poll when nothing is running
+const POLL_RUNNING_MS = 3_000;
+const POLL_IDLE_MS = 30_000;
 
 export function DataSourceStatus({ disabled = false }) {
   const defaultData = { running: false, lastRun: null, counts: {} };
-  const [data,      setData]      = useState(defaultData);
-  const [error,     setError]     = useState(null);
-  const [loading,   setLoading]   = useState(true);
+  const [data, setData] = useState(defaultData);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [hasRealData, setHasRealData] = useState(false);
 
   const fetch = useCallback(() => {
-    api.etl.status()
+    api.etl
+      .status()
       .then((d) => {
         setData(d ?? defaultData);
         setError(null);
@@ -26,14 +26,11 @@ export function DataSourceStatus({ disabled = false }) {
         setHasRealData(false);
       })
       .finally(() => setLoading(false));
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
-  // FIX: poll continuously instead of fetching once on mount.
-  // Use a short interval while the ETL is running so the UI transitions
-  // to "done" promptly; use a long interval when idle to save DB load.
   useEffect(() => {
     if (disabled) return undefined;
-    fetch(); // immediate first fetch
+    fetch();
     const interval = setInterval(fetch, data.running ? POLL_RUNNING_MS : POLL_IDLE_MS);
     return () => clearInterval(interval);
   }, [disabled, fetch, data.running]);
@@ -66,7 +63,6 @@ export function DataSourceStatus({ disabled = false }) {
     );
   }
 
-  // Safe null-check: data or data.counts may be undefined on first render
   const counts = data?.counts || {};
   const totalRows = Object.values(counts).reduce((sum, value) => sum + Number(value || 0), 0);
 

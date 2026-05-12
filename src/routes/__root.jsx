@@ -39,19 +39,16 @@ function RootComponent() {
   const navigate = useNavigate();
   const isPublic = PUBLIC_ROUTES.includes(location.pathname);
 
-  // Redirect authenticated users away from login
   useEffect(() => {
     if (isAuthenticated && location.pathname === "/login") {
       navigate({ to: "/" });
     }
   }, [isAuthenticated, location.pathname, navigate]);
 
-  // Public routes (login) render without the dashboard shell
   if (isPublic) {
     return <RootOutlet />;
   }
 
-  // All other routes require auth and render inside the dashboard
   return (
     <ProtectedRoute>
       <DashboardLayout />
@@ -59,7 +56,6 @@ function RootComponent() {
   );
 }
 
-// We need the Outlet from tanstack router
 import { Outlet } from "@tanstack/react-router";
 
 function RootOutlet() {

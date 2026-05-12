@@ -1,36 +1,3 @@
-"""
-pipeline.py — SIAD MAG Distribution ETL — v14.4-fixed
-Main orchestrator.
-
-BUG FIXES from v14.3
-──────────────────────────────────────────────────────────────────────────
-BUG-1  FIX : DIM_COLLABORATEUR — CO_Fonction cast to Int32.
-BUG-5  FIX : last_run captured as immutable closure, not read from lookups.
-BUG-7  FIX : type-4 stock rows use pd.NA for nullable FK columns.
-WARN-5 FIX : _compute_dsi_jours() filters on DIM_DATE.date_val, not
-             date_extraction.
-
-NEW in v14.4
-──────────────────────────────────────────────────────────────────────────
-KPI-16 FIX : FAIT_LIGNES_VENTE step now concatenates purchase lines
-             (DO_Domaine=1) after sales lines (DO_Domaine=0). The combined
-             load uses id_domaine as discriminant — BI queries filter on
-             id_domaine=1 (DIM_DOMAINE) to isolate supplier purchases.
-             Previously, only vente lines were loaded, making KPI-16
-             (volume & concentration des achats par fournisseur) impossible.
-
-KPI-18 FIX : _compute_rfm_scores() added — post-load SQL UPDATE that stamps
-             rfm_recence_jours, rfm_frequence, rfm_montant_12m on
-             DIM_CLIENT using a 365-day rolling window from FAIT_LIGNES_VENTE.
-             Previously FENETRE_RFM_JOURS was defined in config.py but never
-             applied anywhere. Requires three new nullable columns on
-             DIM_CLIENT (added via migration in ddl.py — see KPI18_MIGRATION).
-
-KPI-08 FIX : bucket_impaye is now computed from id_date_echeance (the due
-             date) as the KPI document specifies, not from delai_reel_jours
-             (RT_Date - DO_Date). A new helper _bucket_from_echeance()
-             replaces the old logic in _assemble_fait_reglements().
-"""
 from __future__ import annotations
 
 import hashlib
@@ -59,9 +26,9 @@ from etl import ddl, extract, transform, load
 logger = get_logger(__name__)
 
 
-# ── DDL migration for KPI-18 RFM columns ─────────────────────────────────────
-# Safe to add here so they are applied at every pipeline start without a
-# separate migration script.
+
+
+
 KPI18_MIGRATION: list[tuple[str, str]] = [
     (
         "DIM_CLIENT.rfm_recence_jours",
@@ -82,14 +49,13 @@ KPI18_MIGRATION: list[tuple[str, str]] = [
 
 
 def _safe_int16(series: pd.Series) -> pd.Series:
-    """Convert a series to nullable Int16, safely handling float64 with NaN."""
     s = pd.to_numeric(series, errors="coerce")
     return s.astype(object).where(s.notna(), other=None).astype("Int16")
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# LOOKUPS
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def _build_lookup(table_name: str, natural_hash_col: str, surrogate_id_col: str) -> Dict:
     query = (
@@ -135,9 +101,9 @@ Step = Tuple[
 ]
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# HELPERS
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def _hash_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     df = df.copy()
@@ -182,24 +148,11 @@ def _resolve_today_id(lookups: Dict, today: date) -> Optional[int]:
     return None
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# KPI-08 FIX — bucket from echeance date, not delai_reel_jours
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def _bucket_from_echeance(row) -> Optional[int]:
-    """Compute bucket_impaye from DATEDIFF(today, echeance) per KPI-08 spec.
-
-    KPI-08 FIX: the document says GROUP BY ancienneté DATEDIFF(today,
-    id_date_echeance). The old implementation used delai_reel_jours which
-    measures RT_Date - DO_Date (payment date minus invoice date), a different
-    concept. This function uses LB_EcheanceReg (due date) instead.
-
-    Buckets (unpaid rows where DR_Regle == 0 only):
-      0 = 0–30 days overdue
-      1 = 31–60 days overdue
-      2 = 61–90 days overdue
-      3 = > 90 days overdue
-    """
     if row.get("DR_Regle", 1) != 0:
         return None
     echeance = row.get("LB_EcheanceReg")
@@ -210,7 +163,7 @@ def _bucket_from_echeance(row) -> Optional[int]:
     except Exception:
         return None
     if days_overdue <= 0:
-        return None   # not yet overdue
+        return None
     if days_overdue <= 30:
         return 0
     if days_overdue <= 60:
@@ -220,9 +173,9 @@ def _bucket_from_echeance(row) -> Optional[int]:
     return 3
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# DIM_FAMILLE transform
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def _transform_dim_famille(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
@@ -237,9 +190,9 @@ def _transform_dim_famille(df: pd.DataFrame) -> pd.DataFrame:
     return df[["FA_CodeFamille_code", "niveau_0_code", "niveau_1_code", "niveau_2_code"]]
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# DIM_TYPE_MVT_CAISSE transform
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def _add_static_label(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
@@ -251,9 +204,9 @@ def _add_static_label(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# DIM_DATE generation
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def _generate_dim_date(
     start: str = DIM_DATE_START,
@@ -285,9 +238,9 @@ def _generate_dim_date(
     return df
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# FAIT_REGLEMENTS assembly
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def _resolve_banque_id(row: pd.Series, lookups: Dict):
     banque_lookup = lookups.get("DIM_BANQUE", {})
@@ -304,12 +257,6 @@ def _assemble_fait_reglements(
     last_run: Optional[datetime],
     lookups:  Dict,
 ) -> pd.DataFrame:
-    """Assemble FAIT_REGLEMENTS from client and supplier payment tables.
-
-    KPI-08 FIX: bucket_impaye is now derived from LB_EcheanceReg (the due
-    date), not from delai_reel_jours. The old transform.add_fact_reglements_bucket
-    helper is replaced by _bucket_from_echeance() for this assembly.
-    """
     defaults = {
         "DO_Piece":          None,
         "LB_Ligne":          None,
@@ -376,10 +323,10 @@ def _assemble_fait_reglements(
         if _col not in df.columns:
             df[_col] = _default
 
-    # KPI-09: delai_reel_jours and ecart_delai (payment delay vs contractual)
+
     df = transform.add_fact_reglements_calcs(df)
 
-    # KPI-08 FIX: bucket from echeance date (not delai_reel_jours)
+
     df = df.copy()
     df["bucket_impaye"] = df.apply(_bucket_from_echeance, axis=1)
 
@@ -436,9 +383,9 @@ def _assemble_fait_reglements(
     )
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# DIM_CAISSE / DIM_BANQUE assembly (unchanged)
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
     df_mag = extract.extract_dim_caisse_mag().copy()
@@ -498,9 +445,9 @@ def _assemble_dim_banque(lookups: Dict) -> pd.DataFrame:
     )
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# FAIT_ECRITURES assembly (unchanged from v14.3)
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def _assemble_fait_ecritures(
     last_run: Optional[datetime],
@@ -666,16 +613,11 @@ def _assemble_fait_ecritures(
     return df
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# POST-LOAD COMPUTATIONS
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def _compute_dsi_jours() -> None:
-    """Update dsi_jours and qte_vendue_365j on FAIT_ECRITURES stock rows.
-
-    WARN-5 FIX: filters on DIM_DATE.date_val (transaction date), not
-    date_extraction.
-    """
     sql = """
         UPDATE fe
         SET
@@ -704,15 +646,6 @@ def _compute_dsi_jours() -> None:
 
 
 def _compute_rfm_scores() -> None:
-    """Stamp RFM metrics on DIM_CLIENT using a rolling 365-day window.
-
-    KPI-18 FIX: FENETRE_RFM_JOURS (365) is now actually applied.
-    Uses FAIT_LIGNES_VENTE filtered to DO_Domaine=0 (vente) only.
-    Only updates rows with at least one sale in the window — clients with
-    no recent activity keep their previous values (or NULL on first run).
-
-    Columns written: rfm_recence_jours, rfm_frequence, rfm_montant_12m.
-    """
     sql = f"""
         UPDATE c
         SET
@@ -746,14 +679,13 @@ def _load_dim_date(df: pd.DataFrame, table: str, mode: str) -> None:
         load.load_dimension(df, table, "delta", key_col="date_val")
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# STEPS
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def _build_lignes_vente_transform(last_run_date):
-    """Return a transform function that merges vente + achat lines (KPI-16 FIX)."""
     def _transform(df_vente: pd.DataFrame, lookups: Dict) -> pd.DataFrame:
-        # Also extract purchase lines and concatenate
+
         df_achat = extract.extract_fait_lignes_achat(last_run_date)
         df_raw = pd.concat([df_vente, df_achat], ignore_index=True, sort=False)
 
@@ -931,28 +863,28 @@ STEPS: List[Step] = [
      lambda df, lookups: _assemble_dim_caisse(lookups),
      lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CA_Numero_code")),
 
-    # KPI-16 FIX: extract_fn loads vente lines only; transform_fn (replaced at
-    # runtime) concatenates achat lines so both domaines land in the same fact table.
+
+
     ("FAIT_LIGNES_VENTE",
      lambda **kw: extract.extract_fait_lignes_vente(kw.get("last_run")),
-     None,   # replaced at runtime by _build_lignes_vente_transform(last_run_date)
+     None,
      lambda df, tbl, mode: load.load_fact(df, tbl, mode)),
 
     ("FAIT_REGLEMENTS",
      lambda **kw: pd.DataFrame(),
-     None,   # replaced at runtime
+     None,
      lambda df, tbl, mode: load.load_fact(df, tbl, mode)),
 
     ("FAIT_ECRITURES",
      lambda **kw: pd.DataFrame(),
-     None,   # replaced at runtime
+     None,
      lambda df, tbl, mode: load.load_fact(df, tbl, mode)),
 ]
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# RUN PIPELINE
-# ════════════════════════════════════════════════════════════════════════════
+
+
+
 
 def run_pipeline() -> None:
 
@@ -966,7 +898,7 @@ def run_pipeline() -> None:
     ddl.create_all_tables(drop_existing=False)
     ddl.apply_schema_migrations()
 
-    # KPI-18 FIX: ensure RFM columns exist on DIM_CLIENT
+
     with DW_ENGINE.begin() as conn:
         for label, sql in KPI18_MIGRATION:
             try:
@@ -981,7 +913,7 @@ def run_pipeline() -> None:
 
     lookups: Dict = {}
 
-    # Runtime closures over immutable last_run_date
+
     _transform_lignes_vente = _build_lignes_vente_transform(last_run_date)
     _transform_reglements   = lambda df, lk: _assemble_fait_reglements(last_run_date, lk)
     _transform_ecritures    = lambda df, lk: _assemble_fait_ecritures(last_run_date, lk)

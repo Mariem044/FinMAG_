@@ -1,7 +1,5 @@
-// FIXED: Expanded and normalized translations, language labels, and locale metadata.
 export const translations = {
   fr: {
-    // ── Navigation ────────────────────────────────────────────────────────────
     "nav.dashboard": "Tableau de bord",
     "nav.ventes": "Chiffre d'affaires & Performance",
     "nav.tresorerie": "Trésorerie & Règlements",
@@ -16,10 +14,8 @@ export const translations = {
     "nav.aide": "Aide & Support",
     "nav.domains": "Modules",
 
-    // ── En-tête ───────────────────────────────────────────────────────────────
     "header.aiAssistant": "Assistant IA",
 
-    // ── Filtres ───────────────────────────────────────────────────────────────
     "filters.label": "Filtres",
     "filters.period": "Période",
     "filters.depot": "Dépôt",
@@ -32,7 +28,6 @@ export const translations = {
     "filters.banque": "Établissement bancaire",
     "filters.modeBanque": "Mode remise",
 
-    // ── Paramètres ────────────────────────────────────────────────────────────
     "params.title": "Paramètres",
     "params.general": "Préférences générales",
     "params.langue": "Langue d'affichage",
@@ -60,7 +55,6 @@ export const translations = {
     "params.etlAlreadyRunning": "ETL déjà en cours.",
     "params.etlStartFailed": "Impossible de lancer l'ETL depuis l'API.",
 
-    // ── Aide ──────────────────────────────────────────────────────────────────
     "aide.title": "Centre d'aide",
     "aide.subtitle": "Retrouvez les réponses à vos questions et accédez à l'assistance SIAD.",
     "aide.emailSupport": "Support par e-mail",
@@ -72,7 +66,6 @@ export const translations = {
     "aide.hoursDetail":
       "Lundi – Vendredi : 08h00 – 18h00 (GMT+1)\nSamedi : 09h00 – 14h00\nDimanche : Fermé",
 
-    // ── Général ───────────────────────────────────────────────────────────────
     "common.loading": "Chargement en cours…",
     "common.noData": "Aucun résultat trouvé.",
     "common.search": "Rechercher pages, indicateurs, clients, articles… (Ctrl+K)",
@@ -80,7 +73,6 @@ export const translations = {
   },
 
   en: {
-    // ── Navigation ────────────────────────────────────────────────────────────
     "nav.dashboard": "Dashboard",
     "nav.ventes": "Revenue & Sales Performance",
     "nav.tresorerie": "Treasury & Payments",
@@ -95,10 +87,8 @@ export const translations = {
     "nav.aide": "Help & Support",
     "nav.domains": "Modules",
 
-    // ── Header ────────────────────────────────────────────────────────────────
     "header.aiAssistant": "AI Assistant",
 
-    // ── Filters ───────────────────────────────────────────────────────────────
     "filters.label": "Filters",
     "filters.period": "Period",
     "filters.depot": "Warehouse",
@@ -111,7 +101,6 @@ export const translations = {
     "filters.banque": "Bank",
     "filters.modeBanque": "Remittance Type",
 
-    // ── Settings ──────────────────────────────────────────────────────────────
     "params.title": "Settings",
     "params.general": "General Preferences",
     "params.langue": "Display Language",
@@ -138,7 +127,6 @@ export const translations = {
     "params.etlAlreadyRunning": "ETL is already running.",
     "params.etlStartFailed": "Unable to start ETL from the API.",
 
-    // ── Help ──────────────────────────────────────────────────────────────────
     "aide.title": "Help Center",
     "aide.subtitle": "Find answers to your questions and reach the SIAD support team.",
     "aide.emailSupport": "Email Support",
@@ -150,7 +138,6 @@ export const translations = {
     "aide.hoursDetail":
       "Monday – Friday: 8:00 AM – 6:00 PM (GMT+1)\nSaturday: 9:00 AM – 2:00 PM\nSunday: Closed",
 
-    // ── Common ────────────────────────────────────────────────────────────────
     "common.loading": "Loading…",
     "common.noData": "No results found.",
     "common.search": "Search pages, KPIs, clients, items… (Ctrl+K)",
@@ -158,7 +145,6 @@ export const translations = {
   },
 
   ar: {
-    // ── التنقل ────────────────────────────────────────────────────────────────
     "nav.dashboard": "لوحة القيادة",
     "nav.ventes": "رقم الأعمال والأداء التجاري",
     "nav.tresorerie": "الخزينة والتحصيلات",
@@ -173,10 +159,8 @@ export const translations = {
     "nav.aide": "المساعدة والدعم",
     "nav.domains": "الوحدات",
 
-    // ── رأس الصفحة ────────────────────────────────────────────────────────────
     "header.aiAssistant": "المساعد الذكي",
 
-    // ── الفلاتر ───────────────────────────────────────────────────────────────
     "filters.label": "الفلاتر",
     "filters.period": "الفترة الزمنية",
     "filters.depot": "المستودع",
@@ -189,7 +173,6 @@ export const translations = {
     "filters.banque": "البنك",
     "filters.modeBanque": "نوع التحويل",
 
-    // ── الإعدادات ─────────────────────────────────────────────────────────────
     "params.title": "الإعدادات",
     "params.general": "التفضيلات العامة",
     "params.langue": "لغة العرض",
@@ -216,7 +199,6 @@ export const translations = {
     "params.etlAlreadyRunning": "ETL قيد التشغيل بالفعل.",
     "params.etlStartFailed": "تعذر تشغيل ETL من واجهة API.",
 
-    // ── المساعدة ──────────────────────────────────────────────────────────────
     "aide.title": "مركز المساعدة",
     "aide.subtitle": "ابحث عن إجابات لأسئلتك وتواصل مع فريق دعم SIAD.",
     "aide.emailSupport": "الدعم عبر البريد الإلكتروني",
@@ -228,7 +210,6 @@ export const translations = {
     "aide.hoursDetail":
       "الاثنين – الجمعة: 08:00 – 18:00 (GMT+1)\nالسبت: 09:00 – 14:00\nالأحد: مغلق",
 
-    // ── عام ───────────────────────────────────────────────────────────────────
     "common.loading": "جارٍ التحميل…",
     "common.noData": "لا توجد نتائج.",
     "common.search": "ابحث عن صفحات، مؤشرات، عملاء، مواد… (Ctrl+K)",

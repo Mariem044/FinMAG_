@@ -1,9 +1,3 @@
-// FIXED: Added URL-level request deduplication for pending fetch calls.
-// src/lib/api.js
-//
-// All fetchers are plain functions (not closures created on every render),
-// so passing them directly to useApiResource is safe — their identity is stable.
-
 const BASE = ((typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "").replace(
   /\/$/,
   "",
@@ -57,10 +51,6 @@ function post(path) {
   return fetchWithTimeout(path, { method: "POST" });
 }
 
-// ─── Stable fetcher references ────────────────────────────────────────────────
-// These are module-level functions so their identity never changes between renders.
-// This means useApiResource(api.ventes.caByMonth, []) won't trigger extra re-fetches.
-
 const _health = () => get("/api/health");
 
 const _etlStatus = () => get("/api/etl/status");
@@ -104,19 +94,9 @@ const _fiscaliteEcritures = () => get("/api/fiscalite/ecritures");
 
 const _notifications = () => get("/api/notifications");
 
-/**
- * assistantSummary — returns a combined object matching what the assistant page
- * expects: { kpis, caByMonth, articles, clients, impayes, ecritures }
- *
- * The backend /api/assistant/summary endpoint should return this shape.
- * If it doesn't exist yet, this falls back to individual calls gracefully
- * because useApiResource uses the initialData default on failure.
- */
 const _assistantSummary = () => get("/api/assistant/summary");
 
 const _search = (query) => get(`/api/search?q=${encodeURIComponent(query)}`);
-
-// ─── Public API object ────────────────────────────────────────────────────────
 
 export const api = {
   health: _health,

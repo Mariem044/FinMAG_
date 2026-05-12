@@ -1,9 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  useChartHeight,
-  ChartCard,
-  KPICardSkeleton,
-} from "@/components/dashboard/ChartCard";
+import { useChartHeight, ChartCard, KPICardSkeleton } from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
 import { Boxes, AlertTriangle, Clock, Bell } from "lucide-react";
@@ -89,17 +85,13 @@ function GaugeChart({ value, target, label }) {
 
 function ProduitsPage() {
   const { famille, statutArticle, horizonPrev, depot, getActiveMonthIndexes } = useFilters();
-  const { data: articles, loading: articlesLoading } = useApiResource(
-    api.produits.articles,
-    [],
-  );
+  const { data: articles, loading: articlesLoading } = useApiResource(api.produits.articles, []);
   const { data: stockAlerts, loading: alertsLoading } = useApiResource(api.produits.alerts, []);
   const activeIdx = getActiveMonthIndexes();
   const chartH = useChartHeight();
   const kpiLoading = articlesLoading || alertsLoading;
   const chartsLoading = articlesLoading || alertsLoading;
 
-  // Filter articles
   const filteredArticles = useMemo(() => {
     return articles.filter((a) => {
       if (famille !== "Toutes" && a.famille !== famille) return false;
@@ -128,10 +120,16 @@ function ProduitsPage() {
     }));
 
     if (famille !== "Toutes") return rows.filter((row) => row.name === famille);
-    return rows.length ? rows : FAMILLES.map((name, i) => ({ name, size: 0, rotation: 0, fill: CHART_COLORS[i % CHART_COLORS.length] }));
+    return rows.length
+      ? rows
+      : FAMILLES.map((name, i) => ({
+          name,
+          size: 0,
+          rotation: 0,
+          fill: CHART_COLORS[i % CHART_COLORS.length],
+        }));
   }, [famille, filteredArticles]);
 
-  // Alerts filtered by famille
   const alertes = useMemo(() => {
     return stockAlerts
       .filter((a) => famille === "Toutes" || a.famille === famille)
@@ -141,7 +139,6 @@ function ProduitsPage() {
       });
   }, [famille, stockAlerts]);
 
-  // DSI scatter filtered
   const dsiScatter = useMemo(() => {
     return filteredArticles.slice(0, 40).map((a) => ({
       dsi: Math.round(a.dsi || 0),
@@ -151,7 +148,6 @@ function ProduitsPage() {
     }));
   }, [filteredArticles]);
 
-  // KPIs
   const valeurStock = filteredArticles.reduce((s, a) => s + a.ca * 0.3, 0);
   const nbRuptures = alertes.filter((a) => a.stockActuel < a.seuil).length;
   const dsiMoyen = Math.round(
