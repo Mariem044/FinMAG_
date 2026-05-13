@@ -145,6 +145,9 @@ def _lookup_code(lookups: Dict, table_name: str, value):
 
 
 def _resolve_today_id(lookups: Dict, today: date) -> Optional[int]:
+    if not lookups.get("DIM_DATE"):
+        # Build lookup on-the-fly if not yet populated
+        lookups["DIM_DATE"] = _build_lookup("DIM_DATE", "date_val", "id_date")
     def _resolve_today_id(lookups: Dict, today: date) -> Optional[int]:
         date_lookup = lookups.get("DIM_DATE", {})
         id_val = date_lookup.get(today)
@@ -413,7 +416,7 @@ def _assemble_fait_reglements(
         ),
         BR_Rapproch=lambda d: pd.to_numeric(d["BR_Rapproch"], errors="coerce").astype("Int16"),
         RT_Rapproche=rapproche.astype("Int16"),
-        RT_Num=lambda d: pd.to_numeric(d["RT_Num"], errors="coerce").astype("Int64"),
+        RT_Num=lambda d: d["RT_Num"].astype(str).where(d["RT_Num"].notna(), other=None),
         source_hash=lambda d: d.apply(
             lambda row: _source_hash(
                 "REGLEMENT",

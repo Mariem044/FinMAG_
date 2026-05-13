@@ -521,36 +521,19 @@ def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.D
             rc.BQ_Num,
             rc.BQ_ABREGE,
             rc.RT_Rapproche,
-            lb.LB_Ligne,
-            lb.BR_Num,
-            lb.LB_MontantReg,
-            lb.LB_EcheanceReg,
-            lb.LB_NbJour,
-            lb.LB_Agios,
-            br.BR_TotalReglement,
-            br.BR_Rapproch,
-            br.BR_TauxAgios,
-            br.BR_TMM
-        FROM (
-            SELECT *, ROW_NUMBER() OVER (PARTITION BY RT_Num ORDER BY RT_Date DESC) AS _rn
-            FROM F_ReglementClient
-            WHERE RT_Num IS NOT NULL AND RT_Montant IS NOT NULL
-            {delta_where}
-        ) rc
-        OUTER APPLY (
-            SELECT TOP 1
-                lb2.LB_Ligne,
-                lb2.BR_Num,
-                lb2.LB_MontantReg,
-                lb2.LB_EcheanceReg,
-                lb2.LB_NbJour,
-                lb2.LB_Agios
-            FROM F_LigneBordereauRemise lb2
-            WHERE lb2.RT_Num = rc.RT_Num
-            ORDER BY lb2.LB_Ligne DESC
-        ) lb
-        LEFT JOIN F_BordereauRemise br ON br.BR_Num = lb.BR_Num
-        WHERE rc._rn = 1
+            rc.RT_Echeance AS LB_EcheanceReg,
+            NULL AS LB_Ligne,
+            NULL AS BR_Num,
+            NULL AS LB_MontantReg,
+            NULL AS LB_NbJour,
+            NULL AS LB_Agios,
+            NULL AS BR_TotalReglement,
+            NULL AS BR_Rapproch,
+            NULL AS BR_TauxAgios,
+            NULL AS BR_TMM
+        FROM F_ReglementClient rc
+        WHERE rc.RT_Montant IS NOT NULL
+        {delta_where}
     """
     df = _read(GRT_ENGINE, sql, params)
     _validate_columns(df, ["RT_Num", "RT_Date", "LB_EcheanceReg"], "extract_fait_reglements_clients")

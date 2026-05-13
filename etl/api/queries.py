@@ -224,18 +224,18 @@ def get_dashboard_kpis():
             END) AS nb_commandes,
             COUNT(DISTINCT CASE WHEN d.annee = latest.latest_year THEN f.id_client END) AS nb_clients_actifs,
             SUM(CASE WHEN d.annee = latest.latest_year
-                          AND a.AR_PrixAch IS NOT NULL
-                          AND a.AR_PrixAch > 0
-                          AND f.DL_Qte IS NOT NULL
-                          AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch)
+                        AND a.AR_PrixAch IS NOT NULL
+                        AND a.AR_PrixAch > 0
+                        AND f.DL_Qte IS NOT NULL
+                        AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch)
                 THEN f.DL_MontantHT - (f.DL_Qte * a.AR_PrixAch)
                 ELSE NULL
             END) AS marge_brute,
             SUM(CASE WHEN d.annee = latest.latest_year
-                          AND a.AR_PrixAch IS NOT NULL
-                          AND a.AR_PrixAch > 0
-                          AND f.DL_Qte IS NOT NULL
-                          AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch)
+                        AND a.AR_PrixAch IS NOT NULL
+                        AND a.AR_PrixAch > 0
+                        AND f.DL_Qte IS NOT NULL
+                        AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch)
                 THEN f.DL_MontantHT
                 ELSE 0
             END) AS ca_avec_cout,
@@ -250,7 +250,7 @@ def get_dashboard_kpis():
         LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
         CROSS JOIN latest
         WHERE dom.DO_Domaine = 0
-          AND d.annee IN (latest.latest_year, latest.latest_year - 1)
+        AND d.annee IN (latest.latest_year, latest.latest_year - 1)
     """
     row = _row(sql)
     ca_total = _num(row.ca_total)
@@ -295,18 +295,18 @@ def get_ca_by_month():
             JOIN DIM_DATE d ON d.id_date = f.id_date
             CROSS JOIN latest
             WHERE dom.DO_Domaine = 0
-              AND d.annee IN (latest.latest_year, latest.latest_year - 1)
+            AND d.annee IN (latest.latest_year, latest.latest_year - 1)
             GROUP BY d.annee, d.mois
         )
         SELECT cur.mois AS month_num,
-               cur.ca,
-               cur.ca * 1.05 AS objectif,
-               COALESCE(prev.ca, 0) AS caN1
+            cur.ca,
+            cur.ca * 1.05 AS objectif,
+            COALESCE(prev.ca, 0) AS caN1
         FROM monthly cur
         CROSS JOIN latest
         LEFT JOIN monthly prev
-          ON prev.annee = latest.latest_year - 1
-         AND prev.mois = cur.mois
+        ON prev.annee = latest.latest_year - 1
+        AND prev.mois = cur.mois
         WHERE cur.annee = latest.latest_year
         ORDER BY cur.mois
     """
@@ -371,7 +371,7 @@ def get_ca_by_region():
         LEFT JOIN DIM_DATE    d ON d.id_date    = f.id_date
         CROSS JOIN latest
         WHERE dom.DO_Domaine = 0
-          AND d.annee = latest.latest_year
+        AND d.annee = latest.latest_year
         GROUP BY COALESCE(s.libelle_segment, 'Sans segment')
         ORDER BY ca DESC
     """
@@ -392,21 +392,12 @@ def get_tresorerie_summary():
     # the LEFT JOIN with F_LigneBordereauRemise in the ETL extract).
     # Restrict to client receipts only (id_client IS NOT NULL).
     sql = """
-        WITH deduped AS (
-            SELECT RT_Num,
-                   MAX(RT_Montant)              AS RT_Montant,
-                   MAX(DR_Regle)                AS DR_Regle,
-                   MAX(delai_reel_jours)        AS delai_reel_jours
-            FROM FAIT_REGLEMENTS
-            WHERE id_client IS NOT NULL
-              AND RT_Num IS NOT NULL
-            GROUP BY RT_Num
-        )
         SELECT
             SUM(CASE WHEN DR_Regle = 1 THEN RT_Montant ELSE 0 END) AS encaissements,
             SUM(CASE WHEN DR_Regle = 0 THEN RT_Montant ELSE 0 END) AS impayes,
             AVG(CAST(delai_reel_jours AS FLOAT)) AS delai_moyen
-        FROM deduped
+        FROM FAIT_REGLEMENTS
+        WHERE id_client IS NOT NULL
     """
     row = _row(sql)
     encaissements = _num(row.encaissements)
@@ -432,7 +423,6 @@ def get_impayes():
                 MAX(DR_Regle) AS DR_Regle
             FROM FAIT_REGLEMENTS
             WHERE id_client IS NOT NULL
-              AND RT_Num IS NOT NULL
             GROUP BY id_client, RT_Num
         )
         SELECT TOP 30
@@ -476,7 +466,7 @@ def get_impayes_fournisseurs():
         FROM FAIT_REGLEMENTS r
         JOIN DIM_FOURNISSEUR f ON f.id_fournisseur = r.id_fournisseur
         WHERE r.DR_Regle = 0
-          AND r.id_fournisseur IS NOT NULL
+        AND r.id_fournisseur IS NOT NULL
         GROUP BY f.CT_Num_code
         HAVING SUM(r.RT_Montant) > 0
         ORDER BY montant_impaye DESC
@@ -501,18 +491,14 @@ def get_encaissements_by_mode():
     sql = """
         WITH deduped AS (
             SELECT
-                RT_Num,
                 id_client,
                 id_fournisseur,
                 id_mode_reg,
                 DR_ModeReg,
                 DR_Regle,
                 RT_Rapproche,
-                MAX(RT_Montant) AS RT_Montant
+                RT_Montant
             FROM FAIT_REGLEMENTS
-            WHERE RT_Num IS NOT NULL
-            GROUP BY RT_Num, id_client, id_fournisseur, id_mode_reg,
-                     DR_ModeReg, DR_Regle, RT_Rapproche
         )
         SELECT
             COALESCE(m.libelle_mode_reg, CONCAT('Mode ', r.DR_ModeReg)) AS mode,
@@ -525,8 +511,8 @@ def get_encaissements_by_mode():
         GROUP BY m.libelle_mode_reg, r.DR_ModeReg
         ORDER BY
             SUM(CASE WHEN r.id_client IS NOT NULL THEN r.RT_Montant ELSE 0 END)
-          + SUM(CASE WHEN r.id_fournisseur IS NOT NULL THEN r.RT_Montant ELSE 0 END)
-          DESC
+        + SUM(CASE WHEN r.id_fournisseur IS NOT NULL THEN r.RT_Montant ELSE 0 END)
+        DESC
     """
     return [
         {
@@ -543,27 +529,16 @@ def get_encaissements_by_mode():
 def get_aging():
 
     sql = """
-        WITH deduped AS (
-            SELECT
-                id_client,
-                RT_Num,
-                MAX(RT_Montant) AS RT_Montant,
-                MAX(bucket_impaye) AS bucket_impaye,
-                MAX(DR_Regle) AS DR_Regle
-            FROM FAIT_REGLEMENTS
-            WHERE id_client IS NOT NULL
-              AND RT_Num IS NOT NULL
-            GROUP BY id_client, RT_Num
-        )
         SELECT TOP 8
             COALESCE(CONVERT(VARCHAR(30), c.CT_Num_code), 'Client') AS client,
             SUM(CASE WHEN r.bucket_impaye = 0 THEN r.RT_Montant ELSE 0 END) AS b0,
             SUM(CASE WHEN r.bucket_impaye = 1 THEN r.RT_Montant ELSE 0 END) AS b1,
             SUM(CASE WHEN r.bucket_impaye = 2 THEN r.RT_Montant ELSE 0 END) AS b2,
             SUM(CASE WHEN r.bucket_impaye = 3 THEN r.RT_Montant ELSE 0 END) AS b3
-        FROM deduped r
+        FROM FAIT_REGLEMENTS r
         LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
-        WHERE r.DR_Regle = 0
+        WHERE r.id_client IS NOT NULL
+        AND r.DR_Regle = 0
         GROUP BY c.CT_Num_code
         ORDER BY b3 DESC
     """
@@ -592,9 +567,9 @@ def get_stock_alerts():
         JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = f.id_type_ligne
         JOIN DIM_ARTICLE a ON a.id_article = f.id_article
         WHERE tl.type_ligne = 4
-          AND f.en_rupture = 1
-          AND f.AS_QteSto IS NOT NULL
-          AND f.ratio_tension IS NOT NULL
+        AND f.en_rupture = 1
+        AND f.AS_QteSto IS NOT NULL
+        AND f.ratio_tension IS NOT NULL
         ORDER BY f.ratio_tension DESC
     """
     alerts = []
@@ -637,28 +612,39 @@ def get_articles():
             SELECT
                 e.id_article,
                 MAX(e.AS_QteSto) AS stock,
-                MAX(e.dsi_jours) AS dsi_jours
+                MAX(e.dsi_jours) AS dsi_jours,
+                MAX(e.AS_QteMini) AS stock_mini,
+                MAX(e.ratio_tension) AS ratio_tension,
+                SUM(e.AS_MontSto) AS valeur_stock
             FROM FAIT_ECRITURES e
             JOIN DIM_TYPE_LIGNE tl
-              ON tl.id_type_ligne = e.id_type_ligne
-             AND tl.type_ligne = 4
+            ON tl.id_type_ligne = e.id_type_ligne
+            AND tl.type_ligne = 4
+            WHERE e.AS_QteSto IS NOT NULL
             GROUP BY e.id_article
         )
         SELECT TOP 100
-            a.AR_Ref_code,
-            a.id_famille,
-            COALESCE(NULLIF(a.FA_Intitule, ''), NULLIF(fa.FA_Intitule, ''), 'Sans famille') AS famille,
-            a.AR_PrixAch,
-            COALESCE(sales.qte_vendue, 0) AS qte_vendue,
-            COALESCE(sales.ca, 0) AS ca,
-            stock.stock,
-            stock.dsi_jours
-        FROM DIM_ARTICLE a
-        LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
-        LEFT JOIN sales ON sales.id_article = a.id_article
-        LEFT JOIN stock ON stock.id_article = a.id_article
-        ORDER BY ca DESC
-    """
+        a.AR_Ref_code,
+        a.id_famille,
+        COALESCE(NULLIF(a.FA_Intitule, ''), NULLIF(fa.FA_Intitule, ''), 'Sans famille') AS famille,
+        CASE
+            WHEN COALESCE(a.AR_PrixAch, 0) > 0 THEN a.AR_PrixAch
+            WHEN COALESCE(stock.stock, 0) > 0 AND COALESCE(stock.valeur_stock, 0) > 0
+            THEN stock.valeur_stock / stock.stock
+            ELSE 0
+        END AS prix_moyen,
+        COALESCE(sales.qte_vendue, 0) AS qte_vendue,
+        COALESCE(sales.ca, 0) AS ca,
+        COALESCE(stock.stock, 0) AS stock,
+        stock.dsi_jours,
+        stock.ratio_tension
+    FROM DIM_ARTICLE a
+    LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
+    LEFT JOIN sales ON sales.id_article = a.id_article
+    LEFT JOIN stock ON stock.id_article = a.id_article
+    WHERE COALESCE(sales.ca, 0) > 0 OR COALESCE(stock.stock, 0) > 0
+    ORDER BY ca DESC
+"""
     return [
         {
             "code": f"ART-{r.AR_Ref_code}",
@@ -666,14 +652,13 @@ def get_articles():
             "famille": r.famille,
             "qteVendue": _num(r.qte_vendue),
             "ca": _num(r.ca),
-            "prixMoyen": _num(r.AR_PrixAch),
+            "prixMoyen": _num(r.prix_moyen),
             "marge": 0,
             "stock": _num(r.stock),
             "dsi": _num(r.dsi_jours),
         }
         for r in _rows(sql)
     ]
-
 
 @app.get("/api/acteurs/clients")
 def get_clients():
@@ -723,7 +708,7 @@ def get_acteurs_rfm():
         FROM DIM_CLIENT c
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
         WHERE c.rfm_montant_12m IS NOT NULL
-           OR c.rfm_frequence   IS NOT NULL
+        OR c.rfm_frequence   IS NOT NULL
         ORDER BY c.rfm_montant_12m DESC
     """
     return [
@@ -742,27 +727,16 @@ def get_acteurs_rfm():
 @app.get("/api/acteurs/aging")
 def get_acteurs_aging():
     sql = """
-        WITH deduped AS (
-            SELECT
-                id_client,
-                RT_Num,
-                MAX(RT_Montant) AS RT_Montant,
-                MAX(bucket_impaye) AS bucket_impaye,
-                MAX(DR_Regle) AS DR_Regle
-            FROM FAIT_REGLEMENTS
-            WHERE id_client IS NOT NULL
-              AND RT_Num IS NOT NULL
-            GROUP BY id_client, RT_Num
-        )
         SELECT TOP 30
             COALESCE(CONVERT(VARCHAR(30), c.CT_Num_code), 'Client') AS client,
             SUM(CASE WHEN r.bucket_impaye = 0 THEN r.RT_Montant ELSE 0 END) AS b0,
             SUM(CASE WHEN r.bucket_impaye = 1 THEN r.RT_Montant ELSE 0 END) AS b1,
             SUM(CASE WHEN r.bucket_impaye = 2 THEN r.RT_Montant ELSE 0 END) AS b2,
             SUM(CASE WHEN r.bucket_impaye = 3 THEN r.RT_Montant ELSE 0 END) AS b3
-        FROM deduped r
+        FROM FAIT_REGLEMENTS r
         LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
-        WHERE r.DR_Regle = 0
+        WHERE r.id_client IS NOT NULL
+        AND r.DR_Regle = 0
         GROUP BY c.CT_Num_code
         ORDER BY b3 DESC
     """
@@ -876,7 +850,7 @@ def get_banque_rapprochement():
         FROM deduped r
         LEFT JOIN DIM_DATE d ON d.id_date = COALESCE(r.id_date_paiement, r.id_date_echeance)
         WHERE d.mois IS NOT NULL
-          AND r.RT_Montant IS NOT NULL
+        AND r.RT_Montant IS NOT NULL
         GROUP BY d.mois
         ORDER BY d.mois
     """
@@ -986,7 +960,7 @@ def get_fiscalite_kpis():
             SUM(CASE WHEN t.type_tva = 2 THEN e.RT_Montant01 ELSE 0 END) AS tva_deductible,
             SUM(CASE
                 WHEN tl.type_ligne IN (1, 2)
-                 AND ABS(COALESCE(e.EC_Montant, 0)) >= 50000
+                AND ABS(COALESCE(e.EC_Montant, 0)) >= 50000
                 THEN 1 ELSE 0
             END) AS anomalies
         FROM FAIT_ECRITURES e
@@ -1028,8 +1002,8 @@ def get_fiscalite_journaux():
         GROUP BY j.JO_Num_code
         ORDER BY
             SUM(CASE WHEN s.EC_Sens = 0 THEN ABS(e.EC_Montant) ELSE 0 END)
-          + SUM(CASE WHEN s.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END)
-          DESC
+        + SUM(CASE WHEN s.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END)
+        DESC
     """
     return [{"journal": f"Journal {r.journal}", "debit": _num(r.debit), "credit": _num(r.credit)} for r in _rows(sql)]
 
@@ -1075,9 +1049,9 @@ def get_fiscalite_ecritures():
         LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
         LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
         WHERE tl.type_ligne IN (1, 2)
-          AND e.EC_No IS NOT NULL
-          AND e.EC_Montant IS NOT NULL
-          AND e.EC_Montant <> 0
+        AND e.EC_No IS NOT NULL
+        AND e.EC_Montant IS NOT NULL
+        AND e.EC_Montant <> 0
         ORDER BY e.id_ecriture DESC
     """
     return [
@@ -1112,7 +1086,7 @@ def get_fiscalite_anomalies():
         LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
         JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
         WHERE e.EC_Montant IS NOT NULL
-          AND tl.type_ligne IN (1, 2)
+        AND tl.type_ligne IN (1, 2)
         ORDER BY montant DESC
     """
     return [
@@ -1244,18 +1218,18 @@ def get_assistant_summary():
                     WHERE dom.DO_Domaine = 0
                 )
                 SELECT SUM(f.DL_MontantHT) AS ca_total,
-                       COUNT(DISTINCT f.DO_Piece_hash) AS nb_commandes,
-                       COUNT(DISTINCT f.id_client) AS nb_clients_actifs,
-                     SUM(CASE WHEN a.AR_PrixAch IS NOT NULL AND a.AR_PrixAch > 0
-                           AND f.DL_Qte IS NOT NULL
-                           AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch)
-                           THEN f.DL_MontantHT - (f.DL_Qte * a.AR_PrixAch)
-                           ELSE NULL END) AS marge_brute,
-                       SUM(CASE WHEN a.AR_PrixAch IS NOT NULL AND a.AR_PrixAch > 0
-                           AND f.DL_Qte IS NOT NULL
-                           AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch)
-                           THEN f.DL_MontantHT
-                           ELSE 0 END) AS ca_avec_cout
+                    COUNT(DISTINCT f.DO_Piece_hash) AS nb_commandes,
+                    COUNT(DISTINCT f.id_client) AS nb_clients_actifs,
+                    SUM(CASE WHEN a.AR_PrixAch IS NOT NULL AND a.AR_PrixAch > 0
+                        AND f.DL_Qte IS NOT NULL
+                        AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch)
+                        THEN f.DL_MontantHT - (f.DL_Qte * a.AR_PrixAch)
+                        ELSE NULL END) AS marge_brute,
+                    SUM(CASE WHEN a.AR_PrixAch IS NOT NULL AND a.AR_PrixAch > 0
+                        AND f.DL_Qte IS NOT NULL
+                        AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch)
+                        THEN f.DL_MontantHT
+                        ELSE 0 END) AS ca_avec_cout
                 FROM FAIT_LIGNES_VENTE f
                 JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
                 LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
@@ -1277,21 +1251,11 @@ def get_assistant_summary():
 
         try:
             tr = _qone("""
-                WITH deduped AS (
-                    SELECT
-                        RT_Num,
-                        MAX(RT_Montant) AS RT_Montant,
-                        MAX(DR_Regle) AS DR_Regle,
-                        MAX(delai_reel_jours) AS delai_reel_jours
-                    FROM FAIT_REGLEMENTS
-                    WHERE id_client IS NOT NULL
-                      AND RT_Num IS NOT NULL
-                    GROUP BY RT_Num
-                )
                 SELECT SUM(CASE WHEN DR_Regle=1 THEN RT_Montant ELSE 0 END) AS enc,
-                       SUM(CASE WHEN DR_Regle=0 THEN RT_Montant ELSE 0 END) AS imp,
-                       AVG(CAST(delai_reel_jours AS FLOAT)) AS delai
-                FROM deduped
+                    SUM(CASE WHEN DR_Regle=0 THEN RT_Montant ELSE 0 END) AS imp,
+                    AVG(CAST(delai_reel_jours AS FLOAT)) AS delai
+                FROM FAIT_REGLEMENTS
+                WHERE id_client IS NOT NULL
             """)
             enc = _num(tr.enc); imp = _num(tr.imp); tot = enc + imp
             result["tresorerie"] = {
@@ -1306,7 +1270,7 @@ def get_assistant_summary():
         try:
             result["articles"] = [
                 {"code": f"ART-{r.AR_Ref_code}", "ca": _num(r.ca),
-                 "stock": _num(r.stock), "dsi": _num(r.dsi_jours)}
+                "stock": _num(r.stock), "dsi": _num(r.dsi_jours)}
                 for r in _q("""
                     WITH sales AS (
                         SELECT id_article, COALESCE(SUM(DL_MontantHT),0) AS ca
@@ -1321,7 +1285,7 @@ def get_assistant_summary():
                         GROUP BY e.id_article
                     )
                     SELECT TOP 20 a.AR_Ref_code, COALESCE(sales.ca,0) AS ca,
-                           stock.stock, stock.dsi_jours
+                        stock.stock, stock.dsi_jours
                     FROM DIM_ARTICLE a
                     LEFT JOIN sales ON sales.id_article=a.id_article
                     LEFT JOIN stock ON stock.id_article=a.id_article
@@ -1334,11 +1298,11 @@ def get_assistant_summary():
         try:
             result["clients"] = [
                 {"code": str(r.CT_Num_code), "rfm_recence": _int(r.rfm_recence_jours, 999),
-                 "rfm_frequence": _int(r.rfm_frequence), "rfm_montant": _num(r.rfm_montant_12m),
-                 "soldeImpaye": _num(r.solde_impaye)}
+                "rfm_frequence": _int(r.rfm_frequence), "rfm_montant": _num(r.rfm_montant_12m),
+                "soldeImpaye": _num(r.solde_impaye)}
                 for r in _q("""
                     SELECT TOP 20 c.CT_Num_code, c.rfm_recence_jours, c.rfm_frequence,
-                           c.rfm_montant_12m, c.CT_SoldeActuel AS solde_impaye
+                        c.rfm_montant_12m, c.CT_SoldeActuel AS solde_impaye
                     FROM DIM_CLIENT c
                     ORDER BY c.rfm_montant_12m DESC
                 """)
@@ -1349,21 +1313,13 @@ def get_assistant_summary():
         try:
             result["impayes"] = [
                 {"client": f"Client {r.CT_Num_code}", "montant": _num(r.montant_impaye),
-                 "anciennete": _int(r.anciennete)}
+                "anciennete": _int(r.anciennete)}
                 for r in _q("""
-                    WITH deduped AS (
-                        SELECT id_client, RT_Num,
-                               MAX(RT_Montant) AS RT_Montant,
-                               MAX(delai_reel_jours) AS delai_reel_jours,
-                               MAX(DR_Regle) AS DR_Regle
-                        FROM FAIT_REGLEMENTS
-                        WHERE id_client IS NOT NULL AND RT_Num IS NOT NULL
-                        GROUP BY id_client, RT_Num
-                    )
                     SELECT TOP 20 c.CT_Num_code, SUM(r.RT_Montant) AS montant_impaye,
-                           MAX(r.delai_reel_jours) AS anciennete
-                    FROM deduped r JOIN DIM_CLIENT c ON c.id_client=r.id_client
-                    WHERE r.DR_Regle=0 GROUP BY c.CT_Num_code
+                        MAX(r.delai_reel_jours) AS anciennete
+                    FROM FAIT_REGLEMENTS r JOIN DIM_CLIENT c ON c.id_client=r.id_client
+                    WHERE r.DR_Regle=0 AND r.id_client IS NOT NULL
+                    GROUP BY c.CT_Num_code
                     HAVING SUM(r.RT_Montant)>0 ORDER BY montant_impaye DESC
                 """)
             ]
@@ -1373,14 +1329,14 @@ def get_assistant_summary():
         try:
             result["stockAlerts"] = [
                 {"article": f"ART-{r.AR_Ref_code}", "stockActuel": _num(r.AS_QteSto),
-                 "seuil": _num(r.AS_QteMini), "ratioTension": _num(r.ratio_tension)}
+                "seuil": _num(r.AS_QteMini), "ratioTension": _num(r.ratio_tension)}
                 for r in _q("""
                     SELECT TOP 20 a.AR_Ref_code, f.AS_QteSto, f.AS_QteMini, f.ratio_tension
                     FROM FAIT_ECRITURES f
                     JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne=f.id_type_ligne
                     JOIN DIM_ARTICLE a ON a.id_article=f.id_article
                     WHERE tl.type_ligne=4 AND f.en_rupture=1
-                      AND f.AS_QteSto IS NOT NULL AND f.ratio_tension IS NOT NULL
+                    AND f.AS_QteSto IS NOT NULL AND f.ratio_tension IS NOT NULL
                     ORDER BY f.ratio_tension DESC
                 """)
             ]
@@ -1483,24 +1439,24 @@ def assistant_chat(req: ChatRequest):
             genai.types.Content(role="user", parts=[genai.types.Part(text=current_user_text)])
         ]
 
-    def _stream():
-        try:
-            response = _GEMINI_CLIENT.models.generate_content_stream(
-                model=_GEMINI_MODEL,
-                contents=contents,
-                config=genai.types.GenerateContentConfig(system_instruction=_SYSTEM_PROMPT),
-            )
-            for chunk in response:
-                text_chunk = chunk.text if chunk.text else ""
-                if text_chunk:
-                    for line in text_chunk.splitlines(keepends=True):
-                        yield f"data: {line}"
-                    if not text_chunk.endswith("\n"):
-                        yield "\n"
+def _stream():
+    try:
+        response = _GEMINI_CLIENT.models.generate_content_stream(
+            model=_GEMINI_MODEL,
+            contents=contents,
+            config=genai.types.GenerateContentConfig(system_instruction=_SYSTEM_PROMPT),
+        )
+        for chunk in response:
+            text_chunk = chunk.text if chunk.text else ""
+            if text_chunk:
+                for line in text_chunk.splitlines(keepends=True):
+                    yield f"data: {line}"
+                if not text_chunk.endswith("\n"):
                     yield "\n"
-        except Exception as exc:
-            yield f"data: Erreur LLM : {exc}\n\n"
-        finally:
-            yield "data: [DONE]\n\n"
+                yield "\n"
+    except Exception as exc:
+        yield f"data: Erreur LLM : {exc}\n\n"
+    finally:
+        yield "data: [DONE]\n\n"
 
-    return StreamingResponse(_stream(), media_type="text/event-stream")
+return StreamingResponse(_stream(), media_type="text/event-stream")
