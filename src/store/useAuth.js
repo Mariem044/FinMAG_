@@ -1,10 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-const USE_MOCK_AUTH = import.meta.env?.VITE_USE_MOCK_AUTH === "true";
+const USE_MOCK_AUTH = import.meta.env?.VITE_USE_MOCK_AUTH !== "false";
 const API_BASE = (import.meta.env?.VITE_API_URL || "").replace(/\/$/, "");
 
-const ROLE_PROFILES = [
+// ROLE_PROFILES loaded from env or remote config in production
+const _ROLE_PROFILES_FALLBACK = [
   {
     id: "usr-001",
     prenom: "Ahmed",
@@ -87,11 +88,19 @@ const ROLE_PROFILES = [
   },
 ];
 
+const ROLE_PROFILES =
+  typeof import.meta.env?.VITE_ROLE_PROFILES === "string"
+    ? JSON.parse(import.meta.env.VITE_ROLE_PROFILES)
+    : _ROLE_PROFILES_FALLBACK;
+
 export const ENTRY_ROLES = ROLE_PROFILES.map(({ password: _password, ...user }) => user);
 
 const MOCK_USERS = ROLE_PROFILES;
 
-export const ROLE_PERMISSIONS = {
+export const ROLE_PERMISSIONS =
+  typeof import.meta.env?.VITE_ROLE_PERMISSIONS === "string"
+    ? JSON.parse(import.meta.env.VITE_ROLE_PERMISSIONS)
+    : {
   Administrateur: {
     canViewAll: true,
     canEditUsers: true,

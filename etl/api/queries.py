@@ -22,10 +22,12 @@ _ETL_LAST_ERROR = None
 _startup_logger = logging.getLogger("api.startup")
 
 DEFAULT_ALLOWED_ORIGINS = [
-    "http://localhost:8080",
-    "http://127.0.0.1:8080",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    o.strip()
+    for o in os.getenv(
+        "API_DEFAULT_ALLOWED_ORIGINS",
+        "http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if o.strip()
 ]
 
 allowed_origins = [
@@ -112,6 +114,17 @@ _SYSTEM_PROMPT = (
 )
 
 MONTHS = ["Jan", "Fev", "Mar", "Avr", "Mai", "Jun", "Jul", "Aou", "Sep", "Oct", "Nov", "Dec"]
+
+_TOP_CLIENTS   = int(os.getenv("API_TOP_CLIENTS",   "100"))
+_TOP_ARTICLES  = int(os.getenv("API_TOP_ARTICLES",  "100"))
+_TOP_FAMILLES  = int(os.getenv("API_TOP_FAMILLES",  "8"))
+_TOP_REGIONS   = int(os.getenv("API_TOP_REGIONS",   "12"))
+_TOP_AGING     = int(os.getenv("API_TOP_AGING",     "8"))
+_TOP_IMPAYES   = int(os.getenv("API_TOP_IMPAYES",   "30"))
+_TOP_STOCK     = int(os.getenv("API_TOP_STOCK",     "20"))
+_TOP_JOURNAUX  = int(os.getenv("API_TOP_JOURNAUX",  "10"))
+_TOP_ECRITURES = int(os.getenv("API_TOP_ECRITURES", "200"))
+_TOP_ANOMALIES = int(os.getenv("API_TOP_ANOMALIES", "100"))
 
 
 def _rows(sql, params=None):
@@ -1362,7 +1375,7 @@ _FINANCIAL_KEYWORDS = {
 }
 _CASUAL_CA_PHRASES = {"ca va", "comment ca va", "ca marche", "ca roule"}
 
-
+    
 def _normalize_intent_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text or "")
     return normalized.encode("ascii", "ignore").decode("ascii").lower()
@@ -1439,24 +1452,24 @@ def assistant_chat(req: ChatRequest):
             genai.types.Content(role="user", parts=[genai.types.Part(text=current_user_text)])
         ]
 
-def _stream():
-    try:
-        response = _GEMINI_CLIENT.models.generate_content_stream(
-            model=_GEMINI_MODEL,
-            contents=contents,
-            config=genai.types.GenerateContentConfig(system_instruction=_SYSTEM_PROMPT),
-        )
-        for chunk in response:
-            text_chunk = chunk.text if chunk.text else ""
-            if text_chunk:
-                for line in text_chunk.splitlines(keepends=True):
-                    yield f"data: {line}"
-                if not text_chunk.endswith("\n"):
+    def _stream():
+        try:
+            response = _GEMINI_CLIENT.models.generate_content_stream(
+                model=_GEMINI_MODEL,
+                contents=contents,
+                config=genai.types.GenerateContentConfig(system_instruction=_SYSTEM_PROMPT),
+            )
+            for chunk in response:
+                text_chunk = chunk.text if chunk.text else ""
+                if text_chunk:
+                    for line in text_chunk.splitlines(keepends=True):
+                        yield f"data: {line}"
+                    if not text_chunk.endswith("\n"):
+                        yield "\n"
                     yield "\n"
-                yield "\n"
-    except Exception as exc:
-        yield f"data: Erreur LLM : {exc}\n\n"
-    finally:
-        yield "data: [DONE]\n\n"
+        except Exception as exc:
+            yield f"data: Erreur LLM : {exc}\n\n"
+        finally:
+            yield "data: [DONE]\n\n"
 
-return StreamingResponse(_stream(), media_type="text/event-stream")
+    return StreamingResponse(_stream(), media_type="text/event-stream")

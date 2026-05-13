@@ -161,10 +161,12 @@ DOMAINES: dict[int, str] = {
     3: "Interne",
 }
 
-SEUIL_TENSION_STOCK: float = 0.8
-FENETRE_RFM_JOURS:   int   = 365
-BUCKETS_IMPAYE:      list[int] = [0, 30, 60, 90]
-FENETRE_DSI_JOURS:   int   = 365
+SEUIL_TENSION_STOCK: float     = float(os.getenv("ETL_SEUIL_TENSION_STOCK", "0.8"))
+FENETRE_RFM_JOURS:   int       = int(os.getenv("ETL_FENETRE_RFM_JOURS", "365"))
+BUCKETS_IMPAYE:      list[int] = [
+    int(x) for x in os.getenv("ETL_BUCKETS_IMPAYE", "0,30,60,90").split(",")
+]
+FENETRE_DSI_JOURS:   int       = int(os.getenv("ETL_FENETRE_DSI_JOURS", "365"))
 
 RFM_SEGMENTS: dict[str, list[str]] = {
     "Champion":    ["0-30j", "4-5 cmd", "TOP Montant"],

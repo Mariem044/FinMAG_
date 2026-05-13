@@ -27,7 +27,9 @@ export const Route = createFileRoute("/banque")({
   component: BanquePage,
 });
 
-const ALL_BANQUES = ["AMEN", "ZITOUNA", "QNB", "BT"];
+const ALL_BANQUES = import.meta.env?.VITE_BANQUES
+  ? import.meta.env.VITE_BANQUES.split(",").map((b) => b.trim())
+  : ["AMEN", "ZITOUNA", "QNB", "BT"];
 const ALL_MODES = ["Chèque", "Traite", "Virement"];
 const priorityColor = { Chèque: "#3b82f6", Traite: "#ef4444", Virement: "#22c55e" };
 

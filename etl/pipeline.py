@@ -146,29 +146,24 @@ def _lookup_code(lookups: Dict, table_name: str, value):
 
 def _resolve_today_id(lookups: Dict, today: date) -> Optional[int]:
     if not lookups.get("DIM_DATE"):
-        # Build lookup on-the-fly if not yet populated
         lookups["DIM_DATE"] = _build_lookup("DIM_DATE", "date_val", "id_date")
-    def _resolve_today_id(lookups: Dict, today: date) -> Optional[int]:
-        date_lookup = lookups.get("DIM_DATE", {})
-        id_val = date_lookup.get(today)
-        if id_val is not None:
+    date_lookup = lookups.get("DIM_DATE", {})
+    id_val = date_lookup.get(today)
+    if id_val is not None:
+        return id_val
+    date_lookup_keys = [k for k in date_lookup.keys() if k is not None]
+    if date_lookup_keys:
+        max_date = max(date_lookup_keys)
+        if max_date >= today:
+            id_val = date_lookup[max_date]
+            logger.warning(
+                f"Today ({today}) not in DIM_DATE — fallback to {max_date} "
+                f"(id_date={id_val}). Consider extending DIM_DATE_END."
+            )
             return id_val
-        if date_lookup:
-            date_lookup_keys = [k for k in date_lookup.keys() if k is not None]
-        if date_lookup_keys:
-            max_date = max(date_lookup_keys)
-            if max_date >= today:
-                id_val = date_lookup[max_date]
-                logger.warning(
-                    f"Today ({today}) not in DIM_DATE — fallback to {max_date} "
-                    f"(id_date={id_val}). Consider extending DIM_DATE_END."
-                )
-                return id_val
-        logger.warning(
-            f"Today ({today}) beyond DIM_DATE range — stock snapshot id_date will be NULL"
-        )
-        return None
-    logger.error("DIM_DATE lookup is empty — stock snapshot id_date will be NULL")
+    logger.warning(
+        f"Today ({today}) beyond DIM_DATE range — stock snapshot id_date will be NULL"
+    )
     return None
 
 

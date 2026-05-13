@@ -90,7 +90,7 @@ function AidePage() {
               </h3>
               <p className="text-sm text-muted-foreground mb-3">{t("aide.emailDesc")}</p>
               <a
-                href="mailto:support@siad.tn"
+                href={`mailto:${import.meta.env?.VITE_SUPPORT_EMAIL || "support@magdistribution.tn"}`}
                 className="text-primary hover:underline text-sm font-medium"
               >
                 support@siad.tn
@@ -110,7 +110,7 @@ function AidePage() {
               </h3>
               <p className="text-sm text-muted-foreground mb-3">{t("aide.phoneDesc")}</p>
               <a
-                href="tel:+21671123456"
+                href={`tel:${import.meta.env?.VITE_SUPPORT_PHONE || "+21671234567"}`}
                 className="text-primary hover:underline text-sm font-medium"
               >
                 +216 71 123 456

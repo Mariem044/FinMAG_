@@ -33,3 +33,16 @@ etl/.env
 *.njsproj
 *.sln
 *.sw?
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ETL env
+etl/.env
+
+# Node
+node_modules/
+dist/

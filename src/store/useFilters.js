@@ -3,8 +3,8 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { create } from "zustand";
 
 export const FILTER_DEFAULTS = {
-  year: 2024,
-  quarter: "Tous",
+  year: Number(import.meta.env?.VITE_DEFAULT_YEAR) || new Date().getFullYear(),
+  quarter: import.meta.env?.VITE_DEFAULT_QUARTER || "Tous",
   month: "Tous",
   region: "Toutes",
   famille: "Toutes",
@@ -13,8 +13,8 @@ export const FILTER_DEFAULTS = {
   banque: "Toutes",
   modeBanque: "Tous",
   modePaiement: "Tous",
-  source: "MAG_2020 + GRT_MAG",
-  horizonPrev: "30j",
+  source: import.meta.env?.VITE_DEFAULT_SOURCE || "MAG_2020 + GRT_MAG",
+  horizonPrev: import.meta.env?.VITE_DEFAULT_HORIZON || "30j",
   statutArticle: "Tous",
 };
 
