@@ -371,6 +371,7 @@ def extract_fait_ecriturec(last_run: Optional[datetime] = None) -> pd.DataFrame:
         FROM F_ECRITUREC ec
         INNER JOIN F_JOURNAUX j ON j.JO_Num = ec.JO_Num
         WHERE ec.EC_Montant IS NOT NULL
+          AND ec.EC_Montant <> 0
           {delta_clause}
     """
     df = _read(MAG_ENGINE, sql, params)
@@ -436,7 +437,7 @@ def extract_fait_artstock() -> pd.DataFrame:
             s.AS_QteRes
         FROM F_ARTSTOCK s
         INNER JOIN F_ARTICLE a ON a.AR_Ref = s.AR_Ref
-        WHERE a.AR_SuiviStock > 0
+        WHERE s.AS_QteSto IS NOT NULL
     """
     try:
         df = _read(MAG_ENGINE, sql)
@@ -505,10 +506,8 @@ def extract_fait_reglech() -> pd.DataFrame:
 
 
 def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.DataFrame:
-    delta_clause, params = _delta_filter("rc.RT_Date", last_run)
-    # IMPORTANT: Use TOP 1 per RT_Num for bordereau lines to avoid fan-out join
-    # that would multiply RT_Montant (one payment → N bordereau lines → N×amount).
-    # We keep the bordereau with the highest LB_Ligne (most recent) for fee data.
+    delta_where = f"AND RT_Date >= :last_run" if last_run is not None else ""
+    params = {"last_run": last_run} if last_run is not None else {}
     sql = f"""
         SELECT
             rc.RT_Num,
@@ -532,7 +531,12 @@ def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.D
             br.BR_Rapproch,
             br.BR_TauxAgios,
             br.BR_TMM
-        FROM F_ReglementClient rc
+        FROM (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY RT_Num ORDER BY RT_Date DESC) AS _rn
+            FROM F_ReglementClient
+            WHERE RT_Num IS NOT NULL AND RT_Montant IS NOT NULL
+            {delta_where}
+        ) rc
         OUTER APPLY (
             SELECT TOP 1
                 lb2.LB_Ligne,
@@ -546,7 +550,7 @@ def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.D
             ORDER BY lb2.LB_Ligne DESC
         ) lb
         LEFT JOIN F_BordereauRemise br ON br.BR_Num = lb.BR_Num
-        WHERE 1=1 {delta_clause}
+        WHERE rc._rn = 1
     """
     df = _read(GRT_ENGINE, sql, params)
     _validate_columns(df, ["RT_Num", "RT_Date", "LB_EcheanceReg"], "extract_fait_reglements_clients")
@@ -557,7 +561,7 @@ def extract_fait_reglements_fournisseurs(last_run: Optional[datetime] = None) ->
     delta_clause, params = _delta_filter("RT_Date", last_run)
     sql = f"""
         SELECT RT_Num, CT_Num, DO_Type, DO_Piece, RT_Date,
-               RT_Mode, RT_Montant, RT_Etat, BQ_Num
+            RT_Mode, RT_Montant, RT_Etat, BQ_Num
         FROM F_ReglementFournisseur
         WHERE 1=1 {delta_clause}
     """

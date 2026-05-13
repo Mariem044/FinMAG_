@@ -99,16 +99,20 @@ function ActeursPage() {
         ...c,
         attritionScore: (() => {
           let score = 0;
-          // No orders = high risk
-          if ((c.nbCommandes || 0) === 0) score += 0.45;
-          else if ((c.nbCommandes || 0) < 3) score += 0.20;
-          // Large overdue balance
+          const orders = c.nbCommandes || 0;
           const solde = Number(c.soldeImpaye || 0);
-          if (solde > 100000) score += 0.35;
-          else if (solde > 30000) score += 0.20;
-          else if (solde > 5000) score += 0.10;
-          // Dormant client
-          if (!c.actif) score += 0.20;
+          const dormant = !c.actif;
+          // Only penalize zero orders if also dormant (avoid false positives for new clients)
+          if (orders === 0 && dormant) score += 0.35;
+          else if (orders === 0) score += 0.15;
+          else if (orders < 3) score += 0.10;
+          // Overdue balance — normalized to realistic TND ranges
+          if (solde > 50000) score += 0.35;
+          else if (solde > 15000) score += 0.20;
+          else if (solde > 3000) score += 0.10;
+          // Dormant without any balance = moderate signal
+          if (dormant && solde === 0) score += 0.15;
+          else if (dormant) score += 0.10;
           return Math.min(parseFloat(score.toFixed(2)), 1.0);
         })(),
       })),
@@ -371,8 +375,8 @@ function ActeursPage() {
                         <span className="font-semibold text-foreground">{row.nbArticles}</span>
                       </td>
                       <td className="py-1.5 text-text-dim text-[10px]">
-                        {row.montantAchat > 0
-                          ? Math.round(row.montantAchat).toLocaleString("fr-TN")
+                        {row.montantAchat > 0 && isFinite(row.montantAchat)
+                          ? Math.round(Number(row.montantAchat)).toLocaleString("fr-TN")
                           : "—"}
                       </td>
                     </tr>

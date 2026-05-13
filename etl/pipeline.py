@@ -145,18 +145,26 @@ def _lookup_code(lookups: Dict, table_name: str, value):
 
 
 def _resolve_today_id(lookups: Dict, today: date) -> Optional[int]:
-    date_lookup = lookups.get("DIM_DATE", {})
-    id_val = date_lookup.get(today)
-    if id_val is not None:
-        return id_val
-    if date_lookup:
-        max_date = max(date_lookup.keys())
-        id_val   = date_lookup[max_date]
+    def _resolve_today_id(lookups: Dict, today: date) -> Optional[int]:
+        date_lookup = lookups.get("DIM_DATE", {})
+        id_val = date_lookup.get(today)
+        if id_val is not None:
+            return id_val
+        if date_lookup:
+            date_lookup_keys = [k for k in date_lookup.keys() if k is not None]
+        if date_lookup_keys:
+            max_date = max(date_lookup_keys)
+            if max_date >= today:
+                id_val = date_lookup[max_date]
+                logger.warning(
+                    f"Today ({today}) not in DIM_DATE — fallback to {max_date} "
+                    f"(id_date={id_val}). Consider extending DIM_DATE_END."
+                )
+                return id_val
         logger.warning(
-            f"Today ({today}) not in DIM_DATE — fallback to {max_date} "
-            f"(id_date={id_val}). Consider extending DIM_DATE_END."
+            f"Today ({today}) beyond DIM_DATE range — stock snapshot id_date will be NULL"
         )
-        return id_val
+        return None
     logger.error("DIM_DATE lookup is empty — stock snapshot id_date will be NULL")
     return None
 
@@ -527,8 +535,10 @@ def _assemble_fait_ecritures(
     def _resolve_date(d):
         if pd.isna(d):
             return None
-        return lookups.get("DIM_DATE", {}).get(pd.Timestamp(d).date())
-
+        try:
+            return lookups.get("DIM_DATE", {}).get(pd.Timestamp(d).date())
+        except Exception:
+            return None
     df1 = (
         _normalize_ecriturec(extract.extract_fait_ecriturec(last_run), "F_ECRITUREC")
         .assign(
@@ -915,7 +925,9 @@ STEPS: List[Step] = [
          .pipe(_hash_columns, ["CT_Num"])
          .assign(
              id_segment=lambda d: d["N_CatTarif"].apply(
-                 lambda v: lookups.get("DIM_SEGMENT", {}).get(transform.hash_key(v))
+                 lambda v: lookups.get("DIM_SEGMENT", {}).get(
+                     transform.hash_key(int(v)) if v is not None and str(v).strip().isdigit() else transform.hash_key(v)
+                 )
              ),
              id_collab=lambda d: d["CO_No"].map(lookups.get("DIM_COLLABORATEUR", {})),
          )

@@ -157,11 +157,11 @@ function CaissePage() {
             />
             <KPICard
               label="Prévision solde J+15"
-              value={`${previsionJ15 < 0 ? "" : ""}${(previsionJ15 / 1000).toFixed(0)} K DT`}
+              value={`${previsionJ15 < 0 ? "−" : "+"}${Math.abs(previsionJ15 / 1000).toFixed(0)} K DT`}
               subtitle={previsionJ15 < 0 ? "⚠ RISQUE TRÉSORERIE" : "Projection locale (80% conf.)"}
-              trend={previsionJ15 < 0 ? -Math.abs((previsionJ15 / 1000).toFixed(0)) : undefined}
+              trend={previsionJ15 < 0 ? -Math.abs(Math.round(previsionJ15 / 1000)) : undefined}
               icon={Activity}
-              style={previsionJ15 < 0 ? { color: "#ef4444" } : undefined}
+              className={previsionJ15 < 0 ? "border-red-500/50 bg-red-500/5" : undefined}
             />
           </>
         )}

@@ -226,18 +226,24 @@ def get_dashboard_kpis():
             SUM(CASE WHEN d.annee = latest.latest_year
                           AND a.AR_PrixAch IS NOT NULL
                           AND a.AR_PrixAch > 0
+                          AND f.DL_Qte IS NOT NULL
+                          AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch)
                 THEN f.DL_MontantHT - (f.DL_Qte * a.AR_PrixAch)
                 ELSE NULL
             END) AS marge_brute,
             SUM(CASE WHEN d.annee = latest.latest_year
                           AND a.AR_PrixAch IS NOT NULL
                           AND a.AR_PrixAch > 0
+                          AND f.DL_Qte IS NOT NULL
+                          AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch)
                 THEN f.DL_MontantHT
                 ELSE 0
             END) AS ca_avec_cout,
             COUNT(CASE WHEN d.annee = latest.latest_year
                             AND a.AR_PrixAch IS NOT NULL
-                            AND a.AR_PrixAch > 0 THEN 1 END) AS nb_lignes_avec_cout
+                            AND a.AR_PrixAch > 0
+                            AND f.DL_Qte IS NOT NULL
+                            AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch) THEN 1 END) AS nb_lignes_avec_cout
         FROM FAIT_LIGNES_VENTE f
         JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
         LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
@@ -837,26 +843,40 @@ def get_fournisseur_concentration():
 @app.get("/api/banque/rapprochement")
 def get_banque_rapprochement():
     sql = """
+        WITH deduped AS (
+            SELECT
+                RT_Num,
+                MAX(RT_Montant)       AS RT_Montant,
+                MAX(DR_Regle)         AS DR_Regle,
+                MAX(RT_Rapproche)     AS RT_Rapproche,
+                MAX(id_banque)        AS id_banque,
+                MAX(LB_NbJour)        AS LB_NbJour,
+                MAX(LB_Agios)         AS LB_Agios,
+                MAX(BR_TauxAgios)     AS BR_TauxAgios,
+                MAX(id_date_paiement) AS id_date_paiement,
+                MAX(id_date_echeance) AS id_date_echeance
+            FROM FAIT_REGLEMENTS
+            WHERE RT_Num IS NOT NULL AND id_client IS NOT NULL
+            GROUP BY RT_Num
+        )
         SELECT
             d.mois AS month_num,
             AVG(CASE
                 WHEN r.RT_Rapproche = 1 THEN 100.0
-                WHEN r.DR_Regle = 1 AND r.id_banque IS NOT NULL THEN 100.0
+                WHEN r.DR_Regle = 1     THEN 100.0
                 ELSE 0.0
             END) AS taux,
             SUM(CASE
-                WHEN r.RT_Rapproche = 0
-                 AND NOT (r.DR_Regle = 1 AND r.id_banque IS NOT NULL)
+                WHEN COALESCE(r.RT_Rapproche, 0) = 0 AND COALESCE(r.DR_Regle, 0) = 0
                 THEN 1 ELSE 0
             END) AS non_rapproches,
             AVG(CAST(NULLIF(r.LB_NbJour, 0) AS FLOAT)) AS nb_jour,
             SUM(COALESCE(r.LB_Agios, 0)) AS agios,
             AVG(CAST(NULLIF(r.BR_TauxAgios, 0) AS FLOAT)) AS taux_agios
-        FROM FAIT_REGLEMENTS r
+        FROM deduped r
         LEFT JOIN DIM_DATE d ON d.id_date = COALESCE(r.id_date_paiement, r.id_date_echeance)
         WHERE d.mois IS NOT NULL
           AND r.RT_Montant IS NOT NULL
-          AND r.id_client IS NOT NULL
         GROUP BY d.mois
         ORDER BY d.mois
     """
@@ -966,7 +986,7 @@ def get_fiscalite_kpis():
             SUM(CASE WHEN t.type_tva = 2 THEN e.RT_Montant01 ELSE 0 END) AS tva_deductible,
             SUM(CASE
                 WHEN tl.type_ligne IN (1, 2)
-                 AND ABS(COALESCE(e.EC_Montant, 0)) > 500000
+                 AND ABS(COALESCE(e.EC_Montant, 0)) >= 50000
                 THEN 1 ELSE 0
             END) AS anomalies
         FROM FAIT_ECRITURES e
@@ -1057,6 +1077,7 @@ def get_fiscalite_ecritures():
         WHERE tl.type_ligne IN (1, 2)
           AND e.EC_No IS NOT NULL
           AND e.EC_Montant IS NOT NULL
+          AND e.EC_Montant <> 0
         ORDER BY e.id_ecriture DESC
     """
     return [
@@ -1225,10 +1246,14 @@ def get_assistant_summary():
                 SELECT SUM(f.DL_MontantHT) AS ca_total,
                        COUNT(DISTINCT f.DO_Piece_hash) AS nb_commandes,
                        COUNT(DISTINCT f.id_client) AS nb_clients_actifs,
-                       SUM(CASE WHEN a.AR_PrixAch IS NOT NULL AND a.AR_PrixAch > 0
+                     SUM(CASE WHEN a.AR_PrixAch IS NOT NULL AND a.AR_PrixAch > 0
+                           AND f.DL_Qte IS NOT NULL
+                           AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch)
                            THEN f.DL_MontantHT - (f.DL_Qte * a.AR_PrixAch)
                            ELSE NULL END) AS marge_brute,
                        SUM(CASE WHEN a.AR_PrixAch IS NOT NULL AND a.AR_PrixAch > 0
+                           AND f.DL_Qte IS NOT NULL
+                           AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch)
                            THEN f.DL_MontantHT
                            ELSE 0 END) AS ca_avec_cout
                 FROM FAIT_LIGNES_VENTE f
