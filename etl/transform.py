@@ -66,8 +66,12 @@ def add_fact_ecritures_calcs(df: pd.DataFrame) -> pd.DataFrame:
     denominator = df["AS_QteSto"] - df["AS_QteRes"]
     df["ratio_tension"] = (df["AS_QteRes"] / denominator).where(
         denominator > 0, other=None
-    )
-    df["en_rupture"] = (df["AS_QteSto"] <= df["AS_QteMini"]).astype("Int8")
+    ).clip(lower=0, upper=1)
+    df["en_rupture"] = (
+        (df["AS_QteSto"] <= df["AS_QteMini"]) &
+        df["AS_QteSto"].notna() &
+        df["AS_QteMini"].notna()
+    ).astype("Int8")
 
     tension_flag = df["ratio_tension"].where(df["ratio_tension"].notna())
     df["alerte_tension"] = (

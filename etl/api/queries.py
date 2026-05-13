@@ -246,7 +246,7 @@ def get_dashboard_kpis():
         "nb_commandes": _int(row.nb_commandes),
         "nb_clients_actifs": _int(row.nb_clients_actifs),
         "taux_recouvrement": taux_recouvrement,
-        "marge_brute_pct": (marge_brute / ca_total * 100) if ca_total else 0,
+        "marge_brute_pct": (marge_brute / ca_total * 100) if (ca_total and marge_brute is not None) else 0,
         "ca_total_n1": ca_total_n1,
         "ca_growth_pct": ((ca_total - ca_total_n1) / ca_total_n1 * 100) if ca_total_n1 else 0,
     }
@@ -321,42 +321,7 @@ def get_top_familles():
         {"name": r.name, "ca": _num(r.ca)}
         for r in _rows(sql)
     ]
- 
- 
-# ── REPLACEMENT for get_fiscalite_ecritures() ──────────────────────────────
-@app.get("/api/fiscalite/ecritures")
-def get_fiscalite_ecritures():
-    sql = """
-        SELECT TOP 100
-            d.date_val,
-            e.EC_No,
-            COALESCE(CONVERT(VARCHAR(30), j.JO_Num_code), 'Journal') AS journal,
-            e.CG_Num,
-            e.EC_Montant,
-            s.EC_Sens
-        FROM FAIT_ECRITURES e
-        LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
-        LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
-        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
-        ORDER BY d.date_val DESC, e.id_ecriture DESC
-    """
-    rows = []
-    for r in _rows(sql):
-        montant = _num(r.EC_Montant)
-        is_debit = _int(r.EC_Sens) == 0
-        # FIX: EC_No is INT NULL — format cleanly, avoid "EC-None" / "EC-"
-        num_piece = f"EC-{int(r.EC_No)}" if r.EC_No is not None else "EC-?"
-        rows.append({
-            "date": _date_str(r.date_val),
-            "numPiece": num_piece,
-            "journal": r.journal,
-            "compte": str(r.CG_Num or ""),
-            "libelle": f"Ecriture {int(r.EC_No)}" if r.EC_No is not None else "Ecriture inconnue",
-            "debit": montant if is_debit else 0,
-            "credit": 0 if is_debit else montant,
-            "solde": montant if is_debit else -montant,
-        })
-    return rows
+
 
 @app.get("/api/ventes/ca-by-region")
 def get_ca_by_region():
@@ -996,37 +961,7 @@ def get_fiscalite_balance_by_month():
     ]
 
 
-@app.get("/api/fiscalite/ecritures")
-def get_fiscalite_ecritures():
-    sql = """
-        SELECT TOP 100
-            d.date_val,
-            e.EC_No,
-            COALESCE(CONVERT(VARCHAR(30), j.JO_Num_code), 'Journal') AS journal,
-            e.CG_Num,
-            e.EC_Montant,
-            s.EC_Sens
-        FROM FAIT_ECRITURES e
-        LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
-        LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
-        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
-        ORDER BY d.date_val DESC, e.id_ecriture DESC
-    """
-    rows = []
-    for r in _rows(sql):
-        montant = _num(r.EC_Montant)
-        is_debit = _int(r.EC_Sens) == 0
-        rows.append({
-            "date": _date_str(r.date_val),
-            "numPiece": f"EC-{r.EC_No or ''}",
-            "journal": r.journal,
-            "compte": str(r.CG_Num or ""),
-            "libelle": f"Ecriture {r.EC_No or ''}",
-            "debit": montant if is_debit else 0,
-            "credit": 0 if is_debit else montant,
-            "solde": montant if is_debit else -montant,
-        })
-    return rows
+
 
 
 @app.get("/api/notifications")
@@ -1121,7 +1056,9 @@ def get_assistant_summary():
                 SELECT SUM(f.DL_MontantHT) AS ca_total,
                        COUNT(DISTINCT f.DO_Piece_hash) AS nb_commandes,
                        COUNT(DISTINCT f.id_client) AS nb_clients_actifs,
-                       SUM(f.DL_MontantHT - (f.DL_Qte * COALESCE(a.AR_PrixAch,0))) AS marge_brute
+                       SUM(CASE WHEN a.AR_PrixAch IS NOT NULL
+                THEN f.DL_MontantHT - (f.DL_Qte * a.AR_PrixAch)
+                ELSE NULL END) AS marge_brute
                 FROM FAIT_LIGNES_VENTE f
                 JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
                 LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
@@ -1134,7 +1071,7 @@ def get_assistant_summary():
                 "ca_total": ca,
                 "nb_commandes": _int(kpi_row.nb_commandes),
                 "nb_clients_actifs": _int(kpi_row.nb_clients_actifs),
-                "marge_brute_pct": (_num(kpi_row.marge_brute) / ca * 100) if ca else 0,
+                "marge_brute_pct": (_num(kpi_row.marge_brute) / ca * 100) if (ca and kpi_row.marge_brute is not None) else 0,
                 "taux_recouvrement": 0,
             }
         except Exception:

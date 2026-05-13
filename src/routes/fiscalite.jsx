@@ -38,14 +38,13 @@ const columns = [
   { accessorKey: "libelle", header: "Libellé" },
   { accessorKey: "debit", header: "Débit", cell: ({ getValue }) => formatTND(getValue()) },
   { accessorKey: "credit", header: "Crédit", cell: ({ getValue }) => formatTND(getValue()) },
-  {
-    accessorKey: "solde",
-    header: "Solde",
-    cell: ({ getValue }) => {
-      const v = getValue();
-      return <span className={v >= 0 ? "text-trend-up" : "text-trend-down"}>{formatTND(v)}</span>;
-    },
-  },
+  { accessorKey: "solde", header: "Solde",
+        cell: ({ getValue }) => {
+          const v = getValue();
+          if (v === 0) return <span className="text-text-dim">{formatTND(v)}</span>;
+          return <span className={v >= 0 ? "text-trend-up" : "text-trend-down"}>{formatTND(v)}</span>;
+        },
+      },
 ];
 
 function AnomalyDot(props) {
