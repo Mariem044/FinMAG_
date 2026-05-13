@@ -43,7 +43,7 @@ export function Header({ pathname }) {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const handleLogout = () => {
+  const handleChangeRole = () => {
     logout();
     navigate({ to: "/login" });
   };
@@ -62,7 +62,7 @@ export function Header({ pathname }) {
   return (
     <header className="fixed top-0 left-0 right-0 lg:left-[264px] h-14 bg-sidebar-bg/95 backdrop-blur border-b border-border/90 shadow-[0_1px_0_0_rgba(59,130,246,0.18)] flex items-center justify-between px-4 z-30 gap-3">
       <div className="flex items-center gap-3 min-w-0 flex-shrink-0">
-        <button onClick={toggleSidebar} className={`${iconBtn} lg:hidden`} title="Menu">
+        <button type="button" onClick={toggleSidebar} className={`${iconBtn} lg:hidden`} title="Menu">
           <Menu size={18} />
         </button>
         <h2 className="text-[14px] font-semibold text-foreground truncate hidden sm:block">
@@ -75,12 +75,7 @@ export function Header({ pathname }) {
       <div className="flex items-center gap-1.5 flex-shrink-0">
         <Link
           to="/assistant"
-          className="hidden sm:inline-flex items-center gap-1.5 rounded-lg
-            bg-primary
-            px-3 py-1.5 text-[11px] font-semibold text-white
-            shadow-md shadow-primary/30
-            hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/40 hover:scale-[1.03]
-            transition-all duration-200"
+          className="hidden sm:inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-[11px] font-semibold text-white shadow-md shadow-primary/30 hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/40 hover:scale-[1.03] transition-all duration-200"
           title={t("header.aiAssistant")}
         >
           <Sparkles size={13} className="text-white/90" />
@@ -88,6 +83,7 @@ export function Header({ pathname }) {
         </Link>
 
         <button
+          type="button"
           onClick={toggleTheme}
           title={isDark ? "Mode clair" : "Mode sombre"}
           className={iconBtn}
@@ -99,6 +95,7 @@ export function Header({ pathname }) {
 
         <div className="relative" ref={dropdownRef}>
           <button
+            type="button"
             onClick={() => setDropdownOpen(!dropdownOpen)}
             className="flex items-center gap-1.5 rounded-lg hover:bg-surface-hover transition-all duration-200 pl-1 pr-1.5 py-1"
             title={user ? `${user.prenom} ${user.nom}` : "Profil"}
@@ -148,19 +145,20 @@ export function Header({ pathname }) {
                   <div className="w-6 h-6 rounded-md bg-surface-hover flex items-center justify-center">
                     <Sun size={12} className="text-text-dim" />
                   </div>
-                  Paramètres
+                  Parametres
                 </Link>
               </div>
 
               <div className="p-1.5 border-t border-border/60">
                 <button
-                  onClick={handleLogout}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-red-400 hover:bg-red-500/10 transition-colors"
+                  type="button"
+                  onClick={handleChangeRole}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] text-primary hover:bg-primary/10 transition-colors"
                 >
-                  <div className="w-6 h-6 rounded-md bg-red-500/10 flex items-center justify-center">
-                    <LogOut size={12} className="text-red-400" />
+                  <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">
+                    <LogOut size={12} className="text-primary" />
                   </div>
-                  Déconnexion
+                  Changer de role
                 </button>
               </div>
             </div>

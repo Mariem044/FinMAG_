@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { HelpCircle, Mail, Phone, Clock } from "lucide-react";
+import { Clock, HelpCircle, Mail, Phone } from "lucide-react";
 import { useParametres } from "@/store/useParametres";
 
 export const Route = createFileRoute("/aide")({
@@ -8,52 +8,66 @@ export const Route = createFileRoute("/aide")({
 
 const faqKeys = [
   {
-    question_fr: "Comment accéder aux données de mes ventes ? ",
-    question_en: "How do I access my sales data-",
-    question_ar: "كيف أصل إلى بيانات مبيعاتي؟",
-    answer_fr: "Cliquez sur 'D1 — CA & Performance Commerciale' dans le menu pour accéder au tableau de bord complet des ventes.",
-    answer_en: "Click 'Revenue & Sales Performance' in the menu to access the full sales dashboard.",
-    answer_ar: "انقر على 'رقم الأعمال والأداء التجاري' في القائمة للوصول إلى لوحة المبيعات الكاملة.",
+    question_fr: "Comment acceder aux donnees de mes ventes ?",
+    question_en: "How do I access my sales data?",
+    question_ar: "Comment acceder aux donnees de mes ventes ?",
+    answer_fr:
+      "Cliquez sur le module Ventes dans le menu pour acceder au tableau de bord commercial.",
+    answer_en: "Click Sales in the menu to access the sales dashboard.",
+    answer_ar:
+      "Cliquez sur le module Ventes dans le menu pour acceder au tableau de bord commercial.",
   },
   {
-    question_fr: "Comment exporter les données ? ",
-    question_en: "How do I export data-",
-    question_ar: "كيف أقوم بتصدير البيانات؟",
-    answer_fr: "Les tableaux de données peuvent être exportés avec le bouton 'Exporter CSV' affiché au-dessus du tableau.",
-    answer_en: "Data tables can be exported with the 'Export CSV' button shown above the table.",
-    answer_ar: "يمكن تصدير البيانات من كل صفحة باستخدام زر 'تصدير'. يدعم النظام تنسيقات CSV و Excel.",
+    question_fr: "Comment exporter les donnees ?",
+    question_en: "How do I export data?",
+    question_ar: "Comment exporter les donnees ?",
+    answer_fr:
+      "Les tableaux de donnees peuvent etre exportes avec le bouton Exporter CSV affiche au-dessus du tableau.",
+    answer_en: "Data tables can be exported with the Export CSV button shown above the table.",
+    answer_ar:
+      "Les tableaux de donnees peuvent etre exportes avec le bouton Exporter CSV affiche au-dessus du tableau.",
   },
   {
-    question_fr: "Quelle est la fréquence de mise à jour des données ? ",
-    question_en: "How often is data updated-",
-    question_ar: "ما تواتر تحديث البيانات؟",
-    answer_fr: "Les données sont synchronisées depuis les bases MAG_2020 et GRT_MAG. Les rapports sont générés quotidiennement.",
-    answer_en: "Data is synchronized from the MAG_2020 and GRT_MAG databases. Reports are generated daily.",
-    answer_ar: "تتزامن البيانات من قواعد MAG_2020 وGRT_MAG. يتم إنشاء التقارير يومياً.",
+    question_fr: "Quelle est la frequence de mise a jour des donnees ?",
+    question_en: "How often is data updated?",
+    question_ar: "Quelle est la frequence de mise a jour des donnees ?",
+    answer_fr:
+      "Les donnees sont synchronisees depuis les bases MAG_2020 et GRT_MAG. Les rapports sont generes quotidiennement.",
+    answer_en:
+      "Data is synchronized from the MAG_2020 and GRT_MAG databases. Reports are generated daily.",
+    answer_ar:
+      "Les donnees sont synchronisees depuis les bases MAG_2020 et GRT_MAG. Les rapports sont generes quotidiennement.",
   },
   {
-    question_fr: "Comment réinitialiser mon mot de passe ? ",
-    question_en: "How do I reset my password-",
-    question_ar: "كيف أعيد تعيين كلمة المرور؟",
-    answer_fr: "Allez dans Profil > Sécurité et utilisez le formulaire de changement de mot de passe.",
-    answer_en: "Go to Profile > Security and use the password change form.",
-    answer_ar: "انتقل إلى الإعدادات > الأمان وانقر على 'تغيير كلمة المرور'.",
+    question_fr: "Comment entrer dans l'application ?",
+    question_en: "How do I enter the app?",
+    question_ar: "Comment entrer dans l'application ?",
+    answer_fr:
+      "Depuis la page d'accueil, choisissez un role puis cliquez sur Entrer. Aucun email ni mot de passe n'est necessaire.",
+    answer_en: "From the home page, choose a role and click Enter. No email or password is needed.",
+    answer_ar:
+      "Depuis la page d'accueil, choisissez un role puis cliquez sur Entrer. Aucun email ni mot de passe n'est necessaire.",
   },
   {
-    question_fr: "Que signifie le score d'attrition ? ",
-    question_en: "What does the attrition score mean-",
-    question_ar: "ماذا يعني مؤشر التسرب؟",
-    answer_fr: "Le score d'attrition (KPI-24) est un score local de risque. Un score > 0.5 indique un client à surveiller.",
-    answer_en: "The attrition score (KPI-24) is a local risk score. A score > 0.5 indicates a client to watch.",
-    answer_ar: "مؤشر التسرب (KPI-24) هو مؤشر مخاطر محلي. يشير المؤشر > 0.5 إلى عميل يجب مراقبته.",
+    question_fr: "Que signifie le score d'attrition ?",
+    question_en: "What does the attrition score mean?",
+    question_ar: "Que signifie le score d'attrition ?",
+    answer_fr:
+      "Le score d'attrition est un score local de risque. Un score superieur a 0.5 indique un client a surveiller.",
+    answer_en:
+      "The attrition score is a local risk score. A score above 0.5 indicates a client to watch.",
+    answer_ar:
+      "Le score d'attrition est un score local de risque. Un score superieur a 0.5 indique un client a surveiller.",
   },
 ];
 
 function AidePage() {
   const { t, langue } = useParametres();
 
-  const qKey = langue === "English" ? "question_en" : langue === "العربية" ? "question_ar" : "question_fr";
-  const aKey = langue === "English" ? "answer_en" : langue === "العربية" ? "answer_ar" : "answer_fr";
+  const qKey =
+    langue === "English" ? "question_en" : langue === "العربية" ? "question_ar" : "question_fr";
+  const aKey =
+    langue === "English" ? "answer_en" : langue === "العربية" ? "answer_ar" : "answer_fr";
 
   const hoursLines = t("aide.hoursDetail").split("\n");
 
@@ -71,9 +85,14 @@ function AidePage() {
               <Mail size={24} className="text-primary" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">{t("aide.emailSupport")}</h3>
+              <h3 className="text-lg font-semibold text-foreground mb-2">
+                {t("aide.emailSupport")}
+              </h3>
               <p className="text-sm text-muted-foreground mb-3">{t("aide.emailDesc")}</p>
-              <a href="mailto:support@siad.tn" className="text-primary hover:underline text-sm font-medium">
+              <a
+                href="mailto:support@siad.tn"
+                className="text-primary hover:underline text-sm font-medium"
+              >
                 support@siad.tn
               </a>
             </div>
@@ -86,9 +105,14 @@ function AidePage() {
               <Phone size={24} className="text-primary" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">{t("aide.phoneSupport")}</h3>
+              <h3 className="text-lg font-semibold text-foreground mb-2">
+                {t("aide.phoneSupport")}
+              </h3>
               <p className="text-sm text-muted-foreground mb-3">{t("aide.phoneDesc")}</p>
-              <a href="tel:+21671123456" className="text-primary hover:underline text-sm font-medium">
+              <a
+                href="tel:+21671123456"
+                className="text-primary hover:underline text-sm font-medium"
+              >
                 +216 71 123 456
               </a>
             </div>
@@ -122,7 +146,10 @@ function AidePage() {
             <h3 className="font-semibold text-foreground mb-2">{t("aide.hours")}</h3>
             <p className="text-sm text-muted-foreground">
               {hoursLines.map((line, i) => (
-                <span key={i}>{line}{i < hoursLines.length - 1 && <br />}</span>
+                <span key={i}>
+                  {line}
+                  {i < hoursLines.length - 1 && <br />}
+                </span>
               ))}
             </p>
           </div>

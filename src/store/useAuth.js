@@ -4,7 +4,7 @@ import { persist } from "zustand/middleware";
 const USE_MOCK_AUTH = import.meta.env?.VITE_USE_MOCK_AUTH === "true";
 const API_BASE = (import.meta.env?.VITE_API_URL || "").replace(/\/$/, "");
 
-const MOCK_USERS = [
+const ROLE_PROFILES = [
   {
     id: "usr-001",
     prenom: "Ahmed",
@@ -16,7 +16,7 @@ const MOCK_USERS = [
     departement: "Finance",
     role: "Administrateur",
     localisation: "Tunis, Tunisie",
-    bio: "Responsable de l'analyse financière et du suivi des KPIs pour MAG Distribution.",
+    bio: "Responsable de l'analyse financiere et du suivi des KPIs pour MAG Distribution.",
     avatar: null,
     initiales: "AD",
     actif: true,
@@ -32,7 +32,7 @@ const MOCK_USERS = [
     departement: "Commercial",
     role: "Manager",
     localisation: "Sfax, Tunisie",
-    bio: "Responsable des équipes commerciales région Sud.",
+    bio: "Responsable des equipes commerciales region Sud.",
     avatar: null,
     initiales: "SB",
     actif: true,
@@ -48,12 +48,48 @@ const MOCK_USERS = [
     departement: "Finance",
     role: "Analyste",
     localisation: "Tunis, Tunisie",
-    bio: "Spécialisé dans l'analyse des données de ventes et de trésorerie.",
+    bio: "Specialise dans l'analyse des donnees de ventes et de tresorerie.",
     avatar: null,
     initiales: "KM",
     actif: true,
   },
+  {
+    id: "usr-004",
+    prenom: "Nadia",
+    nom: "Mansouri",
+    email: "nadia.mansouri@magdistribution.tn",
+    password: "Consultant@2024",
+    telephone: "+216 95 432 109",
+    poste: "Consultante BI",
+    departement: "Direction",
+    role: "Consultant",
+    localisation: "Tunis, Tunisie",
+    bio: "Profil de consultation limite aux vues commerciales et aux pages d'assistance.",
+    avatar: null,
+    initiales: "NM",
+    actif: true,
+  },
+  {
+    id: "usr-005",
+    prenom: "Youssef",
+    nom: "Jebali",
+    email: "youssef.jebali@magdistribution.tn",
+    password: "Auditeur@2024",
+    telephone: "+216 94 321 098",
+    poste: "Auditeur Interne",
+    departement: "Comptabilite",
+    role: "Auditeur",
+    localisation: "Tunis, Tunisie",
+    bio: "Profil dedie au controle fiscal, bancaire et aux exports autorises.",
+    avatar: null,
+    initiales: "YJ",
+    actif: true,
+  },
 ];
+
+export const ENTRY_ROLES = ROLE_PROFILES.map(({ password: _password, ...user }) => user);
+
+const MOCK_USERS = ROLE_PROFILES;
 
 export const ROLE_PERMISSIONS = {
   Administrateur: {
@@ -120,13 +156,28 @@ function verifyMockPassword(plain, stored) {
   return plain === stored;
 }
 
-function generateSessionToken() {
+function generateSessionToken(prefix = "session") {
+  let token;
   if (typeof crypto === "undefined" || !crypto.getRandomValues) {
-    return Math.random().toString(36).slice(2) + Date.now().toString(36);
+    token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  } else {
+    token = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
   }
-  return Array.from(crypto.getRandomValues(new Uint8Array(32)))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return `${prefix}-${token}`;
+}
+
+function buildInitials(prenom = "", nom = "") {
+  return `${prenom?.[0] || ""}${nom?.[0] || ""}`.toUpperCase() || "FM";
+}
+
+function sanitizeUser(user) {
+  const { password: _password, ...safeUser } = user;
+  return {
+    ...safeUser,
+    initiales: safeUser.initiales || buildInitials(safeUser.prenom, safeUser.nom),
+  };
 }
 
 export const useAuth = create()(
@@ -137,6 +188,22 @@ export const useAuth = create()(
       isAuthenticated: false,
       loginError: null,
       isLoading: false,
+
+      enterAsRole: async (role = "Administrateur") => {
+        set({ isLoading: true, loginError: null });
+        await new Promise((r) => setTimeout(r, 250));
+
+        const profile = ROLE_PROFILES.find((u) => u.role === role) || ROLE_PROFILES[0];
+        set({
+          user: sanitizeUser(profile),
+          sessionToken: generateSessionToken("passwordless"),
+          isAuthenticated: true,
+          loginError: null,
+          isLoading: false,
+        });
+
+        return true;
+      },
 
       loginWithApi: async (email, password) => {
         const res = await fetch(`${API_BASE}/api/auth/login`, {
@@ -186,7 +253,7 @@ export const useAuth = create()(
         if (!found.actif) {
           set({
             isLoading: false,
-            loginError: "Ce compte est désactivé. Contactez l'administrateur.",
+            loginError: "Ce compte est desactive. Contactez l'administrateur.",
           });
           return false;
         }
@@ -196,12 +263,9 @@ export const useAuth = create()(
           return false;
         }
 
-        const { password: _password, ...safeUser } = found;
-        const sessionToken = generateSessionToken();
-
         set({
-          user: safeUser,
-          sessionToken,
+          user: sanitizeUser(found),
+          sessionToken: generateSessionToken(),
           isAuthenticated: true,
           loginError: null,
           isLoading: false,
@@ -217,12 +281,20 @@ export const useAuth = create()(
       updateProfile: (updates) => {
         const { user } = get();
         if (!user) return;
-        set({ user: { ...user, ...updates } });
+        const nextUser = { ...user, ...updates };
+        set({ user: { ...nextUser, initiales: buildInitials(nextUser.prenom, nextUser.nom) } });
       },
 
       changePassword: async (currentPassword, newPassword) => {
-        const { user } = get();
-        if (!user) return { success: false, error: "Non authentifié." };
+        const { user, sessionToken } = get();
+        if (!user) return { success: false, error: "Non authentifie." };
+
+        if (sessionToken?.startsWith("passwordless-")) {
+          return {
+            success: false,
+            error: "Le mot de passe n'est plus necessaire pour entrer dans l'application.",
+          };
+        }
 
         await new Promise((r) => setTimeout(r, 600));
 

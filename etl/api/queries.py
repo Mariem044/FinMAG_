@@ -221,10 +221,15 @@ def get_dashboard_kpis():
                 THEN f.DL_MontantHT ELSE 0 END) AS ca_total_n1,
             COUNT(DISTINCT CASE WHEN d.annee = latest.latest_year THEN f.DO_Piece_hash END) AS nb_commandes,
             COUNT(DISTINCT CASE WHEN d.annee = latest.latest_year THEN f.id_client END) AS nb_clients_actifs,
-            SUM(CASE WHEN d.annee = latest.latest_year AND a.AR_PrixAch IS NOT NULL
+            SUM(CASE WHEN d.annee = latest.latest_year
+                          AND a.AR_PrixAch IS NOT NULL
+                          AND a.AR_PrixAch > 0
                 THEN f.DL_MontantHT - (f.DL_Qte * a.AR_PrixAch)
                 ELSE NULL
-            END) AS marge_brute
+            END) AS marge_brute,
+            COUNT(CASE WHEN d.annee = latest.latest_year
+                            AND a.AR_PrixAch IS NOT NULL
+                            AND a.AR_PrixAch > 0 THEN 1 END) AS nb_lignes_avec_cout
         FROM FAIT_LIGNES_VENTE f
         JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
         LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
@@ -236,7 +241,14 @@ def get_dashboard_kpis():
     row = _row(sql)
     ca_total = _num(row.ca_total)
     ca_total_n1 = _num(row.ca_total_n1)
-    marge_brute = _num(row.marge_brute)
+    raw_marge = row.marge_brute
+    nb_avec_cout = _int(getattr(row, 'nb_lignes_avec_cout', 0))
+    # Only show margin % when we have at least some cost data (AR_PrixAch > 0)
+    marge_brute_pct = (
+        (float(raw_marge) / ca_total * 100)
+        if (ca_total and raw_marge is not None and nb_avec_cout > 0)
+        else None
+    )
     try:
         taux_recouvrement = get_tresorerie_summary()["taux_recouvrement"]
     except Exception:
@@ -246,7 +258,7 @@ def get_dashboard_kpis():
         "nb_commandes": _int(row.nb_commandes),
         "nb_clients_actifs": _int(row.nb_clients_actifs),
         "taux_recouvrement": taux_recouvrement,
-        "marge_brute_pct": (marge_brute / ca_total * 100) if (ca_total and marge_brute is not None) else 0,
+        "marge_brute_pct": marge_brute_pct,
         "ca_total_n1": ca_total_n1,
         "ca_growth_pct": round(((ca_total - ca_total_n1) / ca_total_n1 * 100), 1) if ca_total_n1 else 0,
     }
@@ -352,12 +364,25 @@ def get_ca_by_region():
 
 @app.get("/api/tresorerie/summary")
 def get_tresorerie_summary():
+    # Deduplicate by RT_Num (one payment may appear multiple times due to
+    # the LEFT JOIN with F_LigneBordereauRemise in the ETL extract).
+    # Restrict to client receipts only (id_client IS NOT NULL).
     sql = """
+        WITH deduped AS (
+            SELECT RT_Num,
+                   MAX(RT_Montant)              AS RT_Montant,
+                   MAX(DR_Regle)                AS DR_Regle,
+                   MAX(delai_reel_jours)        AS delai_reel_jours
+            FROM FAIT_REGLEMENTS
+            WHERE id_client IS NOT NULL
+              AND RT_Num IS NOT NULL
+            GROUP BY RT_Num
+        )
         SELECT
             SUM(CASE WHEN DR_Regle = 1 THEN RT_Montant ELSE 0 END) AS encaissements,
             SUM(CASE WHEN DR_Regle = 0 THEN RT_Montant ELSE 0 END) AS impayes,
             AVG(CAST(delai_reel_jours AS FLOAT)) AS delai_moyen
-        FROM FAIT_REGLEMENTS
+        FROM deduped
     """
     row = _row(sql)
     encaissements = _num(row.encaissements)

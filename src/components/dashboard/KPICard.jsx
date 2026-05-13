@@ -2,19 +2,21 @@ import { memo } from "react";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
 export const KPICard = memo(function KPICard({ label, value, trend, subtitle, icon: Icon }) {
-  const isPositive = (trend ?? 0) >= 0;
+  const hasTrend = Number.isFinite(trend);
+  const safeTrend = hasTrend ? trend : 0;
+  const isPositive = safeTrend >= 0;
   const trendDirection = isPositive ? "up" : "down";
-  const trendAbs = Math.abs(trend ?? 0).toFixed(1);
+  const trendAbs = Math.abs(safeTrend).toFixed(1);
 
   const trendAriaLabel =
-    trend !== undefined
+    hasTrend
       ? `${isPositive ? "Up" : "Down"} ${trendAbs}% compared to prior year`
       : undefined;
 
   return (
     <article
       className="group relative bg-gradient-to-br from-card via-card/95 to-card/80 border border-border/50 rounded-lg md:rounded-xl p-3 md:p-4 lg:p-5 flex flex-col gap-2.5 hover:shadow-lg hover:shadow-primary/25 hover:border-primary/50 transition-all duration-500 ease-out transform hover:-translate-y-1 overflow-hidden backdrop-blur-sm before:absolute before:inset-0 before:bg-gradient-to-br before:from-primary/5 before:to-transparent before:opacity-0 hover:before:opacity-100 before:transition-opacity before:duration-500"
-      aria-label={`${label}: ${value}${trend !== undefined ? `, ${trendAriaLabel}` : ""}`}
+      aria-label={`${label}: ${value}${hasTrend ? `, ${trendAriaLabel}` : ""}`}
     >
       <div
         className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-primary/0 via-primary/80 to-primary/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
@@ -48,7 +50,7 @@ export const KPICard = memo(function KPICard({ label, value, trend, subtitle, ic
             <p className="text-[10px] text-muted-foreground mt-1 truncate">{subtitle}</p>
           )}
 
-          {trend !== undefined && (
+          {hasTrend && (
             <div
               className={`flex items-center gap-1.5 mt-2 text-[11px] md:text-[12px] font-medium px-2 py-1 rounded-md ${
                 isPositive
@@ -72,7 +74,7 @@ export const KPICard = memo(function KPICard({ label, value, trend, subtitle, ic
 
               <span aria-hidden="true" className="font-semibold">
                 {isPositive ? "+" : ""}
-                {trend.toFixed(1)}% vs N-1
+                {safeTrend.toFixed(1)}% vs N-1
               </span>
 
               <span className="sr-only">

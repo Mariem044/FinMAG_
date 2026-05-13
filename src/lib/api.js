@@ -67,6 +67,7 @@ const _ventesCaByRegion = () => get("/api/ventes/ca-by-region");
 
 const _tresorerieSummary = () => get("/api/tresorerie/summary");
 const _tresorerieImpayes = () => get("/api/tresorerie/impayes");
+const _tresorerieImpayesFournisseurs = () => get("/api/tresorerie/impayes-fournisseurs");
 const _tresorerieEncaissements = () => get("/api/tresorerie/encaissements-by-mode");
 const _tresorerieAging = () => get("/api/tresorerie/aging");
 
@@ -122,6 +123,7 @@ export const api = {
   tresorerie: {
     summary: _tresorerieSummary,
     impayes: _tresorerieImpayes,
+    impayesFournisseurs: _tresorerieImpayesFournisseurs,
     encaissementsByMode: _tresorerieEncaissements,
     aging: _tresorerieAging,
   },

@@ -7,6 +7,9 @@ const fetcherIds = new WeakMap();
 let fetcherIdSeq = 0;
 
 function getFetcherId(fetcher) {
+  if (typeof fetcher !== "function") {
+    return "missing-fetcher";
+  }
   if (!fetcherIds.has(fetcher)) {
     fetcherIdSeq += 1;
     fetcherIds.set(fetcher, fetcher.name || `fetcher-${fetcherIdSeq}`);
@@ -43,6 +46,18 @@ export function useApiResource(fetcher, initialData, deps = [], options = {}) {
 
   useEffect(() => {
     let cancelled = false;
+    if (typeof fetcher !== "function") {
+      setState({
+        data: initialDataRef.current,
+        error: new Error("API fetcher is not configured."),
+        loading: false,
+        hasRealData: false,
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const cachedEntry = resourceCache.get(cacheKey);
     const now = Date.now();
     const hasCachedData = Boolean(cachedEntry);

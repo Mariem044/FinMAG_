@@ -1,26 +1,37 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
-import { Eye, EyeOff, AlertCircle, Loader2, BarChart2 } from "lucide-react";
-import { useAuth } from "@/store/useAuth";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowRight, BarChart2, CheckCircle2, Loader2, ShieldCheck } from "lucide-react";
+import { ENTRY_ROLES, ROLE_PERMISSIONS, useAuth } from "@/store/useAuth";
 
 export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
-const DEMO_ACCOUNTS = [
-  { email: "ahmed.dridi@magdistribution.tn", role: "Administrateur" },
-  { email: "sarra.bensalah@magdistribution.tn", role: "Manager" },
-  { email: "karim.maaloul@magdistribution.tn", role: "Analyste" },
-];
+const roleStyles = {
+  Administrateur: "border-red-500/40 bg-red-500/10 text-red-300",
+  Manager: "border-blue-500/40 bg-blue-500/10 text-blue-300",
+  Analyste: "border-violet-500/40 bg-violet-500/10 text-violet-300",
+  Consultant: "border-orange-500/40 bg-orange-500/10 text-orange-300",
+  Auditeur: "border-teal-500/40 bg-teal-500/10 text-teal-300",
+};
+
+const roleDescriptions = {
+  Administrateur: "Acces complet",
+  Manager: "Pilotage operationnel",
+  Analyste: "Analyse et exports",
+  Consultant: "Consultation limitee",
+  Auditeur: "Controle fiscal et bancaire",
+};
 
 function LoginPage() {
   const navigate = useNavigate();
-  const { login, isAuthenticated, loginError, isLoading, clearError } = useAuth();
+  const { enterAsRole, isAuthenticated, isLoading } = useAuth();
+  const [selectedRole, setSelectedRole] = useState("Administrateur");
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [touched, setTouched] = useState({ email: false, password: false });
+  const selectedProfile = useMemo(
+    () => ENTRY_ROLES.find((profile) => profile.role === selectedRole) || ENTRY_ROLES[0],
+    [selectedRole],
+  );
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -28,26 +39,14 @@ function LoginPage() {
     }
   }, [isAuthenticated, navigate]);
 
-  useEffect(() => {
-    if (loginError) clearError();
-  }, [email, password]);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setTouched({ email: true, password: true });
-    if (!email || !password) return;
-    const success = await login(email, password);
+  const handleEnter = async () => {
+    const success = await enterAsRole(selectedRole);
     if (success) navigate({ to: "/" });
   };
 
-  const fillDemo = (account) => {
-    setEmail(account.email);
-    setPassword("");
-    clearError();
-  };
-
-  const emailError = touched.email && !email ? "Email requis" : "";
-  const passwordError = touched.password && !password ? "Mot de passe requis" : "";
+  const routeCount = ROLE_PERMISSIONS[selectedRole]?.routes?.includes("*")
+    ? "Toutes les pages"
+    : `${ROLE_PERMISSIONS[selectedRole]?.routes?.length || 0} pages`;
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -59,8 +58,6 @@ function LoginPage() {
             backgroundSize: "48px 48px",
           }}
         />
-
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-primary/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-2">
@@ -76,26 +73,23 @@ function LoginPage() {
 
         <div className="relative z-10 space-y-6">
           <h1 className="text-4xl font-bold text-white leading-tight">
-            Pilotez votre
+            Accueil
             <br />
-            <span className="text-primary">performance</span>
-            <br />
-            en temps réel.
+            <span className="text-primary">FinMAG</span>
           </h1>
           <p className="text-text-muted text-[15px] leading-relaxed max-w-sm">
-            Tableau de bord financier complet pour MAG Distribution — CA, trésorerie, stocks,
-            acteurs et comptabilité.
+            Entrez directement dans le tableau de bord et gardez les vues adaptees au role choisi.
           </p>
 
           <div className="grid grid-cols-3 gap-4 pt-4">
             {[
               { value: "38", label: "KPIs" },
               { value: "12", label: "Modules" },
-              { value: "5", label: "Exercices" },
+              { value: "5", label: "Roles" },
             ].map((s) => (
               <div
                 key={s.label}
-                className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-4 text-center"
+                className="bg-white/[0.04] border border-white/[0.08] rounded-lg p-4 text-center"
               >
                 <p className="text-2xl font-bold text-primary">{s.value}</p>
                 <p className="text-[11px] text-text-dim mt-1">{s.label}</p>
@@ -105,7 +99,7 @@ function LoginPage() {
         </div>
 
         <div className="relative z-10">
-          <p className="text-[11px] text-text-dim">© 2024 MAG Distribution · v2.0.0</p>
+          <p className="text-[11px] text-text-dim">MAG Distribution - v2.0.0</p>
         </div>
       </div>
 
@@ -117,111 +111,85 @@ function LoginPage() {
           <span className="text-xl font-extrabold text-foreground">FinMAG</span>
         </div>
 
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-xl">
           <div className="mb-8">
-            <h2 className="text-2xl font-bold text-foreground">Connexion</h2>
-            <p className="text-text-dim text-[13px] mt-1">Accédez à votre tableau de bord</p>
-          </div>
-
-          {loginError && (
-            <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-[13px] mb-5">
-              <AlertCircle size={16} className="flex-shrink-0" />
-              {loginError}
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[11px] font-semibold text-primary mb-4">
+              <ShieldCheck size={13} />
+              Entree sans mot de passe
             </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-[12px] font-semibold text-text-dim uppercase tracking-wider mb-1.5">
-                Adresse email
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onBlur={() => setTouched((t) => ({ ...t, email: true }))}
-                placeholder="votre@email.tn"
-                autoComplete="email"
-                className={`w-full px-3.5 py-2.5 bg-secondary border rounded-xl text-[13px] text-foreground placeholder:text-text-dim outline-none transition-all duration-200 focus:ring-1 focus:ring-primary/40
-                  ${emailError ? "border-red-500/60 focus:border-red-500" : "border-border focus:border-primary"}`}
-              />
-              {emailError && <p className="text-red-400 text-[11px] mt-1">{emailError}</p>}
-            </div>
-
-            <div>
-              <label className="block text-[12px] font-semibold text-text-dim uppercase tracking-wider mb-1.5">
-                Mot de passe
-              </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onBlur={() => setTouched((t) => ({ ...t, password: true }))}
-                  placeholder="••••••••"
-                  autoComplete="current-password"
-                  className={`w-full px-3.5 py-2.5 pr-10 bg-secondary border rounded-xl text-[13px] text-foreground placeholder:text-text-dim outline-none transition-all duration-200 focus:ring-1 focus:ring-primary/40
-                    ${passwordError ? "border-red-500/60 focus:border-red-500" : "border-border focus:border-primary"}`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-dim hover:text-foreground transition-colors"
-                >
-                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-              {passwordError && <p className="text-red-400 text-[11px] mt-1">{passwordError}</p>}
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white text-[13px] font-semibold hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:scale-[1.01] active:scale-[0.99] mt-2"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 size={15} className="animate-spin" />
-                  Connexion en cours…
-                </>
-              ) : (
-                "Se connecter"
-              )}
-            </button>
-          </form>
-
-          <div className="mt-8">
-            <p className="text-[11px] text-text-dim font-semibold uppercase tracking-wider mb-3 text-center">
-              Comptes de démonstration
+            <h2 className="text-2xl font-bold text-foreground">Choisir un role</h2>
+            <p className="text-text-dim text-[13px] mt-1">
+              Selectionnez le profil de travail puis entrez dans l'application.
             </p>
-            <div className="space-y-2">
-              {DEMO_ACCOUNTS.map((acc) => (
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {ENTRY_ROLES.map((profile) => {
+              const active = selectedRole === profile.role;
+              return (
                 <button
-                  key={acc.email}
-                  onClick={() => fillDemo(acc)}
-                  disabled={isLoading}
-                  className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-border/60 bg-secondary/50 hover:border-primary/40 hover:bg-primary/5 transition-all duration-150 text-left group disabled:opacity-40"
+                  key={profile.role}
+                  type="button"
+                  onClick={() => setSelectedRole(profile.role)}
+                  className={`text-left rounded-lg border px-4 py-3 transition-all duration-150 ${
+                    active
+                      ? `${roleStyles[profile.role]} shadow-lg shadow-black/20`
+                      : "border-border/70 bg-secondary/50 text-foreground hover:border-primary/40 hover:bg-primary/5"
+                  }`}
                 >
-                  <div>
-                    <p className="text-[12px] font-medium text-foreground group-hover:text-primary transition-colors">
-                      {acc.role}
-                    </p>
-                    <p className="text-[10px] text-text-dim truncate">{acc.email}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-semibold truncate">{profile.role}</p>
+                      <p className="text-[11px] text-text-dim mt-1">
+                        {roleDescriptions[profile.role]}
+                      </p>
+                    </div>
+                    {active && <CheckCircle2 size={16} className="flex-shrink-0" />}
                   </div>
-                  <span className="text-[10px] text-text-dim bg-surface-hover px-2 py-0.5 rounded">
-                    Email
-                  </span>
+                  <p className="text-[11px] text-text-dim mt-3 truncate">
+                    {profile.prenom} {profile.nom}
+                  </p>
                 </button>
-              ))}
+              );
+            })}
+          </div>
+
+          <div className="mt-5 rounded-lg border border-border/70 bg-card/80 px-4 py-3">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-[13px] font-semibold text-foreground truncate">
+                  {selectedProfile.prenom} {selectedProfile.nom}
+                </p>
+                <p className="text-[11px] text-text-dim truncate">
+                  {selectedProfile.poste} - {routeCount}
+                </p>
+              </div>
+              <span
+                className={`px-2.5 py-1 rounded-full border text-[11px] font-semibold whitespace-nowrap ${roleStyles[selectedRole]}`}
+              >
+                {selectedRole}
+              </span>
             </div>
           </div>
 
-          <p className="text-center text-[11px] text-text-dim mt-8">
-            Problème de connexion ?{" "}
-            <a href="mailto:support@siad.tn" className="text-primary hover:underline">
-              Contacter le support
-            </a>
-          </p>
+          <button
+            type="button"
+            onClick={handleEnter}
+            disabled={isLoading}
+            className="mt-5 w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-primary text-white text-[13px] font-semibold hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:scale-[1.01] active:scale-[0.99]"
+          >
+            {isLoading ? (
+              <>
+                <Loader2 size={15} className="animate-spin" />
+                Entree en cours...
+              </>
+            ) : (
+              <>
+                Entrer
+                <ArrowRight size={15} />
+              </>
+            )}
+          </button>
         </div>
       </div>
     </div>

@@ -29,6 +29,8 @@ export const Route = createFileRoute("/tresorerie")({
   component: TresorerietPage,
 });
 
+const toNumber = (value) => Number(value) || 0;
+
 function TresorerietPage() {
   const { modePaiement, horizonPrev, getActiveMonthIndexes, segment, depot, source } = useFilters();
   const { data: summary, loading: summaryLoading } = useApiResource(api.tresorerie.summary, {
@@ -47,20 +49,30 @@ function TresorerietPage() {
   const chartH = useChartHeight();
   const kpiLoading = summaryLoading || encaissementsLoading;
   const chartsLoading = encaissementsLoading || agingLoading;
+  const encaissementRows = Array.isArray(encaissementsData) ? encaissementsData : [];
+  const agingRows = Array.isArray(agingData) ? agingData : [];
 
   const encaissementsMode = useMemo(() => {
     const rows =
       modePaiement === "Tous"
-        ? encaissementsData
-        : encaissementsData.filter((e) => e.mode === modePaiement);
-    return rows.map((row) => ({
-      ...row,
-      mag: source === "GRT_MAG" ? 0 : row.mag,
-      grt: source === "MAG_2020" ? 0 : row.grt,
-    }));
-  }, [modePaiement, source, encaissementsData]);
+        ? encaissementRows
+        : encaissementRows.filter((e) => e?.mode === modePaiement);
+    return rows
+      .filter(Boolean)
+      .map((row) => ({
+        ...row,
+        mode: row.mode || "Non renseigne",
+        mag: source === "GRT_MAG" ? 0 : toNumber(row.mag),
+        grt: source === "MAG_2020" ? 0 : toNumber(row.grt),
+        rapprochement: toNumber(row.rapprochement),
+      }))
+      .filter((row) => row.mag + row.grt > 0);
+  }, [modePaiement, source, encaissementRows]);
 
-  const donutData = encaissementsMode.map((d) => ({ name: d.mode, value: d.mag + d.grt }));
+  const donutData = encaissementsMode.map((d) => ({
+    name: d.mode || "Non renseigne",
+    value: d.mag + d.grt,
+  }));
 
   const horizonMonths = horizonPrev === "30j" ? 3 : horizonPrev === "60j" ? 6 : 9;
   const waterfallFlat = useMemo(() => {
@@ -85,13 +97,36 @@ function TresorerietPage() {
   const filteredEnc = encaissementsMode.reduce((s, e) => s + e.mag + e.grt, 0);
   const totalEnc = summary.encaissements || filteredEnc;
   const impayes = summary.impayes || 0;
-  const gt90 = agingData.reduce((sum, row) => sum + (row[">90j"] || 0), 0);
+  const safeAgingData = useMemo(
+    () =>
+      agingRows.filter(Boolean).map((row) => ({
+        client: row.client || "Client",
+        "0-30j": toNumber(row["0-30j"]),
+        "31-60j": toNumber(row["31-60j"]),
+        "61-90j": toNumber(row["61-90j"]),
+        ">90j": toNumber(row[">90j"]),
+      })),
+    [agingRows],
+  );
+  const gt90 = safeAgingData.reduce((sum, row) => sum + row[">90j"], 0);
   const tauxRecouv =
     modePaiement === "Tous"
       ? Math.round(summary.taux_recouvrement || 0)
       : (encaissementsMode[0]?.rapprochement ?? 0);
 
   const { data: impayesFournisseurs } = useApiResource(api.tresorerie.impayesFournisseurs, []);
+  const impayesFournisseurRows = Array.isArray(impayesFournisseurs) ? impayesFournisseurs : [];
+  const safeImpayesFournisseurs = useMemo(
+    () =>
+      impayesFournisseurRows.filter(Boolean).map((row) => ({
+        fournisseur: row.fournisseur || "Fournisseur",
+        montant: toNumber(row.montant),
+        delaiEffectif: toNumber(row.delaiEffectif),
+        delaiContractuel: toNumber(row.delaiContractuel),
+        etat: row.etat || "En cours",
+      })),
+    [impayesFournisseurRows],
+  );
 
   return (
     <div className="space-y-6">
@@ -229,7 +264,7 @@ function TresorerietPage() {
           title="Vieillissement des créances — Aging (KPI-08)"
         >
           <ResponsiveContainer width="100%" height={chartH}>
-            <BarChart data={agingData}>
+            <BarChart data={safeAgingData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
               <XAxis dataKey="client" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
               <YAxis
@@ -264,7 +299,7 @@ function TresorerietPage() {
                 </tr>
               </thead>
               <tbody>
-                {impayesFournisseurs.map((row, i) => {
+                {safeImpayesFournisseurs.map((row, i) => {
                   const ecart = row.delaiEffectif - row.delaiContractuel;
                   return (
                     <tr key={i} className="border-b border-border/30 hover:bg-surface-hover/30">
@@ -288,7 +323,7 @@ function TresorerietPage() {
                     </tr>
                   );
                 })}
-                {impayesFournisseurs.length === 0 && (
+                {safeImpayesFournisseurs.length === 0 && (
                   <tr>
                     <td colSpan={5} className="py-8 px-2 text-center text-text-dim">
                       Aucun impay-fournisseur disponible dans le DW
