@@ -164,9 +164,10 @@ function BanquePage() {
       rapprochData.map((row, i) => ({
         bordereau: `BR-${String(i + 1).padStart(3, "0")}`,
         banque: activeBanques[i % activeBanques.length],
-        agios: Math.round((row.nonRapproches || 0) * 120),
-        nbJour: Math.max(0, Math.round((100 - (row.taux || 0)) / 5)),
-        tauxAgios: Number((2 + Math.max(0, 100 - (row.taux || 0)) / 50).toFixed(2)),
+        // Use real agios and nbJour from DW (LB_Agios, LB_NbJour)
+        agios: row.agios ?? 0,
+        nbJour: row.nbJour ?? 0,
+        tauxAgios: row.tauxAgios ?? 0,
       })),
     [activeBanques, rapprochData],
   );

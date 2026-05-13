@@ -405,10 +405,12 @@ def _assemble_fait_reglements(
         ),
         BR_Rapproch=lambda d: pd.to_numeric(d["BR_Rapproch"], errors="coerce").astype("Int16"),
         RT_Rapproche=rapproche.astype("Int16"),
+        RT_Num=lambda d: pd.to_numeric(d["RT_Num"], errors="coerce").astype("Int64"),
         source_hash=lambda d: d.apply(
             lambda row: _source_hash(
                 "REGLEMENT",
                 row.get("_acteur"),
+                row.get("CT_Num"),
                 row.get("RT_Num"),
                 row.get("LB_Ligne"),
                 row.get("DO_Piece"),
@@ -416,7 +418,7 @@ def _assemble_fait_reglements(
             axis=1,
         ),
         date_extraction=date.today(),
-    )
+    ).drop_duplicates(subset=["source_hash"], keep="last")
 
 
 def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:

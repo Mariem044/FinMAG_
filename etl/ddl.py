@@ -770,6 +770,11 @@ END
         "ALTER TABLE [DIM_SEGMENT] ADD CONSTRAINT [UQ_DIM_SEGMENT_cbIndice] "
         "UNIQUE (cbIndice)",
     ),
+    (
+        "FAIT_REGLEMENTS.RT_Num",
+        "IF COL_LENGTH('FAIT_REGLEMENTS','RT_Num') IS NULL "
+        "ALTER TABLE [FAIT_REGLEMENTS] ADD RT_Num INT NULL",
+    ),
 ]
 
 
@@ -785,7 +790,17 @@ _INDEX_MIGRATIONS: list[tuple[str, str]] = [
         f"CREATE UNIQUE INDEX [UX_{t}_source_hash] "
         f"ON [{t}]([source_hash]) WHERE [source_hash] IS NOT NULL",
     )
-    for t in ("FAIT_LIGNES_VENTE", "FAIT_REGLEMENTS", "FAIT_ECRITURES")
+    for t in ("FAIT_LIGNES_VENTE", "FAIT_ECRITURES")
+] + [
+    (
+        "DROP_UX_FAIT_REGLEMENTS_source_hash",
+        "IF EXISTS ("
+        "SELECT 1 FROM sys.indexes "
+        "WHERE name = 'UX_FAIT_REGLEMENTS_source_hash' "
+        "AND object_id = OBJECT_ID('FAIT_REGLEMENTS')"
+        ") "
+        "DROP INDEX [UX_FAIT_REGLEMENTS_source_hash] ON [FAIT_REGLEMENTS]",
+    ),
 ]
 
 

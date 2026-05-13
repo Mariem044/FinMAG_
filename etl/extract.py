@@ -441,15 +441,14 @@ def extract_fait_artstock() -> pd.DataFrame:
     try:
         df = _read(MAG_ENGINE, sql)
         logger.info(f"F_ARTSTOCK extracted: {len(df)} rows")
+        non_zero = (pd.to_numeric(df["AS_QteSto"], errors="coerce").fillna(0) > 0).sum()
+        logger.info(f"F_ARTSTOCK sanity: {non_zero}/{len(df)} rows have AS_QteSto > 0")
         if df.empty:
             logger.warning(
                 "F_ARTSTOCK returned 0 rows — all stock values will be NULL. "
                 "Verify that F_ARTSTOCK contains data on MAG_ENGINE."
             )
-        else:
-            non_zero = (pd.to_numeric(df["AS_QteSto"], errors="coerce").fillna(0) > 0).sum()
-        logger.info(f"F_ARTSTOCK sanity: {non_zero}/{len(df)} rows have AS_QteSto > 0")
-        if non_zero == 0:
+        elif non_zero == 0:
             logger.warning(
                 "F_ARTSTOCK: every AS_QteSto is 0 or NULL. "
                 "Inventory module will show zero stock everywhere — "
@@ -507,6 +506,9 @@ def extract_fait_reglech() -> pd.DataFrame:
 
 def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("rc.RT_Date", last_run)
+    # IMPORTANT: Use TOP 1 per RT_Num for bordereau lines to avoid fan-out join
+    # that would multiply RT_Montant (one payment → N bordereau lines → N×amount).
+    # We keep the bordereau with the highest LB_Ligne (most recent) for fee data.
     sql = f"""
         SELECT
             rc.RT_Num,
@@ -531,7 +533,18 @@ def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.D
             br.BR_TauxAgios,
             br.BR_TMM
         FROM F_ReglementClient rc
-        LEFT JOIN F_LigneBordereauRemise lb ON lb.RT_Num = rc.RT_Num
+        OUTER APPLY (
+            SELECT TOP 1
+                lb2.LB_Ligne,
+                lb2.BR_Num,
+                lb2.LB_MontantReg,
+                lb2.LB_EcheanceReg,
+                lb2.LB_NbJour,
+                lb2.LB_Agios
+            FROM F_LigneBordereauRemise lb2
+            WHERE lb2.RT_Num = rc.RT_Num
+            ORDER BY lb2.LB_Ligne DESC
+        ) lb
         LEFT JOIN F_BordereauRemise br ON br.BR_Num = lb.BR_Num
         WHERE 1=1 {delta_clause}
     """

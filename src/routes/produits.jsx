@@ -148,7 +148,7 @@ function ProduitsPage() {
     }));
   }, [filteredArticles]);
 
-  const valeurStock = filteredArticles.reduce((s, a) => s + a.ca * 0.3, 0);
+  const valeurStock = filteredArticles.reduce((s, a) => s + (a.stock || 0) * (a.prixMoyen || 0), 0);
   const nbRuptures = alertes.filter((a) => a.stockActuel < a.seuil).length;
   const dsiMoyen = Math.round(
     dsiScatter.reduce((s, d) => s + d.dsi, 0) / Math.max(dsiScatter.length, 1),

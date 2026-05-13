@@ -97,7 +97,20 @@ function ActeursPage() {
     () =>
       clients.map((c) => ({
         ...c,
-        attritionScore: (c.nbCommandes || 0) === 0 || Number(c.soldeImpaye || 0) > 0 ? 0.75 : 0.25,
+        attritionScore: (() => {
+          let score = 0;
+          // No orders = high risk
+          if ((c.nbCommandes || 0) === 0) score += 0.45;
+          else if ((c.nbCommandes || 0) < 3) score += 0.20;
+          // Large overdue balance
+          const solde = Number(c.soldeImpaye || 0);
+          if (solde > 100000) score += 0.35;
+          else if (solde > 30000) score += 0.20;
+          else if (solde > 5000) score += 0.10;
+          // Dormant client
+          if (!c.actif) score += 0.20;
+          return Math.min(parseFloat(score.toFixed(2)), 1.0);
+        })(),
       })),
     [clients],
   );
@@ -358,7 +371,9 @@ function ActeursPage() {
                         <span className="font-semibold text-foreground">{row.nbArticles}</span>
                       </td>
                       <td className="py-1.5 text-text-dim text-[10px]">
-                        {Math.round(row.valeurReference).toLocaleString("fr-TN")}
+                        {row.montantAchat > 0
+                          ? Math.round(row.montantAchat).toLocaleString("fr-TN")
+                          : "—"}
                       </td>
                     </tr>
                   ))}

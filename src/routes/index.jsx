@@ -38,7 +38,7 @@ function OverviewPage() {
     nb_commandes: 0,
     nb_clients_actifs: 0,
     taux_recouvrement: 0,
-    marge_brute_pct: 0,
+    marge_brute_pct: null,
   });
   const { data: caByMonth, loading: caLoading } = useApiResource(
     api.dashboard.caByMonth,
@@ -96,8 +96,9 @@ function OverviewPage() {
             />
             <KPICard
               label="Marge Brute"
-              value={formatPercent(kpis.marge_brute_pct)}
-              trend={1.8}
+              value={kpis.marge_brute_pct === null ? "N/A" : `${kpis.marge_brute_pct.toFixed(1)}%`}
+              subtitle={kpis.marge_brute_pct === null ? "Prix achat non configuré" : undefined}
+              trend={kpis.marge_brute_pct !== null ? 1.8 : undefined}
               icon={TrendingUp}
             />
           </>
