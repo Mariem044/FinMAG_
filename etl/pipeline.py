@@ -713,9 +713,10 @@ def _compute_dsi_jours() -> None:
         WHERE tl.type_ligne = 4
     """
     with DW_ENGINE.begin() as conn:
+        conn.execute(text("SET NOCOUNT OFF"))
         result = conn.execute(text(sql))
-        # FIX 4: log rowcount so we know if DSI actually ran
-        logger.info(f"dsi_jours computed: {result.rowcount} stock rows updated.")
+        rowcount = result.rowcount if result.rowcount >= 0 else "unknown"
+        logger.info(f"dsi_jours computed: {rowcount} stock rows updated.")
 
 
 def _compute_rfm_scores() -> None:
@@ -726,31 +727,32 @@ def _compute_rfm_scores() -> None:
             c.rfm_frequence      = rfm.frequence,
             c.rfm_montant_12m    = rfm.montant_12m,
             c.rfm_score          = CASE
-                WHEN rfm.recence_jours <= 30 AND rfm.frequence >= 4 THEN 'Champion'
-                WHEN rfm.recence_jours <= 60 AND rfm.frequence >= 3 THEN 'Fidèle'
-                WHEN rfm.recence_jours <= 90 THEN 'À risque'
+                WHEN rfm.recence_jours <= 30  AND rfm.frequence >= 4 THEN 'Champion'
+                WHEN rfm.recence_jours <= 60  AND rfm.frequence >= 3 THEN 'Fidèle'
+                WHEN rfm.recence_jours <= 90  THEN 'À risque'
+                WHEN rfm.recence_jours IS NULL THEN 'Dormant'
                 ELSE 'Dormant'
             END
         FROM DIM_CLIENT c
-        INNER JOIN (
+        LEFT JOIN (
             SELECT
                 v.id_client,
                 DATEDIFF(DAY, MAX(d.date_val), CAST(GETDATE() AS DATE)) AS recence_jours,
                 COUNT(DISTINCT v.DO_Piece_hash)                          AS frequence,
                 SUM(v.DL_MontantHT)                                      AS montant_12m
             FROM FAIT_LIGNES_VENTE v
-            JOIN DIM_DATE d   ON d.id_date   = v.id_date
+            JOIN DIM_DATE d      ON d.id_date     = v.id_date
             JOIN DIM_DOMAINE dom ON dom.id_domaine = v.id_domaine
-            WHERE d.date_val >= DATEADD(DAY, -{FENETRE_RFM_JOURS}, CAST(GETDATE() AS DATE))
-              AND dom.DO_Domaine = 0
+            WHERE dom.DO_Domaine = 0
             GROUP BY v.id_client
         ) rfm ON rfm.id_client = c.id_client
     """
     with DW_ENGINE.begin() as conn:
+        conn.execute(text("SET NOCOUNT OFF"))
         result = conn.execute(text(sql))
-        # FIX 4: log rowcount so we know if RFM actually ran
+        rowcount = result.rowcount if result.rowcount >= 0 else "unknown"
         logger.info(
-            f"RFM scores computed: {result.rowcount} clients updated "
+            f"RFM scores computed: {rowcount} clients updated "
             f"(window={FENETRE_RFM_JOURS} days)."
         )
 

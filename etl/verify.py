@@ -53,16 +53,16 @@ print("\nF_ECRITUREC rows that WOULD be picked by delta filter:")
 with MAG_ENGINE.connect() as conn:
     n = conn.execute(text("""
         SELECT COUNT(*) FROM F_ECRITUREC
-        WHERE cbModification >= :last_run
+        WHERE EC_Date >= :last_run
     """), {"last_run": last}).scalar()
     total = conn.execute(text("SELECT COUNT(*) FROM F_ECRITUREC")).scalar()
-print(f"  {n}/{total} rows have cbModification >= last run")
+print(f"  {n}/{total} rows have EC_Date >= last run")
 
 print("\nF_DOCLIGNE rows that WOULD be picked by delta filter:")
 with MAG_ENGINE.connect() as conn:
     n = conn.execute(text("""
         SELECT COUNT(*) FROM F_DOCLIGNE dl
-        WHERE dl.cbModification >= :last_run
+        WHERE dl.DO_Date >= :last_run
         AND dl.DO_Domaine = 0 AND dl.DO_Type IN (6,7)
         AND dl.DL_MontantHT IS NOT NULL
     """), {"last_run": last}).scalar()
@@ -70,7 +70,7 @@ with MAG_ENGINE.connect() as conn:
         SELECT COUNT(*) FROM F_DOCLIGNE
         WHERE DO_Domaine=0 AND DO_Type IN (6,7) AND DL_MontantHT IS NOT NULL
     """)).scalar()
-print(f"  {n}/{total} vente rows have cbModification >= last run")
+print(f"  {n}/{total} vente rows have DO_Date >= last run")
 
 print("\n=== RFM scores in DIM_CLIENT ===")
 with DW_ENGINE.connect() as conn:
@@ -95,5 +95,33 @@ with DW_ENGINE.connect() as conn:
         WHERE tl.type_ligne = 4
     """)).fetchone()
 print(f"  DSI computed: {r.has_dsi}/{r.total} stock rows, qte_vendue: {r.has_qte}/{r.total}")
+
+print("\n=== SAGE DATE RANGES ===")
+with MAG_ENGINE.connect() as conn:
+    r = conn.execute(text("""
+        SELECT 
+            MIN(DO_Date) AS min_date,
+            MAX(DO_Date) AS max_date,
+            COUNT(*) AS total
+        FROM F_DOCLIGNE
+        WHERE DO_Domaine=0 AND DO_Type IN (6,7)
+        AND DL_MontantHT IS NOT NULL
+    """)).fetchone()
+print(f"  F_DOCLIGNE ventes: {r.min_date} → {r.max_date} ({r.total} rows)")
+
+with MAG_ENGINE.connect() as conn:
+    r = conn.execute(text("""
+        SELECT MIN(EC_Date) AS min_date, MAX(EC_Date) AS max_date
+        FROM F_ECRITUREC
+    """)).fetchone()
+print(f"  F_ECRITUREC:       {r.min_date} → {r.max_date}")
+
+with MAG_ENGINE.connect() as conn:
+    r = conn.execute(text("""
+        SELECT MIN(cbModification) AS min_mod, MAX(cbModification) AS max_mod
+        FROM F_DOCLIGNE
+        WHERE DO_Domaine=0 AND DO_Type IN (6,7)
+    """)).fetchone()
+print(f"  F_DOCLIGNE cbModification: {r.min_mod} → {r.max_mod}")
 
 print("\n=== DONE ===\n")

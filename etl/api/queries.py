@@ -162,7 +162,9 @@ def get_dashboard_kpis():
 
     sql = """
         WITH latest AS (
-            SELECT COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year
+            SELECT
+                COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year,
+                COALESCE(MAX(d.mois), MONTH(GETDATE())) AS latest_month
             FROM FAIT_LIGNES_VENTE f
             JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
             LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
@@ -170,7 +172,9 @@ def get_dashboard_kpis():
         )
         SELECT
             SUM(CASE WHEN d.annee = latest.latest_year THEN f.DL_MontantHT ELSE 0 END) AS ca_total,
-            SUM(CASE WHEN d.annee = latest.latest_year - 1 THEN f.DL_MontantHT ELSE 0 END) AS ca_total_n1,
+            SUM(CASE WHEN d.annee = latest.latest_year - 1
+                AND d.mois <= latest.latest_month
+                THEN f.DL_MontantHT ELSE 0 END) AS ca_total_n1,
             COUNT(DISTINCT CASE WHEN d.annee = latest.latest_year THEN f.DO_Piece_hash END) AS nb_commandes,
             COUNT(DISTINCT CASE WHEN d.annee = latest.latest_year THEN f.id_client END) AS nb_clients_actifs,
             SUM(CASE WHEN d.annee = latest.latest_year

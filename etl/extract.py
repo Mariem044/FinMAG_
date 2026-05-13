@@ -36,7 +36,22 @@ def _delta_filter(col: str, last_run: Optional[datetime]) -> tuple[str, dict]:
         raise ValueError(f"Unsafe column name: {col!r}")
     if last_run is None:
         return "", {}
-    return f" AND {col} >= :last_run", {"last_run": last_run}
+    # cbModification is unreliable in Sage — fall back to date-based filter
+    # using the document/entry date column instead
+    date_col = col
+    if col.endswith("cbModification"):
+        # derive the date column from the table alias
+        prefix = col.split(".")[0] + "." if "." in col else ""
+        date_col_map = {
+            "dl.cbModification":  "dl.DO_Date",
+            "a.cbModification":   "a.cbModification",  # articles keep cbModification
+            "cbModification":     "cbModification",
+            "ec.cbModification":  "ec.EC_Date",
+            "rt.cbModification":  "rt.cbModification",
+        }
+        date_col = date_col_map.get(col, col)
+        logger.debug(f"_delta_filter: remapped {col!r} → {date_col!r}")
+    return f" AND {date_col} >= :last_run", {"last_run": last_run}
 
 
 def _validate_columns(df: pd.DataFrame, required_cols: list[str], source_name: str) -> None:
@@ -413,13 +428,15 @@ def extract_fait_artstock() -> pd.DataFrame:
 
     sql = """
         SELECT
-            AR_Ref,
-            DE_No,
-            AS_MontSto,
-            AS_QteSto,
-            AS_QteMini,
-            AS_QteRes
-        FROM F_ARTSTOCK
+            s.AR_Ref,
+            s.DE_No,
+            s.AS_MontSto,
+            s.AS_QteSto,
+            s.AS_QteMini,
+            s.AS_QteRes
+        FROM F_ARTSTOCK s
+        INNER JOIN F_ARTICLE a ON a.AR_Ref = s.AR_Ref
+        WHERE a.AR_SuiviStock > 0
     """
     try:
         df = _read(MAG_ENGINE, sql)
@@ -431,13 +448,20 @@ def extract_fait_artstock() -> pd.DataFrame:
             )
         else:
             non_zero = (pd.to_numeric(df["AS_QteSto"], errors="coerce").fillna(0) > 0).sum()
-            logger.info(f"F_ARTSTOCK sanity: {non_zero}/{len(df)} rows have AS_QteSto > 0")
-            if non_zero == 0:
-                logger.warning(
-                    "F_ARTSTOCK: every AS_QteSto is 0 or NULL. "
-                    "Inventory module will show zero stock everywhere — "
-                    "check if Sage stock management (AR_SuiviStock) is enabled."
-                )
+        logger.info(f"F_ARTSTOCK sanity: {non_zero}/{len(df)} rows have AS_QteSto > 0")
+        if non_zero == 0:
+            logger.warning(
+                "F_ARTSTOCK: every AS_QteSto is 0 or NULL. "
+                "Inventory module will show zero stock everywhere — "
+                "check if Sage stock management (AR_SuiviStock) is enabled."
+            )
+        else:
+            logger.info(
+                f"F_ARTSTOCK sample:\n"
+                + df[["AR_Ref", "DE_No", "AS_QteSto", "AS_QteMini", "AS_MontSto"]]
+                .head(5)
+                .to_string(index=False)
+            )
         return df
     except Exception as exc:
         logger.error(f"F_ARTSTOCK extraction failed: {exc}")
