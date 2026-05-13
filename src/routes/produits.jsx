@@ -140,15 +140,12 @@ function ProduitsPage() {
   }, [famille, stockAlerts]);
 
   const dsiScatter = useMemo(() => {
-    return filteredArticles
-      .filter((a) => (a.dsi || 0) > 0 && (a.ca || 0) > 0)
-      .slice(0, 40)
-      .map((a) => ({
-        dsi: Math.round(a.dsi || 0),
-        ca: a.ca,
-        stockVal: Math.round((a.stock || 0) * (a.prixMoyen || 0)),
-        name: a.designation,
-      }));
+    return filteredArticles.slice(0, 40).map((a) => ({
+      dsi: Math.round(a.dsi || 0),
+      ca: a.ca,
+      stockVal: Math.round((a.stock || 0) * (a.prixMoyen || 0)),
+      name: a.designation,
+    }));
   }, [filteredArticles]);
 
   const valeurStock = filteredArticles.reduce((s, a) => s + a.ca * 0.3, 0);
@@ -359,11 +356,6 @@ function ProduitsPage() {
           title="Rotation stocks — DSI vs CA par article (KPI-13)
         "
         >
-          {dsiScatter.length === 0 ? (
-            <div className="flex items-center justify-center h-[280px] text-text-dim text-[13px]">
-              DSI non calculable avec les donnees disponibles
-            </div>
-          ) : (
           <ResponsiveContainer width="100%" height={chartH}>
             <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -419,7 +411,6 @@ function ProduitsPage() {
               />
             </ScatterChart>
           </ResponsiveContainer>
-          )}
           <div className="flex gap-4 text-[10px] text-text-dim mt-1 justify-end">
             <span className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Star / Fast

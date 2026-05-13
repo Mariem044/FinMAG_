@@ -197,7 +197,7 @@ function ActeursPage() {
                   tick={{ fill: "#666", fontSize: 11 }}
                   axisLine={false}
                   label={{
-                    value: "Frequence (commandes)",
+                    value: "Fréquence (nb commandes)",
                     position: "insideBottom",
                     offset: -10,
                     fill: "#555",
@@ -230,14 +230,7 @@ function ActeursPage() {
                     opacity={0.75}
                   />
                 ))}
-                <Legend
-                  wrapperStyle={{
-                    fontSize: 11,
-                    color: "#888",
-                    whiteSpace: "nowrap",
-                    minWidth: 260,
-                  }}
-                />
+                <Legend wrapperStyle={{ fontSize: 11, color: "#888" }} />
               </ScatterChart>
             </ResponsiveContainer>
           )}

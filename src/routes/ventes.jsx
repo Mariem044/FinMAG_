@@ -17,7 +17,6 @@ import {
   Legend,
   ResponsiveContainer,
   Cell,
-  ReferenceLine,
 } from "recharts";
 import { CHART_COLORS, formatTND } from "@/lib/dashboardConstants";
 import { useFilters } from "@/store/useFilters";
@@ -63,9 +62,6 @@ function VentesPage() {
   }, [depot, sourceRatio, regionData]);
 
   const totalCA = filteredMonthly.reduce((s, m) => s + m.ca, 0);
-  const totalCAN1 = filteredMonthly.reduce((s, m) => s + m.caN1, 0);
-  const croissanceN1 = totalCAN1 > 0 ? ((totalCA - totalCAN1) / totalCAN1) * 100 : 0;
-  const lastMonth = filteredMonthly[filteredMonthly.length - 1]?.month;
   const totalObjectif = filteredMonthly.reduce((s, m) => s + m.objectif, 0);
   const tauxObjectif = totalObjectif > 0 ? ((totalCA / totalObjectif) * 100).toFixed(1) : "—";
   const totalCommandes = filteredRegions.reduce((s, r) => s + r.commandes, 0);
@@ -105,7 +101,14 @@ function VentesPage() {
             />
             <KPICard
               label="Croissance vs N-1"
-              value={`${croissanceN1.toFixed(1)}%`}
+              value={`${(
+                ((totalCA - filteredMonthly.reduce((s, m) => s + m.caN1, 0)) /
+                  Math.max(
+                    filteredMonthly.reduce((s, m) => s + m.caN1, 0),
+                    1,
+                  )) *
+                100
+              ).toFixed(1)}%`}
               subtitle="Comparaison annuelle"
               icon={TrendingUp}
             />
@@ -131,14 +134,6 @@ function VentesPage() {
               />
               <Tooltip content={<CustomTooltip />} />
               <Legend wrapperStyle={{ fontSize: 12, color: "#888" }} />
-              {lastMonth && (
-                <ReferenceLine
-                  x={lastMonth}
-                  stroke="#f97316"
-                  strokeDasharray="3 3"
-                  label={{ value: "Mois en cours", fill: "#f97316", fontSize: 9 }}
-                />
-              )}
               <Area
                 type="monotone"
                 dataKey="ca"
@@ -244,14 +239,6 @@ function VentesPage() {
               />
               <Tooltip content={<CustomTooltip />} />
               <Legend wrapperStyle={{ fontSize: 12, color: "#888" }} />
-              {lastMonth && (
-                <ReferenceLine
-                  x={lastMonth}
-                  stroke="#f97316"
-                  strokeDasharray="3 3"
-                  label={{ value: "Mois en cours", fill: "#f97316", fontSize: 9 }}
-                />
-              )}
               <Line
                 type="monotone"
                 dataKey="ca"

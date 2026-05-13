@@ -47,19 +47,13 @@ function getSelectedCurrency() {
 
 export const formatTND = (v = 0) => {
   const { code, rate } = getSelectedCurrency();
-  const value = Number(v || 0) * rate;
-  const abs = Math.abs(value);
-  const compact =
-    abs >= 1000000
-      ? `${(value / 1000000).toFixed(abs >= 10000000 ? 0 : 1)} M`
-      : abs >= 1000
-        ? `${(value / 1000).toFixed(abs >= 100000 ? 0 : 1)} K`
-        : new Intl.NumberFormat("fr-TN", {
-            style: "decimal",
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0,
-          }).format(value);
-  return `${compact} ${code}`;
+  return (
+    new Intl.NumberFormat("fr-TN", {
+      style: "decimal",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(Number(v || 0) * rate) + ` ${code}`
+  );
 };
 
 export const formatNumber = (v = 0) => new Intl.NumberFormat("fr-TN").format(Number(v || 0));

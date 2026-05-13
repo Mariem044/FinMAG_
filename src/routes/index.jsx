@@ -53,10 +53,6 @@ function OverviewPage() {
     [],
   );
   const totalCA = caByMonth.reduce((s, m) => s + m.ca, 0);
-  const regionTotal = caByRegion.reduce((s, r) => s + (r.ca || 0), 0);
-  const singleRegion =
-    caByRegion.length <= 1 ||
-    caByRegion.some((r) => regionTotal > 0 && (r.ca || 0) / regionTotal >= 0.999);
   const chartH = useChartHeight();
   const kpiLoading = kpisApiLoading;
   const chartsLoading = caLoading || famillesLoading || regionLoading;
@@ -77,7 +73,7 @@ function OverviewPage() {
             <KPICard
               label="Chiffre d'Affaires Total"
               value={formatTND(kpis.ca_total || totalCA)}
-              trend={kpis.ca_growth_pct}
+              trend={8.2}
               icon={DollarSign}
             />
             <KPICard
@@ -95,7 +91,7 @@ function OverviewPage() {
             <KPICard
               label="Taux de Recouvrement"
               value={formatPercent(kpis.taux_recouvrement)}
-              trend={(kpis.taux_recouvrement || 0) >= 95 ? 1 : -2.1}
+              trend={-2.1}
               icon={Percent}
             />
             <KPICard
@@ -156,11 +152,6 @@ function OverviewPage() {
         </ChartCard>
 
         <ChartCard loading={chartsLoading} skeleton="pie" title="Répartition CA par région">
-          {singleRegion ? (
-            <div className="flex items-center justify-center h-[280px] text-text-dim text-[13px]">
-              Donnees insuffisantes pour la repartition
-            </div>
-          ) : (
           <ResponsiveContainer width="100%" height={chartH}>
             <PieChart>
               <Pie
@@ -181,7 +172,6 @@ function OverviewPage() {
               <Tooltip content={<CustomTooltip />} />
             </PieChart>
           </ResponsiveContainer>
-          )}
         </ChartCard>
 
         <ChartCard loading={chartsLoading} skeleton="line" title="Ventes vs Objectifs">

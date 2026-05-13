@@ -1,18 +1,10 @@
 import { memo } from "react";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
-export const KPICard = memo(function KPICard({
-  label,
-  value,
-  trend,
-  subtitle,
-  icon: Icon,
-  valueTone = "default",
-}) {
+export const KPICard = memo(function KPICard({ label, value, trend, subtitle, icon: Icon }) {
   const isPositive = (trend ?? 0) >= 0;
   const trendDirection = isPositive ? "up" : "down";
   const trendAbs = Math.abs(trend ?? 0).toFixed(1);
-  const valueToneClass = valueTone === "danger" ? "text-red-400" : "text-foreground";
 
   const trendAriaLabel =
     trend !== undefined
@@ -41,7 +33,7 @@ export const KPICard = memo(function KPICard({
 
           <div className="relative">
             <p
-              className={`text-lg md:text-xl lg:text-2xl font-bold ${valueToneClass} leading-tight break-words tabular-nums group-hover:scale-105 transition-transform duration-300 origin-left`}
+              className="text-lg md:text-xl lg:text-2xl font-bold text-foreground leading-tight truncate group-hover:scale-105 transition-transform duration-300 origin-left"
               aria-hidden="true"
             >
               {value}

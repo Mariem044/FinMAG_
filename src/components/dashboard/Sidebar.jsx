@@ -84,10 +84,7 @@ export const Sidebar = memo(function Sidebar() {
             {t("nav.domains")}
           </p>
           {navItems.map((item) => {
-            const active =
-              item.to === "/"
-                ? path === "/"
-                : path === item.to || path.startsWith(`${item.to}/`);
+            const active = item.to === "/" ? path === "/" : path.startsWith(item.to);
             return (
               <Link
                 key={item.to}

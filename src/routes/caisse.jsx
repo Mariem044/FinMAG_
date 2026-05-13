@@ -35,7 +35,6 @@ function MultiGauge({ caisses }) {
       {caisses.map((c) => {
         const total = c.especes + c.cheques;
         const belowMin = c.especes < c.seuilMin;
-        const negativeCheques = c.cheques < 0;
         const espPct = total > 0 ? (c.especes / total) * 100 : 0;
         const chkPct = total > 0 ? (c.cheques / total) * 100 : 0;
         return (
@@ -53,13 +52,8 @@ function MultiGauge({ caisses }) {
             </div>
             <div className="flex justify-between text-[10px]">
               <span className="text-blue-400">Esp: {(c.especes / 1000).toFixed(0)}K</span>
-              <span className={negativeCheques ? "text-red-400 font-semibold" : "text-purple-400"}>
-                Chq: {(c.cheques / 1000).toFixed(0)}K
-              </span>
+              <span className="text-purple-400">Chq: {(c.cheques / 1000).toFixed(0)}K</span>
             </div>
-            {negativeCheques && (
-              <div className="text-[9px] text-red-400 font-semibold mt-0.5">SOLDE NEGATIF</div>
-            )}
             <div className="text-[10px] text-text-dim mt-0.5">
               seuil min: {(c.seuilMin / 1000).toFixed(0)}K DT
             </div>
@@ -152,7 +146,6 @@ function CaissePage() {
               label="Solde chèques"
               value={`${(totalCheques / 1000).toFixed(0)} K DT`}
               subtitle={`${filteredCaisses.length} caisse(s) filtrée(s)`}
-              valueTone={totalCheques < 0 ? "danger" : "default"}
               icon={Wallet}
             />
             <KPICard
@@ -166,7 +159,6 @@ function CaissePage() {
               label="Prévision solde J+15"
               value={`${(previsionJ15 / 1000).toFixed(0)} K DT`}
               subtitle="Projection locale (80% conf.)"
-              valueTone={previsionJ15 < 0 ? "danger" : "default"}
               icon={Activity}
             />
           </>
