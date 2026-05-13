@@ -91,7 +91,7 @@ function TresorerietPage() {
       ? Math.round(summary.taux_recouvrement || 0)
       : (encaissementsMode[0]?.rapprochement ?? 0);
 
-  const impayesFournisseurs = useMemo(() => [], [depot, segment]);
+  const { data: impayesFournisseurs } = useApiResource(api.tresorerie.impayesFournisseurs, []);
 
   return (
     <div className="space-y-6">

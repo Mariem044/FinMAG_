@@ -73,7 +73,7 @@ function OverviewPage() {
             <KPICard
               label="Chiffre d'Affaires Total"
               value={formatTND(kpis.ca_total || totalCA)}
-              trend={8.2}
+              trend={kpis.ca_growth_pct ?? 0}
               icon={DollarSign}
             />
             <KPICard

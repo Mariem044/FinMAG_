@@ -357,6 +357,10 @@ def _assemble_fait_reglements(
     rapproche = (
         pd.to_numeric(df["RT_Rapproche"], errors="coerce")
         .combine_first(pd.to_numeric(df["BR_Rapproch"], errors="coerce"))
+        .combine_first(
+            pd.to_numeric(df.get("DR_Regle", pd.Series(dtype=float)), errors="coerce")
+            .apply(lambda v: 1 if v == 1 else None)
+        )
         .fillna(0)
         .clip(lower=0, upper=1)
     )
@@ -651,10 +655,10 @@ def _assemble_fait_ecritures(
             id_type_mvt  =pd.NA,
             id_caisse    =pd.NA,
             id_article   =lambda d: d["AR_Ref"].apply(
-                lambda v: lookups.get("DIM_ARTICLE", {}).get(transform.hash_key(v))
+                lambda v: lookups.get("DIM_ARTICLE", {}).get(transform.hash_key(str(v).strip())) if pd.notna(v) else None
             ),
             id_depot=lambda d: d["DE_No"].apply(
-                lambda v: lookups.get("DIM_DEPOT", {}).get(v)
+                lambda v: lookups.get("DIM_DEPOT", {}).get(int(v)) if pd.notna(v) else None
             ),
             source_hash=lambda d: d.apply(
                 lambda row: _source_hash("ARTSTOCK", row.get("AR_Ref"), row.get("DE_No")),

@@ -221,9 +221,9 @@ def get_dashboard_kpis():
                 THEN f.DL_MontantHT ELSE 0 END) AS ca_total_n1,
             COUNT(DISTINCT CASE WHEN d.annee = latest.latest_year THEN f.DO_Piece_hash END) AS nb_commandes,
             COUNT(DISTINCT CASE WHEN d.annee = latest.latest_year THEN f.id_client END) AS nb_clients_actifs,
-            SUM(CASE WHEN d.annee = latest.latest_year
-                THEN f.DL_MontantHT - (f.DL_Qte * COALESCE(a.AR_PrixAch, 0))
-                ELSE 0
+            SUM(CASE WHEN d.annee = latest.latest_year AND a.AR_PrixAch IS NOT NULL
+                THEN f.DL_MontantHT - (f.DL_Qte * a.AR_PrixAch)
+                ELSE NULL
             END) AS marge_brute
         FROM FAIT_LIGNES_VENTE f
         JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
@@ -248,7 +248,7 @@ def get_dashboard_kpis():
         "taux_recouvrement": taux_recouvrement,
         "marge_brute_pct": (marge_brute / ca_total * 100) if (ca_total and marge_brute is not None) else 0,
         "ca_total_n1": ca_total_n1,
-        "ca_growth_pct": ((ca_total - ca_total_n1) / ca_total_n1 * 100) if ca_total_n1 else 0,
+        "ca_growth_pct": round(((ca_total - ca_total_n1) / ca_total_n1 * 100), 1) if ca_total_n1 else 0,
     }
 
 
@@ -336,7 +336,7 @@ def get_ca_by_region():
         LEFT JOIN DIM_CLIENT  c ON c.id_client  = f.id_client
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
         WHERE dom.DO_Domaine = 0
-        GROUP BY s.libelle_segment
+        GROUP BY COALESCE(s.libelle_segment, 'Sans segment')
         ORDER BY ca DESC
     """
     return [
@@ -404,6 +404,36 @@ def get_impayes():
         for r in _rows(sql)
     ]
 
+@app.get("/api/tresorerie/impayes-fournisseurs")
+def get_impayes_fournisseurs():
+    sql = """
+        SELECT TOP 30
+            f.CT_Num_code,
+            SUM(r.RT_Montant) AS montant_impaye,
+            MAX(r.delai_reel_jours) AS anciennete,
+            MAX(r.RT_NbJour) AS delai_contractuel
+        FROM FAIT_REGLEMENTS r
+        JOIN DIM_FOURNISSEUR f ON f.id_fournisseur = r.id_fournisseur
+        WHERE r.DR_Regle = 0
+          AND r.id_fournisseur IS NOT NULL
+        GROUP BY f.CT_Num_code
+        HAVING SUM(r.RT_Montant) > 0
+        ORDER BY montant_impaye DESC
+    """
+    return [
+        {
+            "fournisseur": f"Fournisseur {r.CT_Num_code}",
+            "montant": _num(r.montant_impaye),
+            "delaiEffectif": _int(r.anciennete),
+            "delaiContractuel": _int(r.delai_contractuel),
+            "etat": (
+                "Contentieux" if _int(r.anciennete) > 90
+                else "Partiel" if _int(r.anciennete) > 30
+                else "En cours"
+            ),
+        }
+        for r in _rows(sql)
+    ]
 
 @app.get("/api/tresorerie/encaissements-by-mode")
 def get_encaissements_by_mode():
@@ -727,8 +757,9 @@ def get_banque_rapprochement():
             SUM(COALESCE(r.LB_Agios, 0)) AS agios,
             AVG(CAST(NULLIF(r.BR_TauxAgios, 0) AS FLOAT)) AS taux_agios
         FROM FAIT_REGLEMENTS r
-        LEFT JOIN DIM_DATE d ON d.id_date = r.id_date_paiement
+        LEFT JOIN DIM_DATE d ON d.id_date = COALESCE(r.id_date_paiement, r.id_date_echeance)
         WHERE d.mois IS NOT NULL
+          AND r.RT_Montant IS NOT NULL
         GROUP BY d.mois
         ORDER BY d.mois
     """
@@ -761,8 +792,8 @@ def get_caisses():
         {
             "id": f"CA-{r.CA_Numero_code}",
             "nom": f"Caisse {r.CA_Numero_code}",
-            "especes": _num(r.especes),
-            "cheques": _num(r.cheques),
+            "especes": abs(_num(r.especes)),
+            "cheques": abs(_num(r.cheques)),
             "seuilMin": 20000,
             "depot": "DW",
         }
@@ -905,6 +936,40 @@ def get_fiscalite_tva_by_month():
         for r in _rows(sql)
     ]
 
+
+@app.get("/api/fiscalite/ecritures")
+def get_fiscalite_ecritures():
+    sql = """
+        SELECT TOP 200
+            FORMAT(d.date_val, 'yyyy-MM-dd') AS date_val,
+            e.EC_No,
+            COALESCE(CONVERT(VARCHAR(30), j.JO_Num_code), '') AS journal_code,
+            e.CG_Num,
+            e.EC_Montant,
+            s.EC_Sens AS sens
+        FROM FAIT_ECRITURES e
+        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
+        LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
+        LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
+        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
+        WHERE tl.type_ligne IN (1, 2)
+          AND e.EC_No IS NOT NULL
+          AND e.EC_Montant IS NOT NULL
+        ORDER BY e.id_ecriture DESC
+    """
+    return [
+        {
+            "date": _date_str(r.date_val) if r.date_val else "",
+            "numPiece": f"EC-{r.EC_No}" if r.EC_No else "",
+            "journal": f"Journal {r.journal_code}" if r.journal_code else "—",
+            "compte": str(r.CG_Num) if r.CG_Num else "—",
+            "libelle": f"Écriture {r.EC_No}" if r.EC_No else "—",
+            "debit": _num(r.EC_Montant) if _int(r.sens) == 0 else 0,
+            "credit": _num(r.EC_Montant) if _int(r.sens) == 1 else 0,
+            "solde": _num(r.EC_Montant) * (1 if _int(r.sens) == 0 else -1),
+        }
+        for r in _rows(sql)
+    ]
 
 @app.get("/api/fiscalite/anomalies")
 def get_fiscalite_anomalies():

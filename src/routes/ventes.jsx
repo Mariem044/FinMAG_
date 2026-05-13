@@ -81,7 +81,7 @@ function VentesPage() {
             <KPICard
               label="CA Total"
               value={formatTND(totalCA)}
-              trend={8.2}
+              trend={null}
               subtitle="DW réel"
               icon={DollarSign}
             />
