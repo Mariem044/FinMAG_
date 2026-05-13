@@ -15,9 +15,9 @@ import os as _os
 _QUERY_TIMEOUT: int = int(_os.getenv("ETL_QUERY_TIMEOUT", "120"))
 
 
-
-
-
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
 def _read(engine, sql: str, params: Optional[dict] = None) -> pd.DataFrame:
     with engine.connect() as conn:
@@ -54,9 +54,18 @@ def _column_exists(engine, table: str, column: str) -> bool:
         return conn.execute(text(sql), {"tbl": table, "col": column}).scalar() > 0
 
 
+def _table_exists(engine, table: str) -> bool:
+    sql = (
+        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES "
+        "WHERE TABLE_NAME = :tbl AND TABLE_TYPE = 'BASE TABLE'"
+    )
+    with engine.connect() as conn:
+        return conn.execute(text(sql), {"tbl": table}).scalar() > 0
 
 
-
+# ---------------------------------------------------------------------------
+# Dimension extracts
+# ---------------------------------------------------------------------------
 
 def extract_exercices_fiscaux() -> list[tuple[date, date]]:
     sql = """
@@ -103,12 +112,34 @@ def extract_dim_collaborateur(last_run: Optional[datetime] = None) -> pd.DataFra
 
 
 def extract_dim_famille() -> pd.DataFrame:
+    """
+    Extract product families including FA_Intitule label.
+    This label is propagated to DIM_FAMILLE and DIM_ARTICLE so the UI
+    never shows raw hash codes.
+    """
     sql = """
         SELECT FA_CodeFamille, FA_Intitule, CL_No1, CL_No2, CL_No3, CL_No4
         FROM F_FAMILLE
         WHERE FA_Type = 0
     """
-    return _read(MAG_ENGINE, sql)
+    df = _read(MAG_ENGINE, sql)
+    # Ensure FA_Intitule is never None/NaN — fall back to code string so UI
+    # always has a human-readable label even for unconfigured families.
+    if "FA_Intitule" in df.columns:
+        df["FA_Intitule"] = (
+            df["FA_Intitule"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str[:100]
+        )
+        missing = df["FA_Intitule"] == ""
+        if missing.any():
+            df.loc[missing, "FA_Intitule"] = (
+                "Famille " + df.loc[missing, "FA_CodeFamille"].astype(str)
+            )
+    logger.info(f"F_FAMILLE extracted: {len(df)} rows")
+    return df
 
 
 def extract_dim_fournisseur(last_run: Optional[datetime] = None) -> pd.DataFrame:
@@ -231,7 +262,9 @@ def extract_dim_caisse_mag() -> pd.DataFrame:
     return _read(MAG_ENGINE, sql)
 
 
-
+# ---------------------------------------------------------------------------
+# Fact extracts — purchases / sales
+# ---------------------------------------------------------------------------
 
 def extract_fait_lignes_achat(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("dl.cbModification", last_run)
@@ -304,6 +337,11 @@ def extract_fait_lignes_vente(last_run: Optional[datetime] = None) -> pd.DataFra
 
 
 def extract_fait_ecriturec(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """
+    Extract accounting entries from F_ECRITUREC.
+    Only rows with a non-NULL EC_Montant are fetched so the pipeline never
+    loads zero-amount phantom rows.
+    """
     delta_clause, params = _delta_filter("ec.cbModification", last_run)
     sql = f"""
         SELECT
@@ -317,12 +355,24 @@ def extract_fait_ecriturec(last_run: Optional[datetime] = None) -> pd.DataFrame:
             j.JO_Type
         FROM F_ECRITUREC ec
         INNER JOIN F_JOURNAUX j ON j.JO_Num = ec.JO_Num
-        WHERE 1=1 {delta_clause}
+        WHERE ec.EC_Montant IS NOT NULL
+          {delta_clause}
     """
-    return _read(MAG_ENGINE, sql, params)
+    df = _read(MAG_ENGINE, sql, params)
+    logger.info(f"F_ECRITUREC extracted: {len(df)} rows")
+    if df.empty:
+        logger.warning(
+            "F_ECRITUREC returned 0 rows — FAIT_ECRITURES type_ligne=1 will be empty. "
+            "Check MAG_ENGINE connectivity and that EC_Montant IS NOT NULL rows exist."
+        )
+    return df
 
 
 def extract_fait_regtaxe(last_run: Optional[datetime] = None) -> pd.DataFrame:
+    """
+    Extract VAT lines from F_REGTAXE.
+    Only rows with a non-NULL RT_Montant01 are fetched.
+    """
     delta_clause, params = _delta_filter("rt.cbModification", last_run)
     sql = f"""
         SELECT
@@ -337,17 +387,63 @@ def extract_fait_regtaxe(last_run: Optional[datetime] = None) -> pd.DataFrame:
         FROM F_REGTAXE rt
         INNER JOIN F_ECRITUREC ec ON ec.EC_No = rt.EC_No
         INNER JOIN F_JOURNAUX  j  ON j.JO_Num = ec.JO_Num
-        WHERE 1=1 {delta_clause}
+        WHERE rt.RT_Montant01 IS NOT NULL
+          {delta_clause}
     """
-    return _read(MAG_ENGINE, sql, params)
+    df = _read(MAG_ENGINE, sql, params)
+    logger.info(f"F_REGTAXE extracted: {len(df)} rows")
+    return df
 
 
 def extract_fait_artstock() -> pd.DataFrame:
+    """
+    Extract the current stock snapshot from F_ARTSTOCK (one row per
+    article × depot).  Includes a table-existence guard and a non-zero
+    sanity check so any infrastructure problem surfaces immediately in
+    the ETL log rather than silently producing all-zero stock values.
+    """
+    if not _table_exists(MAG_ENGINE, "F_ARTSTOCK"):
+        logger.error(
+            "F_ARTSTOCK does not exist on MAG_ENGINE — stock snapshot will be empty. "
+            "Verify database connectivity and schema."
+        )
+        return pd.DataFrame(
+            columns=["AR_Ref", "DE_No", "AS_MontSto", "AS_QteSto", "AS_QteMini", "AS_QteRes"]
+        )
+
     sql = """
-        SELECT AR_Ref, DE_No, AS_MontSto, AS_QteSto, AS_QteMini, AS_QteRes
+        SELECT
+            AR_Ref,
+            DE_No,
+            AS_MontSto,
+            AS_QteSto,
+            AS_QteMini,
+            AS_QteRes
         FROM F_ARTSTOCK
     """
-    return _read(MAG_ENGINE, sql)
+    try:
+        df = _read(MAG_ENGINE, sql)
+        logger.info(f"F_ARTSTOCK extracted: {len(df)} rows")
+        if df.empty:
+            logger.warning(
+                "F_ARTSTOCK returned 0 rows — all stock values will be NULL. "
+                "Verify that F_ARTSTOCK contains data on MAG_ENGINE."
+            )
+        else:
+            non_zero = (pd.to_numeric(df["AS_QteSto"], errors="coerce").fillna(0) > 0).sum()
+            logger.info(f"F_ARTSTOCK sanity: {non_zero}/{len(df)} rows have AS_QteSto > 0")
+            if non_zero == 0:
+                logger.warning(
+                    "F_ARTSTOCK: every AS_QteSto is 0 or NULL. "
+                    "Inventory module will show zero stock everywhere — "
+                    "check if Sage stock management (AR_SuiviStock) is enabled."
+                )
+        return df
+    except Exception as exc:
+        logger.error(f"F_ARTSTOCK extraction failed: {exc}")
+        return pd.DataFrame(
+            columns=["AR_Ref", "DE_No", "AS_MontSto", "AS_QteSto", "AS_QteMini", "AS_QteRes"]
+        )
 
 
 def extract_reglementt() -> pd.DataFrame:
@@ -366,7 +462,9 @@ def extract_docentete_dates() -> pd.DataFrame:
     return _read(MAG_ENGINE, sql)
 
 
-
+# ---------------------------------------------------------------------------
+# Fact extracts — payments / cash
+# ---------------------------------------------------------------------------
 
 def extract_fait_reglech() -> pd.DataFrame:
     sql = """
@@ -381,10 +479,6 @@ def extract_fait_reglech() -> pd.DataFrame:
     except Exception as exc:
         logger.warning(f"F_REGLECH not available — RC_Montant will be NULL: {exc}")
         return pd.DataFrame(columns=["DO_Piece", "RC_Montant"])
-
-
-
-
 
 
 def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.DataFrame:
@@ -473,9 +567,9 @@ def extract_dim_type_mvt_caisse() -> pd.DataFrame:
     return _read(GRT_ENGINE, sql)
 
 
-
-
-
+# ---------------------------------------------------------------------------
+# Static dimension maps
+# ---------------------------------------------------------------------------
 
 def extract_static_dims() -> dict[str, pd.DataFrame]:
     from etl.config import (
@@ -496,6 +590,8 @@ def extract_static_dims() -> dict[str, pd.DataFrame]:
         "DIM_SENS_ECRITURE":   _df(SENS_ECRITURE,      "EC_Sens",       "libelle_sens"),
         "DIM_TYPE_TVA":        _df(TYPES_TVA,          "type_tva",      "libelle_type_tva"),
     }
+
+
 def extract_rfm_data(fenetre_jours: int = 365) -> pd.DataFrame:
     """Extract RFM raw data (Recency, Frequency, Monetary) for clients over past N days."""
     sql = f"""

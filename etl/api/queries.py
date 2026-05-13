@@ -254,7 +254,6 @@ def get_top_familles():
             COALESCE(
                 NULLIF(fa.FA_Intitule, ''),
                 NULLIF(a.FA_Intitule, ''),
-                CONVERT(VARCHAR(30), fa.FA_CodeFamille_code),
                 'Sans famille'
             ) AS name,
             SUM(f.DL_MontantHT) AS ca
@@ -263,14 +262,53 @@ def get_top_familles():
         LEFT JOIN DIM_ARTICLE a  ON a.id_article  = f.id_article
         LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
         WHERE dom.DO_Domaine = 0
-        GROUP BY fa.FA_Intitule, a.FA_Intitule, fa.FA_CodeFamille_code
+        GROUP BY COALESCE(
+            NULLIF(fa.FA_Intitule, ''),
+            NULLIF(a.FA_Intitule, ''),
+            'Sans famille'
+        )
         ORDER BY ca DESC
     """
     return [
         {"name": r.name, "ca": _num(r.ca)}
         for r in _rows(sql)
     ]
-
+ 
+ 
+# ── REPLACEMENT for get_fiscalite_ecritures() ──────────────────────────────
+@app.get("/api/fiscalite/ecritures")
+def get_fiscalite_ecritures():
+    sql = """
+        SELECT TOP 100
+            d.date_val,
+            e.EC_No,
+            COALESCE(CONVERT(VARCHAR(30), j.JO_Num_code), 'Journal') AS journal,
+            e.CG_Num,
+            e.EC_Montant,
+            s.EC_Sens
+        FROM FAIT_ECRITURES e
+        LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
+        LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
+        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
+        ORDER BY d.date_val DESC, e.id_ecriture DESC
+    """
+    rows = []
+    for r in _rows(sql):
+        montant = _num(r.EC_Montant)
+        is_debit = _int(r.EC_Sens) == 0
+        # FIX: EC_No is INT NULL — format cleanly, avoid "EC-None" / "EC-"
+        num_piece = f"EC-{int(r.EC_No)}" if r.EC_No is not None else "EC-?"
+        rows.append({
+            "date": _date_str(r.date_val),
+            "numPiece": num_piece,
+            "journal": r.journal,
+            "compte": str(r.CG_Num or ""),
+            "libelle": f"Ecriture {int(r.EC_No)}" if r.EC_No is not None else "Ecriture inconnue",
+            "debit": montant if is_debit else 0,
+            "credit": 0 if is_debit else montant,
+            "solde": montant if is_debit else -montant,
+        })
+    return rows
 
 @app.get("/api/ventes/ca-by-region")
 def get_ca_by_region():

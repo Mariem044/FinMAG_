@@ -28,12 +28,11 @@ from etl.utils.audit import (
     acquire_lock, start_run, end_run, release_lock,
     table_timer, get_last_run_info,
 )
+from functools import lru_cache
+
 from etl import ddl, extract, transform, load
 
 logger = get_logger(__name__)
-
-
-
 
 
 KPI18_MIGRATION: list[tuple[str, str]] = [
@@ -73,10 +72,6 @@ KPI18_MIGRATION: list[tuple[str, str]] = [
 def _safe_int16(series: pd.Series) -> pd.Series:
     s = pd.to_numeric(series, errors="coerce")
     return s.astype(object).where(s.notna(), other=None).astype("Int16")
-
-
-
-
 
 
 def _build_lookup(table_name: str, natural_hash_col: str, surrogate_id_col: str) -> Dict:
@@ -123,10 +118,6 @@ Step = Tuple[
 ]
 
 
-
-
-
-
 def _hash_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     df = df.copy()
     for col in cols:
@@ -170,10 +161,6 @@ def _resolve_today_id(lookups: Dict, today: date) -> Optional[int]:
     return None
 
 
-
-
-
-
 def _bucket_from_echeance(row) -> Optional[int]:
     if row.get("DR_Regle", 1) != 0:
         return None
@@ -195,10 +182,6 @@ def _bucket_from_echeance(row) -> Optional[int]:
     return 3
 
 
-
-
-
-
 def _transform_dim_famille(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=[
@@ -217,10 +200,6 @@ def _transform_dim_famille(df: pd.DataFrame) -> pd.DataFrame:
     ]]
 
 
-
-
-
-
 def _add_static_label(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     if "code_type_mvt" in df.columns and "MC_TypeMvt" not in df.columns:
@@ -233,20 +212,19 @@ def _add_static_label(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+@lru_cache(maxsize=1)
 def _famille_label_lookup() -> Dict:
     df = extract.extract_dim_famille()
     if df.empty or "FA_CodeFamille" not in df.columns:
         return {}
-    return dict(
-        zip(
-            df["FA_CodeFamille"].apply(transform.hash_key),
+    return {
+        int(transform.hash_key(v)): lbl
+        for v, lbl in zip(
+            df["FA_CodeFamille"],
             df["FA_Intitule"].fillna("").astype(str).str.strip().str[:100],
         )
-    )
-
-
-
-
+        if v is not None
+    }
 
 
 def _generate_dim_date(
@@ -277,10 +255,6 @@ def _generate_dim_date(
 
     df["exercice"] = df["date_val"].apply(_get_exercice)
     return df
-
-
-
-
 
 
 def _resolve_banque_id(row: pd.Series, lookups: Dict):
@@ -376,11 +350,8 @@ def _assemble_fait_reglements(
         if _col not in df.columns:
             df[_col] = _default
 
-
     df = transform.add_fact_reglements_calcs(df)
     df["bucket_impaye"] = df.apply(_bucket_from_echeance, axis=1)
-
-
     df = transform.add_fact_reglements_banking_fees(df)
 
     rapproche = (
@@ -444,10 +415,6 @@ def _assemble_fait_reglements(
     )
 
 
-
-
-
-
 def _assemble_dim_caisse(lookups: Dict) -> pd.DataFrame:
     df_mag = extract.extract_dim_caisse_mag().copy()
     df_mag["_source_priority"] = 1
@@ -506,8 +473,42 @@ def _assemble_dim_banque(lookups: Dict) -> pd.DataFrame:
     )
 
 
+# ---------------------------------------------------------------------------
+# FIX 1: _normalize_ecriturec — explicit float64 cast + whitespace stripping
+# This prevents Decimal/object columns from becoming NaN/0 after to_numeric.
+# ---------------------------------------------------------------------------
+def _normalize_ecriturec(df: pd.DataFrame, source_name: str) -> pd.DataFrame:
+    df = _ensure_columns(df, {
+        "JO_Num": None,
+        "EC_No": None,
+        "EC_Date": None,
+        "CG_Num": None,
+        "CT_Num": None,
+        "EC_Sens": None,
+        "EC_Montant": None,
+        "JO_Type": None,
+    })
+    if df.empty:
+        logger.warning("FAIT_ECRITURES: %s extraction returned 0 rows", source_name)
+    df["EC_No"] = pd.to_numeric(df["EC_No"], errors="coerce").astype("Int64")
+    df["EC_Date"] = pd.to_datetime(df["EC_Date"], errors="coerce")
+    df["CG_Num"] = pd.to_numeric(df["CG_Num"], errors="coerce").astype("Int64")
+    df["EC_Sens"] = pd.to_numeric(df["EC_Sens"], errors="coerce").astype("Int16")
 
+    # FIX: strip formatting characters (spaces, non-breaking spaces, commas)
+    # before numeric conversion — Sage sometimes returns amounts as formatted strings
+    ec_montant_raw = df["EC_Montant"]
+    if ec_montant_raw.dtype == object:
+        ec_montant_raw = (
+            ec_montant_raw
+            .astype(str)
+            .str.replace(r"[\s\u00a0\xa0,]", "", regex=True)
+            .replace("None", pd.NA)
+            .replace("nan", pd.NA)
+        )
+    df["EC_Montant"] = pd.to_numeric(ec_montant_raw, errors="coerce").astype("float64")
 
+    return df
 
 
 def _assemble_fait_ecritures(
@@ -521,26 +522,6 @@ def _assemble_fait_ecritures(
         if pd.isna(d):
             return None
         return lookups.get("DIM_DATE", {}).get(pd.Timestamp(d).date())
-
-    def _normalize_ecriturec(df: pd.DataFrame, source_name: str) -> pd.DataFrame:
-        df = _ensure_columns(df, {
-            "JO_Num": None,
-            "EC_No": None,
-            "EC_Date": None,
-            "CG_Num": None,
-            "CT_Num": None,
-            "EC_Sens": None,
-            "EC_Montant": None,
-            "JO_Type": None,
-        })
-        if df.empty:
-            logger.warning("FAIT_ECRITURES: %s extraction returned 0 rows", source_name)
-        df["EC_No"] = pd.to_numeric(df["EC_No"], errors="coerce").astype("Int64")
-        df["EC_Date"] = pd.to_datetime(df["EC_Date"], errors="coerce")
-        df["CG_Num"] = pd.to_numeric(df["CG_Num"], errors="coerce").astype("Int64")
-        df["EC_Sens"] = pd.to_numeric(df["EC_Sens"], errors="coerce").astype("Int16")
-        df["EC_Montant"] = pd.to_numeric(df["EC_Montant"], errors="coerce")
-        return df
 
     df1 = (
         _normalize_ecriturec(extract.extract_fait_ecriturec(last_run), "F_ECRITUREC")
@@ -636,13 +617,29 @@ def _assemble_fait_ecritures(
         .rename(columns={"MC_Date": "EC_Date"})
     )
 
+    # ---------------------------------------------------------------------------
+    # FIX 3: artstock — ensure typed empty df + explicit numeric casts so
+    # add_fact_ecritures_calcs never KeyErrors on an empty/untyped DataFrame.
+    # ---------------------------------------------------------------------------
     artstock = extract.extract_fait_artstock()
     if artstock.empty:
-        logger.warning("FAIT_ECRITURES: F_ARTSTOCK extraction returned 0 rows")
+        logger.warning(
+            "FAIT_ECRITURES: F_ARTSTOCK returned 0 rows — "
+            "check that F_ARTSTOCK is accessible on MAG_ENGINE and "
+            "that AR_SuiviStock>0 articles exist. Stock KPIs will be empty."
+        )
+        artstock = pd.DataFrame(columns=[
+            "AR_Ref", "DE_No", "AS_MontSto", "AS_QteSto", "AS_QteMini", "AS_QteRes",
+        ])
 
     df4 = (
         artstock
         .assign(
+            # Explicit numeric coercion before calcs — avoids silent 0s from object dtype
+            AS_QteSto  =lambda d: pd.to_numeric(d["AS_QteSto"],  errors="coerce"),
+            AS_QteRes  =lambda d: pd.to_numeric(d["AS_QteRes"],  errors="coerce"),
+            AS_QteMini =lambda d: pd.to_numeric(d["AS_QteMini"], errors="coerce"),
+            AS_MontSto =lambda d: pd.to_numeric(d["AS_MontSto"], errors="coerce"),
             type_ligne   =4,
             id_type_ligne=lambda d: d.apply(lambda _: _lookup_code(lookups, "DIM_TYPE_LIGNE", 4), axis=1),
             id_date      =today_id,
@@ -692,10 +689,6 @@ def _assemble_fait_ecritures(
     return df
 
 
-
-
-
-
 def _compute_dsi_jours() -> None:
     sql = """
         UPDATE fe
@@ -720,8 +713,9 @@ def _compute_dsi_jours() -> None:
         WHERE tl.type_ligne = 4
     """
     with DW_ENGINE.begin() as conn:
-        conn.execute(text(sql))
-    logger.info("dsi_jours computed successfully.")
+        result = conn.execute(text(sql))
+        # FIX 4: log rowcount so we know if DSI actually ran
+        logger.info(f"dsi_jours computed: {result.rowcount} stock rows updated.")
 
 
 def _compute_rfm_scores() -> None:
@@ -753,8 +747,12 @@ def _compute_rfm_scores() -> None:
         ) rfm ON rfm.id_client = c.id_client
     """
     with DW_ENGINE.begin() as conn:
-        conn.execute(text(sql))
-    logger.info(f"RFM scores computed (window={FENETRE_RFM_JOURS} days).")
+        result = conn.execute(text(sql))
+        # FIX 4: log rowcount so we know if RFM actually ran
+        logger.info(
+            f"RFM scores computed: {result.rowcount} clients updated "
+            f"(window={FENETRE_RFM_JOURS} days)."
+        )
 
 
 def _load_dim_date(df: pd.DataFrame, table: str, mode: str) -> None:
@@ -762,10 +760,6 @@ def _load_dim_date(df: pd.DataFrame, table: str, mode: str) -> None:
         load.load_dimension(df, table, "full", key_col="date_val")
     else:
         load.load_dimension(df, table, "delta", key_col="date_val")
-
-
-
-
 
 
 def _build_lignes_vente_transform(last_run_date):
@@ -929,14 +923,19 @@ STEPS: List[Step] = [
              id_famille=lambda d: d["FA_CodeFamille"].apply(
                  lambda v: lookups.get("DIM_FAMILLE", {}).get(transform.hash_key(v))
              ),
-             FA_Intitule=lambda d: d["FA_CodeFamille_code"].map(_famille_label_lookup()),
+             FA_Intitule=lambda d: d["FA_CodeFamille"].apply(
+                 lambda v: (
+                     _famille_label_lookup().get(int(transform.hash_key(v)))
+                     if v is not None and pd.notna(v) and transform.hash_key(v) is not None
+                     else None
+                 )
+             ),
              id_fournisseur=lambda d: d["CT_Num_fourn"].apply(
                  lambda v: lookups.get("DIM_FOURNISSEUR", {}).get(transform.hash_key(v))
              ),
          )
      ),
      lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="AR_Ref_code")),
-
     ("DIM_DEPOT",
      lambda **kw: extract.extract_dim_depot(kw.get("last_run")),
      lambda df, lookups: df.copy(),
@@ -946,8 +945,6 @@ STEPS: List[Step] = [
      lambda **kw: pd.DataFrame(),
      lambda df, lookups: _assemble_dim_caisse(lookups),
      lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CA_Numero_code")),
-
-
 
     ("FAIT_LIGNES_VENTE",
      lambda **kw: extract.extract_fait_lignes_vente(kw.get("last_run")),
@@ -966,22 +963,21 @@ STEPS: List[Step] = [
 ]
 
 
-
-
-
-
-def run_pipeline() -> None:
+def run_pipeline(force_full: bool = False) -> None:
 
     if not acquire_lock():
         logger.error("Another ETL run is active.")
         sys.exit(1)
 
-    last_run_date, mode = get_last_run_info()
+    if force_full:
+        last_run_date, mode = None, "full"
+        logger.info("Force full load requested via --full flag.")
+    else:
+        last_run_date, mode = get_last_run_info()
     logger.info(f"Mode: {mode.upper()}")
 
     ddl.create_all_tables(drop_existing=False)
     ddl.apply_schema_migrations()
-
 
     with DW_ENGINE.begin() as conn:
         for label, sql in KPI18_MIGRATION:
@@ -996,7 +992,6 @@ def run_pipeline() -> None:
     fk_disabled  = False
 
     lookups: Dict = {}
-
 
     _transform_lignes_vente = _build_lignes_vente_transform(last_run_date)
     _transform_reglements   = lambda df, lk: _assemble_fait_reglements(last_run_date, lk)
@@ -1066,5 +1061,4 @@ def run_pipeline() -> None:
 
 
 if __name__ == "__main__":
-    run_pipeline()
-
+    run_pipeline(force_full="--full" in sys.argv)
