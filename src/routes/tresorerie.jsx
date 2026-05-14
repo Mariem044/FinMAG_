@@ -66,6 +66,7 @@ function TresorerietPage() {
         grt: source === "MAG_2020" ? 0 : toNumber(row.grt),
         rapprochement: toNumber(row.rapprochement),
       }))
+      .filter((row) => row.mag + row.grt > 0)
       .filter((row) => row.mag + row.grt > 0);
   }, [modePaiement, source, encaissementRows]);
 
@@ -74,7 +75,10 @@ function TresorerietPage() {
     value: d.mag + d.grt,
   }));
 
-  const horizonMonths = horizonPrev === "30j" ? 3 : horizonPrev === "60j" ? 6 : 9;
+  const horizonMonths = useMemo(
+    () => (horizonPrev === "30j" ? 3 : horizonPrev === "60j" ? 6 : 9),
+    [horizonPrev]
+  );
   const waterfallFlat = useMemo(() => {
     const baseEncaissements =
       encaissementsMode.reduce((sum, row) => sum + row.mag + row.grt, 0) || summary.encaissements;
@@ -92,7 +96,7 @@ function TresorerietPage() {
         return { month, encaissements, decaissements, solde };
       })
       .filter((_, i) => activeIdx.includes(i) || i < horizonMonths);
-  }, [activeIdxKey, encaissementsMode, horizonMonths, summary.encaissements, summary.impayes]);
+  }, [activeIdxKey, encaissementsMode, horizonMonths, summary]);
 
   const filteredEnc = encaissementsMode.reduce((s, e) => s + e.mag + e.grt, 0);
   const totalEnc = summary.encaissements || filteredEnc;
@@ -222,7 +226,7 @@ function TresorerietPage() {
           title={`Flux trésorerie prévisionnel ${horizonPrev} (KPI-07 / KPI-11)`}
         >
           <ResponsiveContainer width="100%" height={chartH}>
-            <BarChart data={waterfallFlat}>
+            <ComposedChart data={waterfallFlat}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
               <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
               <YAxis
@@ -254,7 +258,7 @@ function TresorerietPage() {
                 dot={false}
                 name="Solde net"
               />
-            </BarChart>
+            </ComposedChart>
           </ResponsiveContainer>
         </ChartCard>
 

@@ -734,7 +734,7 @@ def _compute_dsi_jours() -> None:
 
 
 def _compute_rfm_scores() -> None:
-    sql = f"""
+    sql = """
         UPDATE c
         SET
             c.rfm_recence_jours  = rfm.recence_jours,
@@ -758,12 +758,13 @@ def _compute_rfm_scores() -> None:
             JOIN DIM_DATE d      ON d.id_date     = v.id_date
             JOIN DIM_DOMAINE dom ON dom.id_domaine = v.id_domaine
             WHERE dom.DO_Domaine = 0
+            AND d.date_val >= DATEADD(DAY, -:fenetre, CAST(GETDATE() AS DATE))
             GROUP BY v.id_client
         ) rfm ON rfm.id_client = c.id_client
     """
     with DW_ENGINE.begin() as conn:
         conn.execute(text("SET NOCOUNT OFF"))
-        result = conn.execute(text(sql))
+        result = conn.execute(text(sql), {"fenetre": FENETRE_RFM_JOURS})
         rowcount = result.rowcount if result.rowcount >= 0 else "unknown"
         logger.info(
             f"RFM scores computed: {rowcount} clients updated "

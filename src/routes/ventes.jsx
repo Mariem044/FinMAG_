@@ -40,7 +40,7 @@ function VentesPage() {
   const chartH = useChartHeight();
   const kpiLoading = monthlyLoading || regionLoading;
   const chartsLoading = monthlyLoading || familleLoading || regionLoading;
-  const sourceRatio = 1;
+  const sourceRatio = source === "GRT_MAG" ? 0.5 : source === "MAG_2020" ? 0.5 : 1;
 
   const monthlyRows = Array.isArray(monthlyData) ? monthlyData : [];
   const familleRows = Array.isArray(familleData) ? familleData : [];

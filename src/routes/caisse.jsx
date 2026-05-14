@@ -120,7 +120,12 @@ function CaissePage() {
         prevHigh: !isHistorique ? Math.round(val * 1.22) : null,
       };
     });
-  }, [filteredFlux, netJournalier, totalCheques, totalEspeces]);
+  const filteredCaisses = useMemo(() => {
+    if (depot === "Tous") return caissesData;
+    return caissesData.filter(
+      (c) => c.depot === depot || c.depot.includes(depot.replace("Dépôt ", "")),
+    );
+  }, [depot, caissesData]);
 
   const previsionJ15 = prophetData.find((d) => d.day === "J10" || d.prevision)?.prevision ?? 0;
 

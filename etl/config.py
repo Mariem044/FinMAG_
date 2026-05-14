@@ -7,6 +7,7 @@ from typing import Optional
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
 
 import logging
+import pandas as _pd
 logging.getLogger("pyodbc").setLevel(logging.WARNING)
 
 from dotenv import load_dotenv
@@ -176,12 +177,13 @@ RFM_SEGMENTS: dict[str, list[str]] = {
 }
 
 
+import pandas as _pd  # add this at top of config.py with other imports
+
 def hash_key(value: Optional[str | int | float]) -> Optional[int]:
     if value is None:
         return None
-    import pandas as pd
     try:
-        if pd.isna(value):
+        if _pd.isna(value):
             return None
     except (TypeError, ValueError):
         pass
@@ -189,7 +191,6 @@ def hash_key(value: Optional[str | int | float]) -> Optional[int]:
     if not normalized:
         return None
     digest = hashlib.sha256(normalized.encode("utf-8")).digest()
-    # Return a positive 32-bit int for SQL INT compatibility.
     return int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
 
 

@@ -90,6 +90,13 @@ export function useSyncFiltersWithUrl() {
     setHydrated(true);
   }, [hydrated, search]);
 
+  const filterValues = [
+    filters.year, filters.quarter, filters.month, filters.region,
+    filters.famille, filters.segment, filters.depot, filters.banque,
+    filters.modeBanque, filters.modePaiement, filters.source,
+    filters.horizonPrev, filters.statutArticle,
+  ];
+
   useEffect(() => {
     if (!hydrated || sameFilterSearch(search, filters)) return;
     const nextFilters = filtersToSearch(filters);
@@ -97,22 +104,6 @@ export function useSyncFiltersWithUrl() {
       replace: true,
       search: (old) => ({ ...old, ...nextFilters }),
     });
-  }, [
-    hydrated,
-    navigate,
-    search,
-    filters.year,
-    filters.quarter,
-    filters.month,
-    filters.region,
-    filters.famille,
-    filters.segment,
-    filters.depot,
-    filters.banque,
-    filters.modeBanque,
-    filters.modePaiement,
-    filters.source,
-    filters.horizonPrev,
-    filters.statutArticle,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, navigate, search, ...filterValues]);
 }

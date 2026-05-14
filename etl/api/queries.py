@@ -405,12 +405,21 @@ def get_tresorerie_summary():
     # the LEFT JOIN with F_LigneBordereauRemise in the ETL extract).
     # Restrict to client receipts only (id_client IS NOT NULL).
     sql = """
+        WITH deduped AS (
+            SELECT
+                RT_Num,
+                MAX(RT_Montant)         AS RT_Montant,
+                MAX(DR_Regle)           AS DR_Regle,
+                MAX(delai_reel_jours)   AS delai_reel_jours
+            FROM FAIT_REGLEMENTS
+            WHERE RT_Num IS NOT NULL AND id_client IS NOT NULL
+            GROUP BY RT_Num
+        )
         SELECT
             SUM(CASE WHEN DR_Regle = 1 THEN RT_Montant ELSE 0 END) AS encaissements,
             SUM(CASE WHEN DR_Regle = 0 THEN RT_Montant ELSE 0 END) AS impayes,
             AVG(CAST(delai_reel_jours AS FLOAT)) AS delai_moyen
-        FROM FAIT_REGLEMENTS
-        WHERE id_client IS NOT NULL
+        FROM deduped
     """
     row = _row(sql)
     encaissements = _num(row.encaissements)
@@ -582,6 +591,7 @@ def get_stock_alerts():
         WHERE tl.type_ligne = 4
         AND f.en_rupture = 1
         AND f.AS_QteSto IS NOT NULL
+        AND f.AS_QteSto >= 0
         AND f.ratio_tension IS NOT NULL
         ORDER BY f.ratio_tension DESC
     """
@@ -624,11 +634,11 @@ def get_articles():
         stock AS (
             SELECT
                 e.id_article,
-                MAX(e.AS_QteSto) AS stock,
-                MAX(e.dsi_jours) AS dsi_jours,
-                MAX(e.AS_QteMini) AS stock_mini,
+                SUM(e.AS_QteSto)    AS stock,
+                MAX(e.dsi_jours)    AS dsi_jours,
+                MAX(e.AS_QteMini)   AS stock_mini,
                 MAX(e.ratio_tension) AS ratio_tension,
-                SUM(e.AS_MontSto) AS valeur_stock
+                SUM(e.AS_MontSto)   AS valeur_stock
             FROM FAIT_ECRITURES e
             JOIN DIM_TYPE_LIGNE tl
             ON tl.id_type_ligne = e.id_type_ligne
@@ -687,8 +697,9 @@ def get_clients():
         FROM DIM_CLIENT c
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
         LEFT JOIN FAIT_LIGNES_VENTE v ON v.id_client = c.id_client
-        LEFT JOIN DIM_DOMAINE dom ON dom.id_domaine = v.id_domaine AND dom.DO_Domaine = 0
+        LEFT JOIN DIM_DOMAINE dom ON dom.id_domaine = v.id_domaine
         LEFT JOIN DIM_DATE d ON d.id_date = v.id_date
+        WHERE (dom.DO_Domaine = 0 OR dom.DO_Domaine IS NULL)
         GROUP BY c.CT_Num_code, s.libelle_segment, c.CT_SoldeActuel, c.CT_Sommeil
         ORDER BY ca_total DESC
     """
@@ -721,8 +732,8 @@ def get_acteurs_rfm():
         FROM DIM_CLIENT c
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
         WHERE c.rfm_montant_12m IS NOT NULL
-        OR c.rfm_frequence   IS NOT NULL
-        ORDER BY c.rfm_montant_12m DESC
+        OR c.rfm_frequence IS NOT NULL
+        ORDER BY COALESCE(c.rfm_montant_12m, 0) DESC
     """
     return [
         {
@@ -910,11 +921,13 @@ def get_caisse_flux_daily():
     sql = """
         SELECT TOP 30
             d.date_val,
-            SUM(e.MC_Credit) AS credit,
-            SUM(e.MC_Debit)  AS debit
+            SUM(COALESCE(e.MC_Credit, 0)) AS credit,
+            SUM(COALESCE(e.MC_Debit, 0))  AS debit
         FROM FAIT_ECRITURES e
         LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
-        WHERE e.MC_Credit IS NOT NULL OR e.MC_Debit IS NOT NULL
+        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
+        WHERE tl.type_ligne = 3
+        AND d.date_val IS NOT NULL
         GROUP BY d.date_val
         ORDER BY d.date_val DESC
     """
@@ -969,10 +982,10 @@ def get_fiscalite_kpis():
         """
         SELECT
             SUM(CASE WHEN tl.type_ligne IN (1, 2) THEN 1 ELSE 0 END) AS nb_ecritures,
-            SUM(CASE WHEN t.type_tva = 1 THEN e.RT_Montant01 ELSE 0 END) AS tva_collectee,
-            SUM(CASE WHEN t.type_tva = 2 THEN e.RT_Montant01 ELSE 0 END) AS tva_deductible,
+            SUM(CASE WHEN tl.type_ligne = 2 AND t.type_tva = 1 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS tva_collectee,
+            SUM(CASE WHEN tl.type_ligne = 2 AND t.type_tva = 2 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS tva_deductible,
             SUM(CASE
-                WHEN tl.type_ligne IN (1, 2)
+                WHEN tl.type_ligne = 1
                 AND ABS(COALESCE(e.EC_Montant, 0)) >= 50000
                 THEN 1 ELSE 0
             END) AS anomalies
@@ -1026,12 +1039,14 @@ def get_fiscalite_tva_by_month():
     sql = """
         SELECT
             d.mois AS month_num,
-            SUM(CASE WHEN t.type_tva = 1 THEN e.RT_Montant01 ELSE 0 END) AS collectee,
-            SUM(CASE WHEN t.type_tva = 2 THEN e.RT_Montant01 ELSE 0 END) AS deductible
+            SUM(CASE WHEN tl.type_ligne = 2 AND t.type_tva = 1 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS collectee,
+            SUM(CASE WHEN tl.type_ligne = 2 AND t.type_tva = 2 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS deductible
         FROM FAIT_ECRITURES e
         JOIN DIM_DATE d ON d.id_date = e.id_date
+        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
         LEFT JOIN DIM_TYPE_TVA t ON t.id_type_tva = e.id_type_tva
-        WHERE e.RT_Montant01 IS NOT NULL
+        WHERE tl.type_ligne = 2
+        AND e.RT_Montant01 IS NOT NULL
         GROUP BY d.mois
         ORDER BY d.mois
     """
@@ -1145,11 +1160,13 @@ def get_fiscalite_balance_by_month():
 def get_notifications():
     try:
         stock = get_stock_alerts()[:6]
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"notifications: stock_alerts failed: {e}")
         stock = []
     try:
         impayes = get_impayes()[:6]
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"notifications: impayes failed: {e}")
         impayes = []
     items = []
     for a in stock:
@@ -1177,9 +1194,10 @@ def get_notifications():
 
 @app.get("/api/search")
 def search(q: str = ""):
-    needle = f"%{q.strip()}%"
-    if not q.strip():
+    q = q.strip()[:100]  # limit length to prevent abuse
+    if not q:
         return {"clients": [], "articles": [], "ecritures": [], "fournisseurs": []}
+    needle = f"%{q}%"
     clients = _rows(
         "SELECT TOP 5 CT_Num_code, CT_SoldeActuel FROM DIM_CLIENT "
         "WHERE CONVERT(VARCHAR(30), CT_Num_code) LIKE :q ORDER BY CT_Num_code",
@@ -1264,11 +1282,20 @@ def get_assistant_summary():
 
         try:
             tr = _qone("""
+                WITH deduped AS (
+                    SELECT
+                        RT_Num,
+                        MAX(RT_Montant)       AS RT_Montant,
+                        MAX(DR_Regle)         AS DR_Regle,
+                        MAX(delai_reel_jours) AS delai_reel_jours
+                    FROM FAIT_REGLEMENTS
+                    WHERE RT_Num IS NOT NULL AND id_client IS NOT NULL
+                    GROUP BY RT_Num
+                )
                 SELECT SUM(CASE WHEN DR_Regle=1 THEN RT_Montant ELSE 0 END) AS enc,
                     SUM(CASE WHEN DR_Regle=0 THEN RT_Montant ELSE 0 END) AS imp,
                     AVG(CAST(delai_reel_jours AS FLOAT)) AS delai
-                FROM FAIT_REGLEMENTS
-                WHERE id_client IS NOT NULL
+                FROM deduped
             """)
             enc = _num(tr.enc); imp = _num(tr.imp); tot = enc + imp
             result["tresorerie"] = {

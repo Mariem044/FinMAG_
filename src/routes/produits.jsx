@@ -99,7 +99,7 @@ function ProduitsPage() {
       if (statutArticle === "Actifs uniquement" && a.qteVendue === 0) return false;
       return true;
     });
-  }, [famille, statutArticle]);
+  }, [articles, famille, statutArticle]);
 
   const treemapData = useMemo(() => {
     const totals = new Map();

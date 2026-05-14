@@ -193,14 +193,9 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
     with DW_ENGINE.begin() as conn:
         conn.execute(text(_DROP_IF_EXISTS.format(name=temp_name)))
 
-
-
-
-
-
-
-    binary_cols = _detect_binary_cols(df)
-    df_staging  = _hex_encode_binary_cols(df, binary_cols) if binary_cols else df
+    try:
+        binary_cols = _detect_binary_cols(df)
+        df_staging = _hex_encode_binary_cols(df, binary_cols) if binary_cols else df
 
 
 
@@ -267,9 +262,12 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
 
     drop_sql = _DROP_IF_EXISTS.format(name=temp_name)
 
-    with DW_ENGINE.begin() as conn:
-        conn.execute(text(merge_sql))
-        conn.execute(text(drop_sql))
+    try:
+        with DW_ENGINE.begin() as conn:
+            conn.execute(text(merge_sql))
+    finally:
+        with DW_ENGINE.begin() as conn:
+            conn.execute(text(drop_sql))
 
     logger.info(f"[LOAD] {table} – MERGE upsert complete ({len(df)} rows)")
 

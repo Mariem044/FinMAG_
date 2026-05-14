@@ -44,7 +44,7 @@ def _delta_filter(col: str, last_run: Optional[datetime]) -> tuple[str, dict]:
         prefix = col.split(".")[0] + "." if "." in col else ""
         date_col_map = {
             "dl.cbModification":  "dl.DO_Date",
-            "a.cbModification":   "a.cbModification",  # articles keep cbModification
+            "a.cbModification":   "a.cbModification",  # articles: no reliable date col, keep as-is
             "cbModification":     "cbModification",
             "ec.cbModification":  "ec.EC_Date",
             "rt.cbModification":  "rt.cbModification",
@@ -541,12 +541,13 @@ def extract_fait_reglements_clients(last_run: Optional[datetime] = None) -> pd.D
 
 
 def extract_fait_reglements_fournisseurs(last_run: Optional[datetime] = None) -> pd.DataFrame:
-    delta_clause, params = _delta_filter("RT_Date", last_run)
+    delta_where = f"AND RT_Date >= :last_run" if last_run is not None else ""
+    params = {"last_run": last_run} if last_run is not None else {}
     sql = f"""
         SELECT RT_Num, CT_Num, DO_Type, DO_Piece, RT_Date,
             RT_Mode, RT_Montant, RT_Etat, BQ_Num
         FROM F_ReglementFournisseur
-        WHERE 1=1 {delta_clause}
+        WHERE 1=1 {delta_where}
     """
     return _read(GRT_ENGINE, sql, params)
 

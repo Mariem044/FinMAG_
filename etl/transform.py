@@ -202,11 +202,11 @@ def add_fact_ecritures_dsi(
     sales_365d_copy["AR_Ref_hash"] = sales_365d_copy["AR_Ref"].apply(hash_key)
     sales_lookup = dict(zip(sales_365d_copy["AR_Ref_hash"], sales_365d_copy["qte_vendue_365j"]))
 
-    if "id_article" in df.columns:
-        df.loc[stock_mask, "qte_vendue_365j"] = (
-            df.loc[stock_mask, "id_article"]
-            .map(lambda x: sales_lookup.get(x) if pd.notna(x) else None)
-        )
+    # NOTE: sales_lookup is keyed by AR_Ref hash, not id_article surrogate.
+    # DSI is computed correctly via _compute_dsi_jours() SQL in pipeline.py.
+    # This branch is intentionally left as a no-op to avoid incorrect mapping.
+    if False:  # pragma: no cover
+        pass
 
     df["dsi_jours"] = None
     if "AS_QteSto" in df.columns and "qte_vendue_365j" in df.columns:

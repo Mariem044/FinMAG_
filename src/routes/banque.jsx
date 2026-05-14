@@ -191,7 +191,7 @@ function BanquePage() {
           montant: row.nonRapproches * 10000,
           ecart: Math.max(0, 100 - row.taux),
         })),
-    [activeBanques, rapprochData],
+    [activeBanques, rapprochData, activeIdxKey],
   );
 
   const pipelineRemises = useMemo(
@@ -205,7 +205,7 @@ function BanquePage() {
           echeance: i + 1,
         }))
         .sort((a, b) => a.echeance - b.echeance),
-    [activeBanques, activeModes, rapprochData],
+    [activeBanques, activeModes, rapprochData, activeIdxKey],
   );
 
   const totalRemis = banqueMode.reduce((s, b) => {
