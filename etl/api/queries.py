@@ -306,8 +306,9 @@ def get_dashboard_kpis():
 
 
 @app.get("/api/ventes/ca-by-month")
-def get_ca_by_month():
-    sql = """
+def get_ca_by_month(year: int = None):
+    year_filter = f"AND d.annee IN ({year}, {year - 1})" if year else ""
+    sql = f"""
         WITH monthly AS (
             SELECT
                 d.annee,
@@ -318,11 +319,12 @@ def get_ca_by_month():
             JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
             JOIN DIM_DATE d ON d.id_date = f.id_date
             WHERE dom.DO_Domaine = 0
+            {year_filter}
             GROUP BY d.annee, d.mois
         ),
         latest AS (
             SELECT MAX(annee) AS latest_year,
-                   MAX(CASE WHEN row_cnt >= 2000 THEN mois ELSE 0 END) AS latest_full_month
+                MAX(CASE WHEN row_cnt >= 2000 THEN mois ELSE 0 END) AS latest_full_month
             FROM monthly
             WHERE annee = (SELECT MAX(annee) FROM monthly)
         ),
@@ -352,6 +354,7 @@ def get_ca_by_month():
         LEFT JOIN monthly prev
             ON prev.annee = r.annee - 1
             AND prev.mois = r.mois
+            AND prev.row_cnt >= 100
         ORDER BY r.annee, r.mois
     """
     rows = _rows(sql)
@@ -388,8 +391,9 @@ def get_top_familles():
 
 
 @app.get("/api/ventes/ca-by-region")
-def get_ca_by_region():
-    sql = """
+def get_ca_by_region(year: int = None):
+    year_clause = f"AND d.annee = {year}" if year else "AND d.annee = latest.latest_year"
+    sql = f"""
         WITH latest AS (
             SELECT COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year
             FROM FAIT_LIGNES_VENTE f
@@ -409,7 +413,7 @@ def get_ca_by_region():
         LEFT JOIN DIM_DATE    d ON d.id_date    = f.id_date
         CROSS JOIN latest
         WHERE dom.DO_Domaine = 0
-        AND d.annee = latest.latest_year
+        AND {year_clause.lstrip('AND ')}
         GROUP BY COALESCE(s.libelle_segment, 'Sans segment')
         HAVING SUM(f.DL_MontantHT) > 0
         ORDER BY ca DESC

@@ -31,10 +31,12 @@ export const Route = createFileRoute("/ventes")({
 const toNumber = (value) => Number(value) || 0;
 
 function VentesPage() {
-  const { segment, depot, source, getActiveMonthIndexes } = useFilters();
-  const { data: monthlyData, loading: monthlyLoading } = useApiResource(api.ventes.caByMonth, []);
+  const { year, segment, depot, source, getActiveMonthIndexes } = useFilters();
+  const caByMonthFn = useMemo(() => () => api.ventes.caByMonth(year), [year]);
+  const caByRegionFn = useMemo(() => () => api.ventes.caByRegion(year), [year]);
+  const { data: monthlyData, loading: monthlyLoading } = useApiResource(caByMonthFn, []);
   const { data: familleData, loading: familleLoading } = useApiResource(api.ventes.topFamilles, []);
-  const { data: regionData, loading: regionLoading } = useApiResource(api.ventes.caByRegion, []);
+  const { data: regionData, loading: regionLoading } = useApiResource(caByRegionFn, []);
   const activeIdx = getActiveMonthIndexes();
   const activeIdxKey = activeIdx.join("");
   const chartH = useChartHeight();
@@ -80,11 +82,16 @@ function VentesPage() {
       familleRows
         .filter(Boolean)
         .slice(0, 5)
-        .map((f) => ({
-          ...f,
-          name: f.name || "Sans famille",
-          ca: Math.round(toNumber(f.ca) * sourceRatio),
-        })),
+        .map((f) => {
+          const raw = f.name || "Sans famille";
+          const words = raw.split(" ");
+          const name = words.length > 3 ? words.slice(0, 3).join(" ") : raw;
+          return {
+            ...f,
+            name,
+            ca: Math.round(toNumber(f.ca) * sourceRatio),
+          };
+        }),
     [familleRows, sourceRatio],
   );
 
@@ -92,7 +99,9 @@ function VentesPage() {
   const totalObjectif = filteredMonthly.reduce((s, m) => s + m.objectif, 0);
   const totalCAN1 = filteredMonthly.reduce((s, m) => s + m.caN1, 0);
   const tauxObjectif = totalObjectif > 0 ? ((totalCA / totalObjectif) * 100).toFixed(1) : null;
-  const croissance = (((totalCA - totalCAN1) / Math.max(totalCAN1, 1)) * 100).toFixed(1);
+  const croissance = totalCAN1 > totalCA * 0.1
+    ? (((totalCA - totalCAN1) / totalCAN1) * 100).toFixed(1)
+    : null;
   const totalCommandes = filteredRegions.reduce((s, r) => s + r.commandes, 0);
 
   return (
@@ -130,8 +139,8 @@ function VentesPage() {
             />
             <KPICard
               label="Croissance vs N-1"
-              value={`${croissance}%`}
-              subtitle="Comparaison annuelle"
+              value={croissance !== null ? `${croissance}%` : "N/A"}
+              subtitle={croissance !== null ? "Comparaison annuelle" : "Données N-1 insuffisantes"}
               icon={TrendingUp}
             />
           </>

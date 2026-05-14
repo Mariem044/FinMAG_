@@ -32,14 +32,19 @@ const formatCAShort = (v) => {
   if (v >= 1_000) return `${(v / 1_000).toFixed(0)} KDT`;
   return `${v.toFixed(0)} DT`;
 };
+import { useMemo } from "react";
 import { api } from "@/lib/api";
 import { useApiResource } from "@/hooks/useApiResource";
+import { useFilters } from "@/store/useFilters";
 
 export const Route = createFileRoute("/")({
   component: OverviewPage,
 });
 
 function OverviewPage() {
+  const { year } = useFilters();
+  const caByMonthFn = useMemo(() => () => api.dashboard.caByMonth(year), [year]);
+  const caByRegionFn = useMemo(() => () => api.dashboard.caByRegion(year), [year]);
   const { data: kpis, loading: kpisApiLoading } = useApiResource(api.dashboard.kpis, {
     ca_total: 0,
     nb_commandes: 0,
@@ -47,18 +52,12 @@ function OverviewPage() {
     taux_recouvrement: 0,
     marge_brute_pct: null,
   });
-  const { data: caByMonth, loading: caLoading } = useApiResource(
-    api.dashboard.caByMonth,
-    [],
-  );
+  const { data: caByMonth, loading: caLoading } = useApiResource(caByMonthFn, []);
   const { data: topFamilles, loading: famillesLoading } = useApiResource(
     api.dashboard.topFamilles,
     [],
   );
-  const { data: caByRegion, loading: regionLoading } = useApiResource(
-    api.dashboard.caByRegion,
-    [],
-  );
+  const { data: caByRegion, loading: regionLoading } = useApiResource(caByRegionFn, []);
   const totalCA = caByMonth.reduce((s, m) => s + m.ca, 0);
   const chartH = useChartHeight();
   const kpiLoading = kpisApiLoading;
@@ -104,7 +103,7 @@ function OverviewPage() {
             <KPICard
               label="Marge Brute"
               value={kpis.marge_brute_pct === null ? "N/A" : `${kpis.marge_brute_pct.toFixed(1)}%`}
-              subtitle={kpis.marge_brute_pct === null ? "Coûts d'achat non saisis" : `${(kpis.ca_avec_cout || 0 / 1000).toFixed(0)}K DT CA couverts`}
+              subtitle={kpis.marge_brute_pct === null ? "Coûts d'achat non saisis" : `${((kpis.ca_avec_cout || 0) / 1000000).toFixed(1)} MDT CA couverts`}
               trend={kpis.marge_brute_pct !== null ? 1.8 : undefined}
               icon={TrendingUp}
             />

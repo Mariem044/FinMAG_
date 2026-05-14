@@ -57,14 +57,14 @@ const _etlStatus = () => get("/api/etl/status");
 const _etlRun = () => post("/api/etl/run");
 
 const _dashboardKpis = () => get("/api/dashboard/kpis");
-const _dashboardCaByMonth = () => get("/api/ventes/ca-by-month");
+const _dashboardCaByMonth = (year) => get(`/api/ventes/ca-by-month${year ? `?year=${year}` : ""}`);
 const _dashboardTopFamilles = () => get("/api/ventes/top-familles");
-const _dashboardCaByRegion = () => get("/api/ventes/ca-by-region");
+const _dashboardCaByRegion = (year) =>
+  get(`/api/ventes/ca-by-region${year ? `?year=${year}` : ""}`);
 
-const _ventesCaByMonth = () => get("/api/ventes/ca-by-month");
+const _ventesCaByMonth = (year) => get(`/api/ventes/ca-by-month${year ? `?year=${year}` : ""}`);
 const _ventesTopFamilles = () => get("/api/ventes/top-familles");
-const _ventesCaByRegion = () => get("/api/ventes/ca-by-region");
-
+const _ventesCaByRegion = (year) => get(`/api/ventes/ca-by-region${year ? `?year=${year}` : ""}`);
 const _tresorerieSummary = () => get("/api/tresorerie/summary");
 const _tresorerieImpayes = () => get("/api/tresorerie/impayes");
 const _tresorerieImpayesFournisseurs = () => get("/api/tresorerie/impayes-fournisseurs");
