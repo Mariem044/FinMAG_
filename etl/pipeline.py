@@ -229,7 +229,7 @@ def _famille_label_lookup() -> Dict:
             df["FA_CodeFamille"],
             df["FA_Intitule"].fillna("").astype(str).str.strip().str[:100],
         )
-        if v is not None
+        if v is not None and transform.hash_key(v) is not None
     }
 
 

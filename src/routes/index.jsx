@@ -131,7 +131,7 @@ function OverviewPage() {
 
         <ChartCard loading={chartsLoading} skeleton="bar" title="Top 5 familles de produits par CA">
           <ResponsiveContainer width="100%" height={chartH}>
-            <BarChart data={topFamilles} layout="vertical">
+            <BarChart data={topFamilles.slice(0, 6)} layout="vertical">
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" horizontal={false} />
               <XAxis
                 type="number"
@@ -144,7 +144,7 @@ function OverviewPage() {
                 dataKey="name"
                 tick={{ fill: "#666", fontSize: 11 }}
                 axisLine={false}
-                width={100}
+                width={160}
               />
               <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="ca" fill="#3b82f6" radius={[0, 4, 4, 0]} name="CA" />

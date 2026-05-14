@@ -193,13 +193,10 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
     with DW_ENGINE.begin() as conn:
         conn.execute(text(_DROP_IF_EXISTS.format(name=temp_name)))
 
-    try:
-        binary_cols = _detect_binary_cols(df)
-        df_staging = _hex_encode_binary_cols(df, binary_cols) if binary_cols else df
-
-
-
+    binary_cols = _detect_binary_cols(df)
+    df_staging = _hex_encode_binary_cols(df, binary_cols) if binary_cols else df
     _one_row = df_staging.head(0)
+
     n_cols = len(df_staging.columns)
     sql_server_chunk = max(100, 2099 // max(n_cols, 1))
     _one_row.to_sql(

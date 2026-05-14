@@ -6,6 +6,7 @@ import { Banknote, AlertCircle, Clock, TrendingUp } from "lucide-react";
 import {
   BarChart,
   Bar,
+  ComposedChart,
   LineChart,
   Line,
   PieChart,
@@ -250,7 +251,6 @@ function TresorerietPage() {
                 radius={[4, 4, 0, 0]}
               />
               <Line
-                data={waterfallFlat}
                 type="monotone"
                 dataKey="solde"
                 stroke="#000"

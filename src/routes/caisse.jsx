@@ -6,6 +6,7 @@ import { Banknote, Wallet, TrendingUp, Activity } from "lucide-react";
 import {
   BarChart,
   Bar,
+  ComposedChart,
   LineChart,
   Line,
   PieChart,
@@ -120,12 +121,7 @@ function CaissePage() {
         prevHigh: !isHistorique ? Math.round(val * 1.22) : null,
       };
     });
-  const filteredCaisses = useMemo(() => {
-    if (depot === "Tous") return caissesData;
-    return caissesData.filter(
-      (c) => c.depot === depot || c.depot.includes(depot.replace("Dépôt ", "")),
-    );
-  }, [depot, caissesData]);
+  }, [totalEspeces, totalCheques, filteredFlux, netJournalier]);
 
   const previsionJ15 = prophetData.find((d) => d.day === "J10" || d.prevision)?.prevision ?? 0;
 
@@ -208,7 +204,7 @@ function CaissePage() {
           title="Flux journaliers débit / crédit (KPI-23)"
         >
           <ResponsiveContainer width="100%" height={chartH}>
-            <BarChart data={filteredFlux}>
+            <ComposedChart data={filteredFlux}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
               <XAxis
                 dataKey="day"
@@ -255,7 +251,7 @@ function CaissePage() {
                 dot={false}
                 name="Solde cumulé"
               />
-            </BarChart>
+            </ComposedChart>
           </ResponsiveContainer>
         </ChartCard>
 

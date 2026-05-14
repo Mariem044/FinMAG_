@@ -6,6 +6,7 @@ import { Landmark, CheckCircle, Receipt, Clock } from "lucide-react";
 import {
   BarChart,
   Bar,
+  ComposedChart,
   LineChart,
   Line,
   XAxis,
@@ -340,7 +341,7 @@ function BanquePage() {
 
         <ChartCard loading={chartsLoading} skeleton="bar" title="Agios & Float bancaire (KPI-27)">
           <ResponsiveContainer width="100%" height={chartH}>
-            <BarChart data={agiosData}>
+            <ComposedChart data={agiosData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
               <XAxis
                 dataKey="bordereau"
@@ -376,7 +377,7 @@ function BanquePage() {
                 dot={{ r: 3 }}
                 name="Float (j)"
               />
-            </BarChart>
+            </ComposedChart>
           </ResponsiveContainer>
         </ChartCard>
 

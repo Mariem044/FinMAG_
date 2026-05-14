@@ -31,7 +31,7 @@ export const Route = createFileRoute("/acteurs")({
 const rfmSegmentColors = {
   Champion: "#22c55e",
   Fidèle: "#3b82f6",
-  Risque: "#f97316",
+  "À risque": "#f97316",
   Dormant: "#ef4444",
 };
 
@@ -88,7 +88,7 @@ function ActeursPage() {
             : row.recence <= 90
               ? "Fidèle"
               : row.montant > 0
-                ? "Risque"
+                ? "À risque"
                 : "Dormant",
       })),
     [rfmRows],

@@ -104,7 +104,8 @@ function ProduitsPage() {
   const treemapData = useMemo(() => {
     const totals = new Map();
     for (const article of filteredArticles) {
-      const key = article.famille || "Sans famille";
+      const rawKey = article.famille || "Sans famille";
+      const key = rawKey.length > 20 ? rawKey.substring(0, 20) + "…" : rawKey;
       const current = totals.get(key) || { size: 0, qteVendue: 0, stock: 0 };
       current.size += Math.round((article.stock || 0) * (article.prixMoyen || 0));
       current.qteVendue += article.qteVendue || 0;
@@ -112,14 +113,18 @@ function ProduitsPage() {
       totals.set(key, current);
     }
 
-    const rows = Array.from(totals.entries()).map(([name, values], i) => ({
-      name,
-      size: values.size,
-      rotation: values.stock > 0 ? Math.min(1, values.qteVendue / values.stock) : 0,
-      fill: CHART_COLORS[i % CHART_COLORS.length],
-    }));
+    const rows = Array.from(totals.entries())
+      .map(([name, values], i) => ({
+        name,
+        size: values.size,
+        rotation: values.stock > 0 ? Math.min(1, values.qteVendue / (values.stock * 10)) : 0,
+        fill: CHART_COLORS[i % CHART_COLORS.length],
+      }))
+      .filter((r) => r.size > 0)
+      .sort((a, b) => b.size - a.size)
+      .slice(0, 12);
 
-    if (famille !== "Toutes") return rows.filter((row) => row.name === famille);
+    if (famille !== "Toutes") return rows.filter((row) => row.name.startsWith(famille.substring(0, 10)));
     return rows.length
       ? rows
       : FAMILLES.map((name, i) => ({
@@ -149,7 +154,7 @@ function ProduitsPage() {
   }, [filteredArticles]);
 
   const valeurStock = filteredArticles.reduce((s, a) => s + (a.stock || 0) * (a.prixMoyen || 0), 0);
-  const nbRuptures = alertes.filter((a) => a.stockActuel < a.seuil).length;
+  const nbRuptures = alertes.length;
   const dsiMoyen = Math.round(
     dsiScatter.reduce((s, d) => s + d.dsi, 0) / Math.max(dsiScatter.length, 1),
   );
@@ -227,16 +232,17 @@ function ProduitsPage() {
                     rx={3}
                     opacity={0.85}
                   />
-                  {width > 40 && height > 20 && (
+                  {width > 60 && height > 30 && (
                     <text
                       x={x + width / 2}
                       y={y + height / 2}
                       textAnchor="middle"
                       fill="#fff"
-                      fontSize={10}
+                      fontSize={Math.min(11, width / 8)}
                       dominantBaseline="middle"
+                      style={{ pointerEvents: "none" }}
                     >
-                      {name}
+                      {width < 100 ? (name || "").substring(0, 8) : (name || "").substring(0, 14)}
                     </text>
                   )}
                 </g>
@@ -324,6 +330,9 @@ function ProduitsPage() {
               </p>
               {alertes.slice(0, 10).map((a, i) => {
                 const ratio = Math.round((a.ratioTension || 0) * 100);
+                const priorityPct = a.priorite === "CRITIQUE" ? 100 : a.priorite === "URGENT" ? 80 : 50;
+                const displayPct = ratio > 0 ? ratio : priorityPct;
+                const color = a.priorite === "CRITIQUE" ? "#ef4444" : a.priorite === "URGENT" ? "#f97316" : "#22c55e";
                 return (
                   <div key={i} className="flex items-center gap-2 mb-1.5">
                     <span className="text-[10px] text-text-dim w-16 flex-shrink-0">
@@ -332,16 +341,14 @@ function ProduitsPage() {
                     <div className="flex-1 h-2 bg-surface-hover rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full"
-                        style={{
-                          width: `${ratio}%`,
-                          background: ratio > 90 ? "#ef4444" : ratio > 80 ? "#f97316" : "#22c55e",
-                        }}
+                        style={{ width: `${displayPct}%`, background: color }}
                       />
                     </div>
                     <span
-                      className={`text-[10px] font-medium w-8 text-right ${ratio > 90 ? "text-red-400" : ratio > 80 ? "text-orange-400" : "text-green-400"}`}
+                      className={`text-[10px] font-medium w-16 text-right`}
+                      style={{ color }}
                     >
-                      {ratio}%
+                      {a.priorite}
                     </span>
                   </div>
                 );

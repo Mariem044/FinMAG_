@@ -79,7 +79,7 @@ function VentesPage() {
     () =>
       familleRows
         .filter(Boolean)
-        .slice(0, 6)
+        .slice(0, 5)
         .map((f) => ({
           ...f,
           name: f.name || "Sans famille",
@@ -200,7 +200,7 @@ function VentesPage() {
                 dataKey="name"
                 tick={{ fill: "#999", fontSize: 11 }}
                 axisLine={false}
-                width={100}
+                width={160}
               />
               <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="ca" radius={[0, 4, 4, 0]} name="CA (DT)">

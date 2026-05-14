@@ -263,7 +263,7 @@ function FiscalitePage() {
                 strokeDasharray="4 4"
                 label={{ value: "Seuil 0.8", fill: "#ef4444", fontSize: 10, position: "right" }}
               />
-              <Scatter data={anomalyData} shape={<AnomalyDot />} name="Écriture" />
+              <Scatter data={anomalyData} shape={AnomalyDot} name="Écriture" />
             </ScatterChart>
           </ResponsiveContainer>
           <p className="text-[10px] text-text-dim mt-1 text-right">

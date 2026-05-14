@@ -47,7 +47,7 @@ def _delta_filter(col: str, last_run: Optional[datetime]) -> tuple[str, dict]:
             "a.cbModification":   "a.cbModification",  # articles: no reliable date col, keep as-is
             "cbModification":     "cbModification",
             "ec.cbModification":  "ec.EC_Date",
-            "rt.cbModification":  "rt.cbModification",
+            "rt.cbModification":  "ec.EC_Date",
         }
         date_col = date_col_map.get(col, col)
         logger.debug(f"_delta_filter: remapped {col!r} → {date_col!r}")

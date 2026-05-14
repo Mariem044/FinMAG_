@@ -338,22 +338,16 @@ def get_ca_by_month():
 def get_top_familles():
     sql = """
         SELECT TOP 8
-            COALESCE(
-                NULLIF(fa.FA_Intitule, ''),
-                NULLIF(a.FA_Intitule, ''),
-                'Sans famille'
-            ) AS name,
+            COALESCE(NULLIF(fa.FA_Intitule, ''), 'Sans famille') AS name,
             SUM(f.DL_MontantHT) AS ca
         FROM FAIT_LIGNES_VENTE f
         JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
         LEFT JOIN DIM_ARTICLE a  ON a.id_article  = f.id_article
         LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
         WHERE dom.DO_Domaine = 0
-        GROUP BY COALESCE(
-            NULLIF(fa.FA_Intitule, ''),
-            NULLIF(a.FA_Intitule, ''),
-            'Sans famille'
-        )
+        AND fa.FA_Intitule IS NOT NULL
+        AND fa.FA_Intitule <> ''
+        GROUP BY fa.FA_Intitule
         ORDER BY ca DESC
     """
     return [
@@ -592,8 +586,7 @@ def get_stock_alerts():
         AND f.en_rupture = 1
         AND f.AS_QteSto IS NOT NULL
         AND f.AS_QteSto >= 0
-        AND f.ratio_tension IS NOT NULL
-        ORDER BY f.ratio_tension DESC
+        ORDER BY COALESCE(f.ratio_tension, 0) DESC
     """
     alerts = []
     for r in _rows(sql):
@@ -649,7 +642,7 @@ def get_articles():
         SELECT TOP 100
         a.AR_Ref_code,
         a.id_famille,
-        COALESCE(NULLIF(a.FA_Intitule, ''), NULLIF(fa.FA_Intitule, ''), 'Sans famille') AS famille,
+        COALESCE(NULLIF(fa.FA_Intitule, ''), 'Sans famille') AS famille,
         CASE
             WHEN COALESCE(a.AR_PrixAch, 0) > 0 THEN a.AR_PrixAch
             WHEN COALESCE(stock.stock, 0) > 0 AND COALESCE(stock.valeur_stock, 0) > 0
@@ -990,8 +983,8 @@ def get_fiscalite_kpis():
                 THEN 1 ELSE 0
             END) AS anomalies
         FROM FAIT_ECRITURES e
-        LEFT JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
-        LEFT JOIN DIM_TYPE_TVA  t  ON t.id_type_tva    = e.id_type_tva
+        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
+        LEFT JOIN DIM_TYPE_TVA t ON t.id_type_tva = e.id_type_tva
         """
     )
     debit_credit = _row(
@@ -1000,7 +993,9 @@ def get_fiscalite_kpis():
             SUM(CASE WHEN s.EC_Sens = 0 THEN ABS(e.EC_Montant) ELSE 0 END) AS debit,
             SUM(CASE WHEN s.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END) AS credit
         FROM FAIT_ECRITURES e
+        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
         LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
+        WHERE tl.type_ligne IN (1, 2)
         """
     )
     debit = _num(debit_credit.debit)
@@ -1138,7 +1133,9 @@ def get_fiscalite_balance_by_month():
             SUM(CASE WHEN s.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END) AS credit
         FROM FAIT_ECRITURES e
         JOIN DIM_DATE d ON d.id_date = e.id_date
+        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
         LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
+        WHERE tl.type_ligne IN (1, 2)
         GROUP BY d.mois
         ORDER BY d.mois
     """
