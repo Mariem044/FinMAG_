@@ -285,6 +285,8 @@ CREATE TABLE FAIT_LIGNES_VENTE (
     DO_TotalTTC        NUMERIC(18,4) NULL,
     DO_NetAPayer       NUMERIC(18,4) NULL,
     DO_MontantRegle    NUMERIC(18,4) NULL,
+    DL_CMUP            NUMERIC(18,4) NULL,
+    DL_PrixRU          NUMERIC(18,4) NULL,
     DO_Piece_hash      INT NULL,
     source_hash        BINARY(32) NULL,
     date_extraction    DATE NOT NULL
@@ -801,6 +803,16 @@ _INDEX_MIGRATIONS: list[tuple[str, str]] = [
     )
     for t in ("FAIT_LIGNES_VENTE", "FAIT_ECRITURES")
 ] + [
+    (
+        "FAIT_LIGNES_VENTE.DL_CMUP",
+        "IF COL_LENGTH('FAIT_LIGNES_VENTE','DL_CMUP') IS NULL "
+        "ALTER TABLE [FAIT_LIGNES_VENTE] ADD DL_CMUP NUMERIC(18,4) NULL",
+    ),
+    (
+        "FAIT_LIGNES_VENTE.DL_PrixRU",
+        "IF COL_LENGTH('FAIT_LIGNES_VENTE','DL_PrixRU') IS NULL "
+        "ALTER TABLE [FAIT_LIGNES_VENTE] ADD DL_PrixRU NUMERIC(18,4) NULL",
+    ),
     (
         "DROP_UX_FAIT_REGLEMENTS_source_hash",
         "IF EXISTS ("

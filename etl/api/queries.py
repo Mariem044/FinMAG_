@@ -220,12 +220,27 @@ def get_dashboard_kpis():
     sql = """
         WITH latest AS (
             SELECT
-                COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year,
-                COALESCE(MAX(d.mois), MONTH(GETDATE())) AS latest_month
+                MAX(d.annee) AS latest_year,
+                MAX(CASE WHEN cnt.row_cnt >= 2000 THEN d.mois ELSE 0 END) AS latest_month
             FROM FAIT_LIGNES_VENTE f
             JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
-            LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
+            JOIN DIM_DATE d ON d.id_date = f.id_date
+            JOIN (
+                SELECT d2.annee, d2.mois, COUNT(*) as row_cnt
+                FROM FAIT_LIGNES_VENTE f2
+                JOIN DIM_DOMAINE dom2 ON dom2.id_domaine = f2.id_domaine
+                JOIN DIM_DATE d2 ON d2.id_date = f2.id_date
+                WHERE dom2.DO_Domaine = 0
+                GROUP BY d2.annee, d2.mois
+            ) cnt ON cnt.annee = d.annee AND cnt.mois = d.mois
             WHERE dom.DO_Domaine = 0
+            AND d.annee = (
+                SELECT MAX(d3.annee)
+                FROM FAIT_LIGNES_VENTE f3
+                JOIN DIM_DOMAINE dom3 ON dom3.id_domaine = f3.id_domaine
+                JOIN DIM_DATE d3 ON d3.id_date = f3.id_date
+                WHERE dom3.DO_Domaine = 0
+            )
         )
         SELECT
             SUM(CASE WHEN d.annee = latest.latest_year THEN f.DL_MontantHT ELSE 0 END) AS ca_total,
@@ -237,26 +252,25 @@ def get_dashboard_kpis():
             END) AS nb_commandes,
             COUNT(DISTINCT CASE WHEN d.annee = latest.latest_year THEN f.id_client END) AS nb_clients_actifs,
             SUM(CASE WHEN d.annee = latest.latest_year
-                        AND a.AR_PrixAch IS NOT NULL
-                        AND a.AR_PrixAch > 0
+                        AND f.DL_CMUP IS NOT NULL
+                        AND f.DL_CMUP > 0
                         AND f.DL_Qte IS NOT NULL
-                        AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch)
-                THEN f.DL_MontantHT - (f.DL_Qte * a.AR_PrixAch)
+                        AND f.DL_MontantHT > (f.DL_Qte * f.DL_CMUP)
+                THEN f.DL_MontantHT - (f.DL_Qte * f.DL_CMUP)
                 ELSE NULL
             END) AS marge_brute,
             SUM(CASE WHEN d.annee = latest.latest_year
-                        AND a.AR_PrixAch IS NOT NULL
-                        AND a.AR_PrixAch > 0
+                        AND f.DL_CMUP IS NOT NULL
+                        AND f.DL_CMUP > 0
                         AND f.DL_Qte IS NOT NULL
-                        AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch)
                 THEN f.DL_MontantHT
                 ELSE 0
             END) AS ca_avec_cout,
             COUNT(CASE WHEN d.annee = latest.latest_year
-                            AND a.AR_PrixAch IS NOT NULL
-                            AND a.AR_PrixAch > 0
+                            AND f.DL_CMUP IS NOT NULL
+                            AND f.DL_CMUP > 0
                             AND f.DL_Qte IS NOT NULL
-                            AND f.DL_MontantHT > (f.DL_Qte * a.AR_PrixAch) THEN 1 END) AS nb_lignes_avec_cout
+                            AND f.DL_MontantHT > (f.DL_Qte * f.DL_CMUP) THEN 1 END) AS nb_lignes_avec_cout
         FROM FAIT_LIGNES_VENTE f
         JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
         LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
@@ -294,45 +308,62 @@ def get_dashboard_kpis():
 @app.get("/api/ventes/ca-by-month")
 def get_ca_by_month():
     sql = """
-        WITH latest AS (
-            SELECT COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year
-            FROM FAIT_LIGNES_VENTE f
-            JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
-            LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
-            WHERE dom.DO_Domaine = 0
-        ),
-        monthly AS (
-            SELECT d.annee, d.mois, SUM(f.DL_MontantHT) AS ca
+        WITH monthly AS (
+            SELECT
+                d.annee,
+                d.mois,
+                SUM(f.DL_MontantHT) AS ca,
+                COUNT(*) AS row_cnt
             FROM FAIT_LIGNES_VENTE f
             JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
             JOIN DIM_DATE d ON d.id_date = f.id_date
-            CROSS JOIN latest
             WHERE dom.DO_Domaine = 0
-            AND d.annee IN (latest.latest_year, latest.latest_year - 1)
             GROUP BY d.annee, d.mois
+        ),
+        latest AS (
+            SELECT MAX(annee) AS latest_year,
+                   MAX(CASE WHEN row_cnt >= 2000 THEN mois ELSE 0 END) AS latest_full_month
+            FROM monthly
+            WHERE annee = (SELECT MAX(annee) FROM monthly)
+        ),
+        rolling AS (
+            SELECT TOP 12
+                m.annee,
+                m.mois,
+                m.ca,
+                m.row_cnt,
+                CAST(m.annee AS VARCHAR) + '-' + RIGHT('0' + CAST(m.mois AS VARCHAR), 2) AS period_key
+            FROM monthly m
+            CROSS JOIN latest
+            WHERE m.row_cnt >= 2000
+            AND (
+                m.annee < latest.latest_year
+                OR (m.annee = latest.latest_year AND m.mois <= latest.latest_full_month)
+            )
+            ORDER BY m.annee DESC, m.mois DESC
         )
-        SELECT cur.mois AS month_num,
-            cur.ca,
-            cur.ca * 1.05 AS objectif,
+        SELECT
+            r.annee,
+            r.mois AS month_num,
+            r.ca,
+            r.ca * 1.05 AS objectif,
             COALESCE(prev.ca, 0) AS caN1
-        FROM monthly cur
-        CROSS JOIN latest
+        FROM rolling r
         LEFT JOIN monthly prev
-        ON prev.annee = latest.latest_year - 1
-        AND prev.mois = cur.mois
-        WHERE cur.annee = latest.latest_year
-        ORDER BY cur.mois
+            ON prev.annee = r.annee - 1
+            AND prev.mois = r.mois
+        ORDER BY r.annee, r.mois
     """
+    rows = _rows(sql)
     return [
         {
-            "month": MONTHS[r.month_num - 1],
+            "month": f"{MONTHS[r.month_num - 1]} {str(r.annee)[2:]}",
             "ca": _num(r.ca),
             "objectif": _num(r.objectif),
             "caN1": _num(r.caN1),
         }
-        for r in _rows(sql)
+        for r in rows
     ]
-
 
 @app.get("/api/ventes/top-familles")
 def get_top_familles():
@@ -363,7 +394,7 @@ def get_ca_by_region():
             SELECT COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year
             FROM FAIT_LIGNES_VENTE f
             JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
-            LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
+            JOIN DIM_DATE d ON d.id_date = f.id_date
             WHERE dom.DO_Domaine = 0
         )
         SELECT TOP 12
@@ -380,6 +411,7 @@ def get_ca_by_region():
         WHERE dom.DO_Domaine = 0
         AND d.annee = latest.latest_year
         GROUP BY COALESCE(s.libelle_segment, 'Sans segment')
+        HAVING SUM(f.DL_MontantHT) > 0
         ORDER BY ca DESC
     """
     return [
@@ -1239,10 +1271,10 @@ def get_assistant_summary():
         try:
             kpi_row = _qone("""
                 WITH latest AS (
-                    SELECT COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year
+                    SELECT MAX(d.annee) AS latest_year
                     FROM FAIT_LIGNES_VENTE f
                     JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
-                    LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
+                    JOIN DIM_DATE d ON d.id_date = f.id_date
                     WHERE dom.DO_Domaine = 0
                 )
                 SELECT SUM(f.DL_MontantHT) AS ca_total,

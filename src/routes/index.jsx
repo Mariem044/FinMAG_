@@ -25,6 +25,13 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { CHART_COLORS, formatTND, formatPercent } from "@/lib/dashboardConstants";
+
+const formatCAShort = (v) => {
+  if (!v) return "0 DT";
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)} MDT`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(0)} KDT`;
+  return `${v.toFixed(0)} DT`;
+};
 import { api } from "@/lib/api";
 import { useApiResource } from "@/hooks/useApiResource";
 
@@ -71,8 +78,8 @@ function OverviewPage() {
         ) : (
           <>
             <KPICard
-              label="Chiffre d'Affaires Total"
-              value={formatTND(kpis.ca_total || totalCA)}
+              label="CA Total"
+              value={formatCAShort(kpis.ca_total || totalCA)}
               trend={kpis.ca_growth_pct ?? 0}
               icon={DollarSign}
             />
@@ -97,7 +104,7 @@ function OverviewPage() {
             <KPICard
               label="Marge Brute"
               value={kpis.marge_brute_pct === null ? "N/A" : `${kpis.marge_brute_pct.toFixed(1)}%`}
-              subtitle={kpis.marge_brute_pct === null ? "Prix achat non configuré" : undefined}
+              subtitle={kpis.marge_brute_pct === null ? "Coûts d'achat non saisis" : `${(kpis.ca_avec_cout || 0 / 1000).toFixed(0)}K DT CA couverts`}
               trend={kpis.marge_brute_pct !== null ? 1.8 : undefined}
               icon={TrendingUp}
             />
@@ -129,9 +136,9 @@ function OverviewPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="bar" title="Top 5 familles de produits par CA">
+        <ChartCard loading={chartsLoading} skeleton="bar" title="Top familles par CA">
           <ResponsiveContainer width="100%" height={chartH}>
-            <BarChart data={topFamilles.slice(0, 6)} layout="vertical">
+            <BarChart data={topFamilles.slice(0, 5).map(f => ({...f, name: (f.name||'').length > 18 ? (f.name||'').substring(0,18)+'…' : f.name}))} layout="vertical">
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" horizontal={false} />
               <XAxis
                 type="number"
@@ -156,7 +163,10 @@ function OverviewPage() {
           <ResponsiveContainer width="100%" height={chartH}>
             <PieChart>
               <Pie
-                data={caByRegion}
+                data={caByRegion.filter(r => {
+                  const total = caByRegion.reduce((s, x) => s + x.ca, 0);
+                  return total > 0 && (r.ca / total) >= 0.005;
+                })}
                 dataKey="ca"
                 nameKey="name"
                 cx="50%"
