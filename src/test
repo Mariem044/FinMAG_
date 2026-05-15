@@ -1,9 +1,0 @@
-# (.venv) PS C:\Users\marie\Desktop\FINMAG1\panorama-analytics\panorama-analytics-main> npm run api
-                                                       
-# > api
-# > uvicorn etl.api.main:app --host 127.0.0.1 --port 8000 --reload
-
-# INFO:     Will watch for changes in these directories: ['C:\\Users\\marie\\Desktop\\FINMAG1\\panorama-analytics\\panorama-analytics-main']
-# INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-# INFO:     Started reloader process [21660] using WatchFiles
-# ERROR:    Error loading ASGI app. Attribute "app" not found in module "etl.api.main".
