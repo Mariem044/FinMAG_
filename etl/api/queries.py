@@ -221,7 +221,7 @@ def get_dashboard_kpis():
         WITH latest AS (
             SELECT
                 MAX(d.annee) AS latest_year,
-                MAX(d.mois) AS latest_month
+                MAX(CASE WHEN cnt.row_cnt >= 2000 THEN d.mois ELSE 0 END) AS latest_month
             FROM FAIT_LIGNES_VENTE f
             JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
             JOIN DIM_DATE d ON d.id_date = f.id_date
@@ -324,7 +324,7 @@ def get_ca_by_month(year: int = None):
         ),
         latest AS (
             SELECT MAX(annee) AS latest_year,
-                MAX(mois) AS latest_full_month
+                MAX(CASE WHEN row_cnt >= 2000 THEN mois ELSE 0 END) AS latest_full_month
             FROM monthly
             WHERE annee = (SELECT MAX(annee) FROM monthly)
         ),
@@ -337,7 +337,7 @@ def get_ca_by_month(year: int = None):
                 CAST(m.annee AS VARCHAR) + '-' + RIGHT('0' + CAST(m.mois AS VARCHAR), 2) AS period_key
             FROM monthly m
             CROSS JOIN latest
-            WHERE m.row_cnt >= 1
+            WHERE m.row_cnt >= 2000
             AND (
                 m.annee < latest.latest_year
                 OR (m.annee = latest.latest_year AND m.mois <= latest.latest_full_month)
@@ -494,7 +494,7 @@ def get_impayes():
             "montant": _num(r.montant_impaye),
             "montantImpaye": _num(r.montant_impaye),
             "anciennete": _int(r.anciennete),
-            "region": "Voir DW",
+            "region": "DW",
             "representant": "",
             "dateEcheance": "",
             "statut": (
@@ -540,7 +540,7 @@ def get_impayes_fournisseurs():
 @app.get("/api/tresorerie/encaissements-by-mode")
 def get_encaissements_by_mode():
     sql = """
-        WITH reglements AS (
+        WITH deduped AS (
             SELECT
                 id_client,
                 id_fournisseur,
@@ -556,7 +556,7 @@ def get_encaissements_by_mode():
             SUM(CASE WHEN r.id_client IS NOT NULL THEN r.RT_Montant ELSE 0 END) AS mag,
             SUM(CASE WHEN r.id_fournisseur IS NOT NULL THEN r.RT_Montant ELSE 0 END) AS grt,
             AVG(CASE WHEN r.RT_Rapproche = 1 THEN 100.0 ELSE 0.0 END) AS rapprochement
-        FROM reglements r
+        FROM deduped r
         LEFT JOIN DIM_MODE_REGLEMENT m ON m.id_mode_reg = r.id_mode_reg
         WHERE r.DR_Regle = 1
         GROUP BY m.libelle_mode_reg, r.DR_ModeReg
@@ -716,8 +716,6 @@ def get_clients():
     sql = """
         SELECT TOP 100
             c.CT_Num_code,
-            c.CT_Intitule,
-            COALESCE(c.gouvernorat, 'Autre') AS gouvernorat,
             COALESCE(s.libelle_segment, 'Sans segment') AS segment,
             SUM(v.DL_MontantHT) AS ca_total,
             COUNT(DISTINCT v.DO_Piece_hash) AS nb_commandes,
@@ -730,15 +728,14 @@ def get_clients():
         LEFT JOIN DIM_DOMAINE dom ON dom.id_domaine = v.id_domaine
         LEFT JOIN DIM_DATE d ON d.id_date = v.id_date
         WHERE (dom.DO_Domaine = 0 OR dom.DO_Domaine IS NULL)
-        GROUP BY c.CT_Num_code, s.libelle_segment, c.CT_SoldeActuel, c.CT_Sommeil,
-                 c.gouvernorat, c.CT_Intitule
+        GROUP BY c.CT_Num_code, s.libelle_segment, c.CT_SoldeActuel, c.CT_Sommeil
         ORDER BY ca_total DESC
     """
     return [
         {
             "code": str(r.CT_Num_code),
-            "nom": r.CT_Intitule or f"Client {r.CT_Num_code}",
-            "region": r.gouvernorat or "Autre",
+            "nom": f"Client {r.CT_Num_code}",
+            "region": "DW",
             "caTotal": _num(r.ca_total),
             "nbCommandes": _int(r.nb_commandes),
             "derniereCommande": r.derniere_commande or "",
@@ -955,9 +952,10 @@ def get_caisse_flux_daily():
             SUM(COALESCE(e.MC_Credit, 0)) AS credit,
             SUM(COALESCE(e.MC_Debit, 0))  AS debit
         FROM FAIT_ECRITURES e
-        JOIN DIM_DATE d ON d.id_date = e.id_date
+        LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
         JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
         WHERE tl.type_ligne = 3
+        AND d.date_val IS NOT NULL
         GROUP BY d.date_val
         ORDER BY d.date_val DESC
     """
@@ -1140,13 +1138,7 @@ def get_fiscalite_anomalies():
                 WHEN ABS(COALESCE(e.EC_Montant, 0)) >= 50000 THEN 0.85
                 WHEN ABS(COALESCE(e.EC_Montant, 0)) >= 30000 THEN 0.70
                 ELSE 0.25
-            END AS score,
-            CASE
-                WHEN ABS(COALESCE(e.EC_Montant, 0)) >= 100000 THEN 'Montant exceptionnel'
-                WHEN ABS(COALESCE(e.EC_Montant, 0)) >= 50000 THEN 'Montant élevé'
-                WHEN ABS(COALESCE(e.EC_Montant, 0)) >= 30000 THEN 'Montant significatif'
-                ELSE 'Normal'
-            END AS motif
+            END AS score
         FROM FAIT_ECRITURES e
         LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
         LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
@@ -1161,7 +1153,6 @@ def get_fiscalite_anomalies():
             "score": _num(r.score),
             "montant": _num(r.montant),
             "journal": r.journal,
-            "motif": r.motif,
             "anomalie": _num(r.score) >= 0.8,
         }
         for r in _rows(sql)
