@@ -1,10 +1,17 @@
-import json
+﻿import json
 import logging
 import os
 import re
 import threading
 import unicodedata
 from typing import List
+from etl.ml import runner as _ml_runner
+
+
+
+from etl.ml import runner as _ml_runner
+from fastapi import BackgroundTasks
+
 
 from google import genai
 from fastapi import BackgroundTasks, FastAPI
@@ -67,7 +74,7 @@ _SYSTEM_PROMPT = (
     "Ne demande jamais a l'utilisateur de re-fournir des donnees sauf si aucune information exploitable n'existe reellement. "
 
     "Reponds toujours en francais. "
-    "Adopte un ton professionnel, analytique, concis et orienté decision business. "
+    "Adopte un ton professionnel, analytique, concis et orientÃ© decision business. "
     "Evite les phrases inutiles, les introductions longues et le langage marketing. "
 
     "Limite chaque reponse a 4-5 lignes maximum sauf si l'utilisateur demande une analyse detaillee. "
@@ -1117,9 +1124,9 @@ def get_fiscalite_ecritures():
         {
             "date": _date_str(r.date_val) if r.date_val else "",
             "numPiece": f"EC-{r.EC_No}" if r.EC_No else "",
-            "journal": f"Journal {r.journal_code}" if r.journal_code else "—",
-            "compte": str(r.CG_Num) if r.CG_Num else "—",
-            "libelle": f"Écriture {r.EC_No}" if r.EC_No else "—",
+            "journal": f"Journal {r.journal_code}" if r.journal_code else "â€”",
+            "compte": str(r.CG_Num) if r.CG_Num else "â€”",
+            "libelle": f"Ã‰criture {r.EC_No}" if r.EC_No else "â€”",
             "debit": _num(r.EC_Montant) if _int(r.sens) == 0 else 0,
             "credit": _num(r.EC_Montant) if _int(r.sens) == 1 else 0,
             "solde": _num(r.EC_Montant) * (1 if _int(r.sens) == 0 else -1),
