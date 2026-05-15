@@ -223,7 +223,10 @@ def _normalize_gouvernorat(code_region: str) -> str:
         return "Autre"
     cr = str(code_region).strip().upper()
     mapping = {
-        "TUNIS": ["TUNIS", "MONTPLAISIR", "MONTFLEURY", "MONFLEURIE", "MONFLEURY",
+        "TUNIS": ["TUNIS", "MONTPLAISIR", "LE BARDO", "BARDO",
+                  "EZZAHROUNI", "OMRANE", "AGBA", "ETTADHAMEN",
+                  "MARCHE CENTRAL", "MALASINE", "LAKANIA",
+                  "BEB EL KHADHRA/BEB SOUIKA", "MUTUELLE VILLE/BELVEDAIRE", "MONTFLEURY", "MONFLEURIE", "MONFLEURY",
                   "MUTUELLE VILLE", "BELVEDAIRE", "BELVEDERE", "OUARDIA", "CITE EL KHADHRA",
                   "CITE EL KADHRA", "IBN SINA", "LAFAYETTE", "BAB EL KHADHRA", "BAB JDID",
                   "BAB SAADOUN", "BEB EL KHADHRA", "KHAZNADAR", "CITE NASSER", "CITE NACER",
@@ -232,12 +235,12 @@ def _normalize_gouvernorat(code_region: str) -> str:
                   "TUNIS 1", "TUNIS 2", "TUNIS 3", "TUNIS 4", "TUNIS NORD", " TUNIS"],
         "TUNIS BANLIEUE NORD": ["TUNIS BLN 1", "TUNIS BLN 2", "BANLIEUE NORD",
                                  "Tunis BLN 3", "URBAIN NORD"],
-        "ARIANA": ["ARIANA", "ARIANA 1", "ARIANA SUPERIEUR", "ARIANA SUPÉRIEUR",
+        "ARIANA": ["ARIANA", "EL GHAZELA", "ARIANA 1", "ARIANA SUPERIEUR", "ARIANA SUPÉRIEUR",
                    "RAOUED", "RAOUED-GHAZELA", "GHAZELA/RAWED", "CITE-GHAZELLA",
                    "LA SOUKRA", "SOUKRA", "SOKRA", "SIDI THABET", "SIDI THABET-K.ANDALOSS",
                    "KALAAT ANDALOUS", "KALAA ANDALOUS", "KALLAAT EL ANDALOS", "KALALA ANDALUS",
                    "MNIHLA", "MNIHLA TUNIS", "RIADH ANDALOUS", " ARIANA", " ARINA"],
-        "BEN AROUS": ["BEN AROUS", "BEN AROUS 1", "BEN AROUS 2", "MOUROUJ", "MOUROUJ 3",
+        "BEN AROUS": ["BEN AROUS", "BEN AROUS 1", "CITE TADHAMON", "BEN AROUS 2", "MOUROUJ", "MOUROUJ 3",
                       "MOUROUJ 4", "MOUROUJ 5", "MOUROUJ 6", "MOROUJ II", "MOUROJ II",
                       "MOUROUHJ", "MOROUJ 3", "MOROUJ 4", "FOUCHANA", "FOUCHENA",
                       "EZZAHRA", " EZZAHRA", "RADES", "MORNAG", "MORNEG", "MORNEGUE",
@@ -246,7 +249,8 @@ def _normalize_gouvernorat(code_region: str) -> str:
                       "  BORJ CEDRIA", " BORJ CEDRIA 2", "MHAMDIA", "ELMHAMDIA",
                       "BOU MHL EL BASSATINE", " BEN AROUS", "BEN AROUS/OUARDIA-002",
                       "TUNIS 4", "BANLIEUE SUD"],
-        "MANOUBA": ["MANOUBA", "MANNOUBA", "MNNOUBA", "LA MANOUBA", "OUED ELLIL",
+        "MANOUBA": ["MANOUBA", "MANNOUBA", "KSAR SAID",
+                    "KSAR SAID - CITE ETTAHRIR", "NAASEN", "SLIMEN", "MGHIRA", "MNNOUBA", "LA MANOUBA", "OUED ELLIL",
                     "OUED ELIL", "DAOUAR HICHER", "DOUAR HICHER", "DOWAR HICHER",
                     "DENDEN", "DEN DEN", "DEN-DEN", "Den - Den", "MORNAGUIA",
                     "TEBOURBA", "TBOURBA", "TEBORBA", "TEBBOURBA", "TEBOURSEK",
@@ -255,7 +259,7 @@ def _normalize_gouvernorat(code_region: str) -> str:
                     "TEBOURBA/BATTAN", "BORJ LOUZIR", " BORJ LOUZIR",
                     "LAOUINA-EL WAHAT", "LAOUINA", "LAAWIINA", "LAAOUINA",
                     "LAAWINA-ELWAHAT", "LAOUINA-WAHAT"],
-        "BIZERTE": ["BIZERTE", "BIZERTE I", "BIZERTE II", "BIZERTE 1", "BIZERTE NORD",
+        "BIZERTE": ["BIZERTE", "BIZERTE I", "SAJNENE/GHZELA", "BIZERTE II", "BIZERTE 1", "BIZERTE NORD",
                     "BIZERTE SUD", "BIZERTZ I", "BIZETE I", "BIZEZRTE II", " BIZERTE ",
                     "MENZEL BOURGUIBA", "MANZEL BOURGUIBA", "M.BOURGUIBA",
                     "MANZEL BOURGUIBA TINJA", "MENZEL ABDERRAHMEN", "MANZEL ABDELRAHMEN",
@@ -872,9 +876,9 @@ def _compute_rfm_scores() -> None:
             c.rfm_frequence      = rfm.frequence,
             c.rfm_montant_12m    = rfm.montant_12m,
             c.rfm_score          = CASE
-                WHEN rfm.recence_jours <= 30  AND rfm.frequence >= 4 THEN 'Champion'
-                WHEN rfm.recence_jours <= 60  AND rfm.frequence >= 3 THEN 'Fidèle'
-                WHEN rfm.recence_jours <= 90  THEN 'À risque'
+                WHEN rfm.recence_jours <= 90  AND rfm.frequence >= 10 THEN 'Champion'
+                WHEN rfm.recence_jours <= 180 AND rfm.frequence >= 4  THEN 'Fidèle'
+                WHEN rfm.recence_jours <= 270 THEN 'À risque'
                 WHEN rfm.recence_jours IS NULL THEN 'Dormant'
                 ELSE 'Dormant'
             END

@@ -610,10 +610,10 @@ def get_stock_alerts():
     sql = """
         SELECT TOP 20
             a.AR_Ref_code,
-            f.AS_QteSto,
-            f.AS_QteMini,
-            f.en_rupture,
-            f.ratio_tension
+            SUM(f.AS_QteSto)     AS AS_QteSto,
+            MAX(f.AS_QteMini)    AS AS_QteMini,
+            MAX(f.en_rupture)    AS en_rupture,
+            MAX(f.ratio_tension) AS ratio_tension
         FROM FAIT_ECRITURES f
         JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = f.id_type_ligne
         JOIN DIM_ARTICLE a ON a.id_article = f.id_article
@@ -621,7 +621,8 @@ def get_stock_alerts():
         AND f.en_rupture = 1
         AND f.AS_QteSto IS NOT NULL
         AND f.AS_QteSto >= 0
-        ORDER BY COALESCE(f.ratio_tension, 0) DESC
+        GROUP BY a.AR_Ref_code
+        ORDER BY MAX(COALESCE(f.ratio_tension, 0)) DESC
     """
     alerts = []
     for r in _rows(sql):
