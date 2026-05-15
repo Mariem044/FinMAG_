@@ -17,7 +17,7 @@ const _ROLE_PROFILES_FALLBACK = [
     departement: "Finance",
     role: "Administrateur",
     localisation: "Tunis, Tunisie",
-    bio: "Responsable de l'analyse financiere et du suivi des KPIs pour MAG Distribution.",
+    bio: "Responsable de l'analyse financiere et du suivi des indicateurs pour MAG Distribution.",
     avatar: null,
     initiales: "AD",
     actif: true,

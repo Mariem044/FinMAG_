@@ -140,7 +140,7 @@ export const translations = {
 
     "common.loading": "Loading…",
     "common.noData": "No results found.",
-    "common.search": "Search pages, KPIs, clients, items… (Ctrl+K)",
+    "common.search": "Search pages, indicators, clients, items… (Ctrl+K)",
     "common.version": "v2.0.0 — FinMAG",
   },
 

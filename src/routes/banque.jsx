@@ -258,7 +258,7 @@ function BanquePage() {
           loading={chartsLoading}
           skeleton="bar"
           key={`${banque}-${modeBanque}-${activeIdxKey}`}
-          title={`Bordereaux${banque !== "Toutes" ? ` — ${banque}` : " par banque"}${modeBanque !== "Tous" ? ` — ${modeBanque}` : ""} (KPI-25)`}
+          title={`Bordereaux${banque !== "Toutes" ? ` — ${banque}` : " par banque"}${modeBanque !== "Tous" ? ` — ${modeBanque}` : ""}`}
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={banqueMode}>
@@ -288,7 +288,7 @@ function BanquePage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="line"
-          title="Taux de rapprochement bancaire (KPI-26)"
+          title="Taux de rapprochement bancaire"
         >
           <div className="flex gap-4 h-[280px]">
             <div className="flex flex-col items-center pt-4 flex-shrink-0">
@@ -339,7 +339,7 @@ function BanquePage() {
           </div>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="bar" title="Agios & Float bancaire (KPI-27)">
+        <ChartCard loading={chartsLoading} skeleton="bar" title="Agios & Float bancaire">
           <ResponsiveContainer width="100%" height={chartH}>
             <ComposedChart data={agiosData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -384,7 +384,7 @@ function BanquePage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="gantt"
-          title={`Pipeline remises à venir 30j${modeBanque !== "Tous" ? ` — ${modeBanque}` : ""} (KPI-28)`}
+          title={`Pipeline remises à venir 30j${modeBanque !== "Tous" ? ` — ${modeBanque}` : ""}`}
         >
           <div className="pt-2 overflow-auto max-h-[280px]">
             <GanttPipeline data={pipelineRemises} />

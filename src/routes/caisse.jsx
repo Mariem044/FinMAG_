@@ -173,7 +173,7 @@ function CaissePage() {
           loading={chartsLoading}
           skeleton="bar"
           key={`${depot}-${activeIdxKey}`}
-          title={`Solde de caisse${depot !== "Tous" ? ` — ${depot}` : " par caisse"} — Espèces vs Chèques (KPI-22)`}
+          title={`Solde de caisse${depot !== "Tous" ? ` — ${depot}` : " par caisse"} — Espèces vs Chèques`}
         >
           {filteredCaisses.length > 0 ? (
             <>
@@ -201,7 +201,7 @@ function CaissePage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
-          title="Flux journaliers débit / crédit (KPI-23)"
+          title="Flux journaliers débit / crédit"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <ComposedChart data={filteredFlux}>
@@ -255,7 +255,7 @@ function CaissePage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="pie" title="Mouvements par nature (KPI-24)">
+        <ChartCard loading={chartsLoading} skeleton="pie" title="Mouvements par nature">
           <div className="grid grid-cols-2 gap-2 h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>

@@ -95,59 +95,59 @@ const PAGES = [
   },
 ];
 
-const KPIS = [
+const INDICATORS = [
   {
     label: "Taux de recouvrement",
-    description: "KPI-07 — Encaissements clients",
+    description: "Encaissements clients",
     to: "/tresorerie",
     icon: Wallet,
     keywords: ["recouvrement", "taux", "encaissement"],
   },
   {
     label: "Score d'attrition clients",
-    description: "KPI-24 — Score de risque client",
+    description: "Score de risque client",
     to: "/acteurs",
     icon: Users,
     keywords: ["attrition", "score", "client", "risque"],
   },
   {
     label: "Détection anomalies",
-    description: "KPI-28 — Scores d'anomalie",
+    description: "Scores d'anomalie",
     to: "/fiscalite",
     icon: Receipt,
     keywords: ["anomalie", "detection", "isolation"],
   },
   {
     label: "Prévision trésorerie",
-    description: "KPI-11 — Projection 30/60/90j",
+    description: "Projection 30/60/90j",
     to: "/tresorerie",
     icon: Wallet,
     keywords: ["prevision", "projection", "tresorerie"],
   },
   {
     label: "DSI — Rotation stocks",
-    description: "KPI-15 — Days Sales of Inventory",
+    description: "Days Sales of Inventory",
     to: "/produits",
     icon: Boxes,
     keywords: ["dsi", "rotation", "stock", "inventory"],
   },
   {
     label: "Matrice RFM",
-    description: "KPI-22 — Segmentation clients",
+    description: "Segmentation clients",
     to: "/acteurs",
     icon: Users,
     keywords: ["rfm", "recence", "frequence", "montant"],
   },
   {
     label: "Solde de caisse",
-    description: "KPI-29 — Toutes caisses",
+    description: "Toutes caisses",
     to: "/caisse",
     icon: Banknote,
     keywords: ["solde", "caisse", "especes"],
   },
   {
     label: "Taux rapprochement bancaire",
-    description: "KPI-34 — Réconciliation",
+    description: "Réconciliation",
     to: "/banque",
     icon: Landmark,
     keywords: ["rapprochement", "bancaire", "taux"],
@@ -156,7 +156,7 @@ const KPIS = [
 
 const CATEGORY_META = {
   pages: { label: "Pages", color: "text-blue-400", bg: "bg-blue-500/15", max: 3 },
-  kpis: { label: "KPIs", color: "text-violet-400", bg: "bg-violet-500/15", max: 3 },
+  indicators: { label: "Indicateurs", color: "text-violet-400", bg: "bg-violet-500/15", max: 3 },
   clients: { label: "Clients", color: "text-green-400", bg: "bg-green-500/15", max: 3 },
   articles: { label: "Articles", color: "text-orange-400", bg: "bg-orange-500/15", max: 3 },
   ecritures: { label: "Écritures", color: "text-pink-400", bg: "bg-pink-500/15", max: 3 },
@@ -204,12 +204,12 @@ function runSearch(q, apiResults = {}) {
   if (pages.length)
     results.pages = pages.map((p) => ({ ...p, type: "pages", subtitle: p.description }));
 
-  const kpis = KPIS.filter((k) => matches([k.label, k.description, ...k.keywords], q)).slice(
+  const indicators = INDICATORS.filter((k) => matches([k.label, k.description, ...k.keywords], q)).slice(
     0,
-    CATEGORY_META.kpis.max,
+    CATEGORY_META.indicators.max,
   );
-  if (kpis.length)
-    results.kpis = kpis.map((k) => ({ ...k, type: "kpis", subtitle: k.description }));
+  if (indicators.length)
+    results.indicators = indicators.map((k) => ({ ...k, type: "indicators", subtitle: k.description }));
 
   if (apiResults.clients?.length) {
     results.clients = apiResults.clients
@@ -381,7 +381,7 @@ export function SearchBar() {
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={handleKeyDown}
-          placeholder="Rechercher pages, KPIs, clients, articles… (Ctrl+K)"
+          placeholder="Rechercher pages, indicateurs, clients, articles… (Ctrl+K)"
           className="w-full bg-transparent text-[12px] text-foreground placeholder:text-text-dim outline-none"
           autoComplete="off"
           spellCheck={false}

@@ -200,7 +200,7 @@ function ActeursPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <ChartCard
           key={`rfm-${segment}-${depot}`}
-          title={`Matrice RFM clients${segment !== "Tous" ? ` — ${segment}` : ""} (KPI-22)`}
+          title={`Matrice RFM clients${segment !== "Tous" ? ` — ${segment}` : ""}`}
         >
           {rfmData.length === 0 ? (
             <EmptyState />
@@ -255,7 +255,7 @@ function ActeursPage() {
 
         <ChartCard
           key={`aging-${segment}-${depot}`}
-          title="Vieillissement créances GRT — par client (KPI-22b)"
+          title="Vieillissement créances GRT — par client"
         >
           {agingGRT.length === 0 ? (
             <EmptyState />
@@ -288,7 +288,7 @@ function ActeursPage() {
 
         <ChartCard
           key={`livreurs-${depot}`}
-          title={`Performance livreurs${depot !== "Tous" ? ` — ${depot}` : ""} (KPI-23)`}
+          title={`Performance livreurs${depot !== "Tous" ? ` — ${depot}` : ""}`}
         >
           {livreurs.length === 0 ? (
             <EmptyState />
@@ -320,7 +320,7 @@ function ActeursPage() {
           )}
         </ChartCard>
 
-        <ChartCard title="Score attrition clients & Concentration fournisseur (KPI-24/20)">
+        <ChartCard title="Score attrition clients & Concentration fournisseur">
           <div className="flex gap-4 h-[280px]">
             <div className="flex flex-col items-center pt-2 flex-shrink-0">
               <GaugeSimple

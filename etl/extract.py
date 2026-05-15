@@ -188,7 +188,8 @@ def extract_dim_article(last_run: Optional[datetime] = None) -> pd.DataFrame:
 def extract_dim_client_mag(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("cbModification", last_run)
     sql = f"""
-        SELECT CT_Num, CT_Sommeil, N_CatTarif, CO_No, CT_Encours, CT_SvCA
+        SELECT CT_Num, CT_Sommeil, N_CatTarif, CO_No, CT_Encours, CT_SvCA,
+               CT_Ville, CT_CodeRegion, CT_Intitule
         FROM F_COMPTET
         WHERE CT_Type = 0 {delta_clause}
     """

@@ -152,7 +152,7 @@ function VentesPage() {
           loading={chartsLoading}
           skeleton="line"
           key={`${segment}-${depot}-${source}-${activeIdxKey}`}
-          title="Evolution mensuelle du CA vs Objectif (KPI-01)"
+          title="Evolution mensuelle du CA vs Objectif"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <AreaChart data={filteredMonthly}>
@@ -194,7 +194,7 @@ function VentesPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="bar" title="Top familles de produits par CA (KPI-02)">
+        <ChartCard loading={chartsLoading} skeleton="bar" title="Top familles de produits par CA">
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={topFamilles} layout="vertical">
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" horizontal={false} />
@@ -224,7 +224,7 @@ function VentesPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
-          title={`CA par region${depot !== "Tous" ? ` - ${depot}` : ""} (KPI-03)`}
+          title={`CA par region${depot !== "Tous" ? ` - ${depot}` : ""}`}
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={filteredRegions}>
@@ -245,7 +245,7 @@ function VentesPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="line" title="Tendance mensuelle CA vs N-1 (KPI-04)">
+        <ChartCard loading={chartsLoading} skeleton="line" title="Tendance mensuelle CA vs N-1">
           <ResponsiveContainer width="100%" height={chartH}>
             <LineChart data={filteredMonthly}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />

@@ -211,7 +211,7 @@ function ProduitsPage() {
           loading={chartsLoading}
           skeleton="bar"
           key={`${famille}-${statutArticle}-${horizonPrev}`}
-          title={`Valeur stock par famille${famille !== "Toutes" ? ` — ${famille}` : ""} (KPI-11)`}
+          title={`Valeur stock par famille${famille !== "Toutes" ? ` — ${famille}` : ""}`}
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <Treemap
@@ -265,7 +265,7 @@ function ProduitsPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="table"
-          title={`Alertes réapprovisionnement — horizon ${horizonPrev} (KPI-12)`}
+          title={`Alertes réapprovisionnement — horizon ${horizonPrev}`}
         >
           <div className="overflow-auto max-h-[280px]">
             <table className="w-full text-[11px]">
@@ -318,7 +318,7 @@ function ProduitsPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="gauge"
-          title="Taux de rupture & tension stock (KPI-14)"
+          title="Taux de rupture & tension stock"
         >
           <div className="flex items-start gap-4 h-[280px]">
             <div className="flex flex-col items-center justify-center flex-shrink-0 pt-4">
@@ -360,8 +360,7 @@ function ProduitsPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="scatter"
-          title="Rotation stocks — DSI vs CA par article (KPI-13)
-        "
+          title="Rotation stocks — DSI vs CA par article"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>

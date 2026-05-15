@@ -144,7 +144,7 @@ function FiscalitePage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
-          title="Soldes par journal — Débit vs Crédit (KPI-19)"
+          title="Soldes par journal — Débit vs Crédit"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={journalData}>
@@ -173,7 +173,7 @@ function FiscalitePage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
-          title="TVA collectée vs déductible (KPI-20)"
+          title="TVA collectée vs déductible"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <ComposedChart data={tvaData}>
@@ -227,7 +227,7 @@ function FiscalitePage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="scatter"
-          title="Détection anomalies comptables — score local (KPI-21)"
+          title="Détection anomalies comptables — score local"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
@@ -277,7 +277,7 @@ function FiscalitePage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
-          title="Équilibre comptable mensuel — Waterfall (KPI-19)"
+          title="Équilibre comptable mensuel — Waterfall"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <ComposedChart data={waterfallData}>

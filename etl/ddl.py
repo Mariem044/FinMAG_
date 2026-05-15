@@ -201,6 +201,10 @@ CREATE TABLE DIM_CLIENT (
     rfm_frequence           INT NULL,
     rfm_montant_12m         NUMERIC(18,4) NULL,
     rfm_score               VARCHAR(20) NULL,
+    CT_Intitule             NVARCHAR(100) NULL,
+    CT_Ville                NVARCHAR(50) NULL,
+    CT_CodeRegion           NVARCHAR(50) NULL,
+    gouvernorat             NVARCHAR(50) NULL,
     row_hash                BINARY(32) NULL
 )"""),
 ]
@@ -745,6 +749,26 @@ END
     ),
 
 
+    (
+        "DIM_CLIENT.CT_Intitule",
+        "IF COL_LENGTH('DIM_CLIENT','CT_Intitule') IS NULL "
+        "ALTER TABLE [DIM_CLIENT] ADD CT_Intitule NVARCHAR(100) NULL",
+    ),
+    (
+        "DIM_CLIENT.CT_Ville",
+        "IF COL_LENGTH('DIM_CLIENT','CT_Ville') IS NULL "
+        "ALTER TABLE [DIM_CLIENT] ADD CT_Ville NVARCHAR(50) NULL",
+    ),
+    (
+        "DIM_CLIENT.CT_CodeRegion",
+        "IF COL_LENGTH('DIM_CLIENT','CT_CodeRegion') IS NULL "
+        "ALTER TABLE [DIM_CLIENT] ADD CT_CodeRegion NVARCHAR(50) NULL",
+    ),
+    (
+        "DIM_CLIENT.gouvernorat",
+        "IF COL_LENGTH('DIM_CLIENT','gouvernorat') IS NULL "
+        "ALTER TABLE [DIM_CLIENT] ADD gouvernorat NVARCHAR(50) NULL",
+    ),
     (
         "FAIT_LIGNES_VENTE.source_hash",
         "IF COL_LENGTH('FAIT_LIGNES_VENTE','source_hash') IS NULL "

@@ -179,7 +179,7 @@ function TresorerietPage() {
           loading={chartsLoading}
           skeleton="pie"
           key={`${modePaiement}-${horizonPrev}-${source}-${activeIdxKey}`}
-          title={`Encaissements par mode — ${source}${modePaiement !== "Tous" ? ` (${modePaiement})` : ""} (KPI-06)`}
+          title={`Encaissements par mode — ${source}${modePaiement !== "Tous" ? ` (${modePaiement})` : ""}`}
         >
           <div className="grid grid-cols-2 gap-2 h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -224,7 +224,7 @@ function TresorerietPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
-          title={`Flux trésorerie prévisionnel ${horizonPrev} (KPI-07 / KPI-11)`}
+          title={`Flux trésorerie prévisionnel ${horizonPrev}`}
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <ComposedChart data={waterfallFlat}>
@@ -265,7 +265,7 @@ function TresorerietPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
-          title="Vieillissement des créances — Aging (KPI-08)"
+          title="Vieillissement des créances — Aging"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={safeAgingData}>
@@ -289,7 +289,7 @@ function TresorerietPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="table"
-          title="Impayés fournisseurs & Délais (KPI-09/07)"
+          title="Impayés fournisseurs & Délais"
         >
           <div className="overflow-auto max-h-[280px]">
             <table className="w-full text-[11px]">

@@ -83,7 +83,7 @@ function LoginPage() {
 
           <div className="grid grid-cols-3 gap-4 pt-4">
             {[
-              { value: "38", label: "KPIs" },
+              { value: "38", label: "Indicateurs" },
               { value: "12", label: "Modules" },
               { value: "5", label: "Roles" },
             ].map((s) => (
