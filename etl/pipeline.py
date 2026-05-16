@@ -22,6 +22,7 @@ from etl.config import (
     DIM_DATE_START,
     DIM_DATE_END,
     FENETRE_RFM_JOURS,
+    BUCKETS_IMPAYE,
 )
 from etl.utils.logger import get_logger
 from etl.utils.audit import (
@@ -179,13 +180,11 @@ def _bucket_from_echeance(row) -> Optional[int]:
         return None
     if days_overdue <= 0:
         return None
-    if days_overdue <= 30:
-        return 0
-    if days_overdue <= 60:
-        return 1
-    if days_overdue <= 90:
-        return 2
-    return 3
+    seuils = BUCKETS_IMPAYE[1:]  # [30, 60, 90]
+    for i, seuil in enumerate(seuils):
+        if days_overdue <= seuil:
+            return i
+    return len(seuils)
 
 
 def _transform_dim_famille(df: pd.DataFrame) -> pd.DataFrame:

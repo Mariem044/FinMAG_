@@ -3,9 +3,13 @@ from __future__ import annotations
 import logging
 import os
 
+# to read the env 
 from dotenv import load_dotenv
+
+# apis existant in queries 
 from fastapi import FastAPI
 
+# this used to import google generative ai but itês actually used in queries 
 try:
     from google import genai
 except ImportError:  # pragma: no cover - depends on installed Gemini package variant
@@ -14,5 +18,4 @@ except ImportError:  # pragma: no cover - depends on installed Gemini package va
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
-# App and assistant status are defined in etl/api/queries.py
-# This file is kept for imports only.
+# This file is for imports only

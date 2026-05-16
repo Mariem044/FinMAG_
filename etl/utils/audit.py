@@ -5,15 +5,17 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Generator, Optional
 
+import os
+
 from sqlalchemy import text
 
-from etl.config import DW_ENGINE
+from etl.config import DW_ENGINE, ERROR_MSG_MAX_LEN
 from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-_TABLE = "ETL_AUDIT"
-_STALE_RUNNING_HOURS = 24
+_TABLE = os.environ["ETL_AUDIT_TABLE"]
+_STALE_RUNNING_HOURS = int(os.environ["ETL_STALE_RUNNING_HOURS"])
 
 
 def _abort_stale_runs(conn) -> None:
@@ -152,7 +154,7 @@ def log_table(
                     "upd": rows_updated,
                     "dur": int(duration_seconds),
                     "sta": status,
-                    "err": (error_msg or "")[:500] if error_msg else None,
+                    "err": (error_msg or "")[:ERROR_MSG_MAX_LEN] if error_msg else None,
                 },
             )
     except Exception as exc:
@@ -172,7 +174,7 @@ def end_run(run_id: int, status: str, error_msg: Optional[str] = None) -> None:
                 ),
                 {
                     "sta": status,
-                    "err": (error_msg or "")[:500] if error_msg else None,
+                    "err": (error_msg or "")[:ERROR_MSG_MAX_LEN] if error_msg else None,
                     "rid": run_id,
                 },
             )

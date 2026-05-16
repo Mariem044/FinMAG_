@@ -7,7 +7,7 @@ from typing import Literal, Optional
 import pandas as pd
 from sqlalchemy import text
 
-from etl.config import DW_ENGINE, CHUNK_SIZE
+from etl.config import DW_ENGINE, CHUNK_SIZE, ERROR_MSG_MAX_LEN
 from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)

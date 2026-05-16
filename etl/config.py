@@ -7,7 +7,6 @@ from typing import Optional
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
 
 import logging
-import pandas as _pd
 logging.getLogger("pyodbc").setLevel(logging.WARNING)
 
 from dotenv import load_dotenv
@@ -70,9 +69,10 @@ MAG_ENGINE: Engine = _make_engine(os.environ["MAG_CONN"], pool_size=3)
 GRT_ENGINE: Engine = _make_engine(os.environ["GRT_CONN"], pool_size=3)
 
 
-CHUNK_SIZE:     int = int(os.getenv("ETL_CHUNK_SIZE", "10000"))
-DIM_DATE_START: str = os.getenv("DIM_DATE_START", "2015-01-01")
-DIM_DATE_END:   str = os.getenv("DIM_DATE_END",   "2030-12-31")
+CHUNK_SIZE:        int = int(os.environ["ETL_CHUNK_SIZE"])
+DIM_DATE_START:    str = os.environ["DIM_DATE_START"]
+DIM_DATE_END:      str = os.environ["DIM_DATE_END"]
+ERROR_MSG_MAX_LEN: int = int(os.environ["ETL_ERROR_MSG_MAX_LEN"])
 
 
 SEGMENTS: dict[int, str] = {
@@ -153,8 +153,6 @@ TYPES_DOC: dict[int, str] = {
 
 
 
-
-
 DOMAINES: dict[int, str] = {
     0: "Vente",
     1: "Achat",
@@ -162,12 +160,18 @@ DOMAINES: dict[int, str] = {
     3: "Interne",
 }
 
-SEUIL_TENSION_STOCK: float     = float(os.getenv("ETL_SEUIL_TENSION_STOCK", "0.8"))
-FENETRE_RFM_JOURS:   int       = int(os.getenv("ETL_FENETRE_RFM_JOURS", "365"))
+SEUIL_TENSION_STOCK: float     = float(os.environ["ETL_SEUIL_TENSION_STOCK"])
+FENETRE_RFM_JOURS:   int       = int(os.environ["ETL_FENETRE_RFM_JOURS"])
 BUCKETS_IMPAYE:      list[int] = [
-    int(x) for x in os.getenv("ETL_BUCKETS_IMPAYE", "0,30,60,90").split(",")
+    int(x) for x in os.environ["ETL_BUCKETS_IMPAYE"].split(",")
 ]
-FENETRE_DSI_JOURS:   int       = int(os.getenv("ETL_FENETRE_DSI_JOURS", "365"))
+FENETRE_DSI_JOURS:   int       = int(os.environ["ETL_FENETRE_DSI_JOURS"])
+AUDIT_TABLE_NAME:    str       = os.environ["ETL_AUDIT_TABLE"]
+RFM_CHAMPION_RECENCE:   int    = int(os.environ["ETL_RFM_CHAMPION_RECENCE"])
+RFM_CHAMPION_FREQUENCE: int    = int(os.environ["ETL_RFM_CHAMPION_FREQUENCE"])
+RFM_FIDELE_RECENCE:     int    = int(os.environ["ETL_RFM_FIDELE_RECENCE"])
+RFM_FIDELE_FREQUENCE:   int    = int(os.environ["ETL_RFM_FIDELE_FREQUENCE"])
+RFM_ARISQUE_RECENCE:    int    = int(os.environ["ETL_RFM_ARISQUE_RECENCE"])
 
 RFM_SEGMENTS: dict[str, list[str]] = {
     "Champion":    ["0-30j", "4-5 cmd", "TOP Montant"],
@@ -177,7 +181,7 @@ RFM_SEGMENTS: dict[str, list[str]] = {
 }
 
 
-import pandas as _pd  # add this at top of config.py with other imports
+import pandas as _pd
 
 def hash_key(value: Optional[str | int | float]) -> Optional[int]:
     if value is None:
@@ -191,7 +195,8 @@ def hash_key(value: Optional[str | int | float]) -> Optional[int]:
     if not normalized:
         return None
     digest = hashlib.sha256(normalized.encode("utf-8")).digest()
-    return int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
+    hash_bytes = int(os.environ["ETL_HASH_BYTES"])
+    return int.from_bytes(digest[:hash_bytes], "big") & ((1 << (hash_bytes * 8 - 1)) - 1)
 
 
 
