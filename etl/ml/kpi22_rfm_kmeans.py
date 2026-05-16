@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import argparse
 import warnings
-from datetime import date
+from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -31,6 +32,11 @@ from etl.config import DW_ENGINE
 from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+_MODEL_DIR = Path(__file__).parent / "models"
+_MODEL_DIR.mkdir(exist_ok=True)
+_MODEL_PATH  = _MODEL_DIR / "kpi22_kmeans.joblib"
+_MODEL_MAX_AGE_DAYS = 7
 
 # ── DDL ──────────────────────────────────────────────────────────────────────
 _DDL = """
@@ -126,19 +132,38 @@ def _score_rfm(df: pd.DataFrame) -> pd.DataFrame:
 
 # ── K-Means clustering ────────────────────────────────────────────────────────
 
-def _cluster(df: pd.DataFrame, n_clusters: int) -> tuple[pd.DataFrame, float, float]:
+def _cluster(
+    df: pd.DataFrame,
+    n_clusters: int,
+) -> tuple[pd.DataFrame, float, float]:
     """
-    Fit K-Means on [r_score, f_score, m_score] and return:
-    - df with cluster_id column
-    - silhouette score
-    - inertia
+    Fit K-Means on [r_score, f_score, m_score].
+
+    Labeling strategy — centroid rank:
+      Clusters are sorted by their weighted rfm_composite centroid value
+      (same weights as _score_rfm: R×0.25 + F×0.30 + M×0.45).
+      The cluster with the highest composite gets label index 0 (Champion),
+      the lowest gets the last label (Dormant/Nouveau).
+      This guarantees each cluster has a unique, data-driven label
+      regardless of the number of clusters or random initialisation.
+
+    Model persistence:
+      Fitted model is saved to ml/models/kpi22_kmeans.joblib and reloaded
+      on subsequent runs if it is < 7 days old, avoiding unnecessary
+      retraining on unchanged data.
+
+    Returns (df_with_labels, silhouette_score, inertia).
     """
     try:
+        import joblib
         from sklearn.cluster import KMeans
         from sklearn.preprocessing import StandardScaler
         from sklearn.metrics import silhouette_score
     except ImportError:
-        raise ImportError("scikit-learn required. Run: pip install scikit-learn --break-system-packages")
+        raise ImportError(
+            "scikit-learn and joblib are required. "
+            "Run: pip install scikit-learn joblib"
+        )
 
     features = ["r_score", "f_score", "m_score"]
     X = df[features].values.astype(float)
@@ -146,52 +171,89 @@ def _cluster(df: pd.DataFrame, n_clusters: int) -> tuple[pd.DataFrame, float, fl
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    kmeans = KMeans(
-        n_clusters=n_clusters,
-        init="k-means++",
-        n_init=20,
-        max_iter=500,
-        random_state=42,
-    )
-    labels = kmeans.fit_predict(X_scaled)
+    # ── model persistence: reload if fresh enough ─────────────────────────
+    kmeans = None
+    if _MODEL_PATH.exists():
+        model_age_days = (
+            datetime.now(timezone.utc).timestamp()
+            - _MODEL_PATH.stat().st_mtime
+        ) / 86400
+        if model_age_days < _MODEL_MAX_AGE_DAYS:
+            try:
+                saved = joblib.load(_MODEL_PATH)
+                if saved.get("n_clusters") == n_clusters:
+                    kmeans = saved["model"]
+                    scaler = saved["scaler"]
+                    X_scaled = scaler.transform(X)
+                    logger.info(
+                        f"[KPI-22] Loaded model from cache "
+                        f"(age={model_age_days:.1f}d, k={n_clusters})"
+                    )
+            except Exception as exc:
+                logger.warning(f"[KPI-22] Cache load failed ({exc}), retraining.")
+                kmeans = None
 
-    # Quality metrics
-    sil = float(silhouette_score(X_scaled, labels)) if len(set(labels)) > 1 else 0.0
+    if kmeans is None:
+        kmeans = KMeans(
+            n_clusters=n_clusters,
+            init="k-means++",
+            n_init=20,
+            max_iter=500,
+            random_state=42,
+        )
+        kmeans.fit(X_scaled)
+        try:
+            joblib.dump(
+                {"model": kmeans, "scaler": scaler, "n_clusters": n_clusters},
+                _MODEL_PATH,
+            )
+            logger.info(f"[KPI-22] Model saved to {_MODEL_PATH}")
+        except Exception as exc:
+            logger.warning(f"[KPI-22] Could not save model: {exc}")
+
+    labels  = kmeans.predict(X_scaled)
     inertia = float(kmeans.inertia_)
 
-    logger.info(f"[KPI-22] K-Means: k={n_clusters} | silhouette={sil:.3f} | inertia={inertia:,.0f}")
+    # ── silhouette score (cross-validation quality metric) ────────────────
+    sil = float(silhouette_score(X_scaled, labels)) if len(set(labels)) > 1 else 0.0
+    logger.info(
+        f"[KPI-22] K-Means: k={n_clusters} | "
+        f"silhouette={sil:.3f} | inertia={inertia:,.0f}"
+    )
 
     df = df.copy()
     df["cluster_id"] = labels
 
-    # Label each cluster by its centroid profile (inverse-transform for readability)
-    centroids = scaler.inverse_transform(kmeans.cluster_centers_)
-    centroid_df = pd.DataFrame(centroids, columns=features)
+    # ── centroid-rank labeling ────────────────────────────────────────────
+    # Available labels ordered from best to worst customer profile.
+    # The number of labels used equals min(n_clusters, len(SEGMENT_LABELS)).
+    SEGMENT_LABELS = ["Champion", "Fidèle", "Potentiel", "À risque", "Dormant"]
+
+    centroids_raw = scaler.inverse_transform(kmeans.cluster_centers_)
+    centroid_df   = pd.DataFrame(centroids_raw, columns=features)
     centroid_df["cluster_id"] = range(n_clusters)
 
-    def _label_cluster(row) -> str:
-        r = row["r_score"]
-        f = row["f_score"]
-        m = row["m_score"]
-        # High R score (low recency), high F, high M → Champion
-        if r >= 4 and f >= 4 and m >= 4:
-            return "Champion"
-        if r >= 3 and f >= 3 and m >= 3:
-            return "Fidèle"
-        if r >= 3 and (f >= 2 or m >= 3):
-            return "À risque"
-        if r <= 2 and f == 1 and m <= 2:
-            return "Dormant"
-        if f == 1 and m <= 2:
-            return "Nouveau"
-        return "À risque"
+    # Weighted composite of centroid coordinates — same weights as _score_rfm
+    centroid_df["centroid_composite"] = (
+        0.25 * centroid_df["r_score"] +
+        0.30 * centroid_df["f_score"] +
+        0.45 * centroid_df["m_score"]
+    )
 
-    centroid_df["rfm_segment"] = centroid_df.apply(_label_cluster, axis=1)
+    # Rank clusters: 0 = highest composite (best customers)
+    centroid_df = centroid_df.sort_values("centroid_composite", ascending=False)
+    centroid_df["rfm_segment"] = [
+        SEGMENT_LABELS[i] if i < len(SEGMENT_LABELS) else f"Cluster {i}"
+        for i in range(len(centroid_df))
+    ]
     cluster_labels = dict(zip(centroid_df["cluster_id"], centroid_df["rfm_segment"]))
 
     df["rfm_segment"] = df["cluster_id"].map(cluster_labels)
 
-    logger.info(f"[KPI-22] Cluster distribution:\n{df['rfm_segment'].value_counts().to_string()}")
+    logger.info(
+        f"[KPI-22] Répartition par segment :\n"
+        f"{df['rfm_segment'].value_counts().to_string()}"
+    )
 
     return df, sil, inertia
 
@@ -228,7 +290,7 @@ def _find_optimal_k(df: pd.DataFrame, k_min: int = 3, k_max: int = 7) -> int:
 # ── save & write-back ─────────────────────────────────────────────────────────
 
 def _save(df: pd.DataFrame, sil: float, inertia: float) -> None:
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     with DW_ENGINE.begin() as conn:
         conn.execute(
             text("DELETE FROM ML_KPI22_RFM_SEGMENTS WHERE run_date = :d"),

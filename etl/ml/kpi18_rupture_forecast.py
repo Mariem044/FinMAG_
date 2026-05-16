@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import argparse
 import warnings
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -29,6 +30,11 @@ from etl.config import DW_ENGINE
 from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+_MODEL_DIR = Path(__file__).parent / "models"
+_MODEL_DIR.mkdir(exist_ok=True)
+_MODEL_PATH = _MODEL_DIR / "kpi18_consumption.joblib"
+_MODEL_MAX_AGE_DAYS = 7
 
 # ── DDL ──────────────────────────────────────────────────────────────────────
 _DDL = """
@@ -116,48 +122,106 @@ def _load_sales_history() -> pd.DataFrame:
 
 def _predict_consumption(sales_df: pd.DataFrame) -> pd.DataFrame:
     """
-    For each article, fit a simple linear regression on monthly consumption
-    over time (trend detection). Returns predicted daily consumption and R².
+    Pour chaque article, ajuste une régression linéaire sur la consommation
+    mensuelle pour détecter une tendance. Renvoie la consommation prédite
+    par jour et le R² par article.
 
-    Falls back to simple mean when fewer than 3 data points.
+    Persistance : les modèles entraînés sont sauvegardés dans un dict
+    sérialisé (joblib). Si le fichier a moins de 7 jours, il est rechargé
+    sans ré-entraînement.
     """
-    from sklearn.linear_model import LinearRegression  # type: ignore
-    from sklearn.metrics import r2_score               # type: ignore
+    try:
+        import joblib
+        from sklearn.linear_model import LinearRegression  # type: ignore
+        from sklearn.metrics import r2_score               # type: ignore
+    except ImportError:
+        raise ImportError("scikit-learn and joblib are required.")
 
-    results = []
+    # ── try to load cached models ───────────────────────────────────
+    article_ids_set = set(sales_df["id_article"].unique())
+    cached_models   = None
+    if _MODEL_PATH.exists():
+        age_days = (
+            datetime.now(timezone.utc).timestamp() - _MODEL_PATH.stat().st_mtime
+        ) / 86400
+        if age_days < _MODEL_MAX_AGE_DAYS:
+            try:
+                cached = joblib.load(_MODEL_PATH)
+                if cached.get("article_ids") == article_ids_set:
+                    cached_models = cached["models"]
+                    logger.info(
+                        f"[KPI-18] Loaded consumption models from cache "
+                        f"(age={age_days:.1f}d, {len(cached_models)} articles)"
+                    )
+            except Exception as exc:
+                logger.warning(f"[KPI-18] Cache load failed ({exc}), retraining.")
+
+    if cached_models is not None:
+        # Reconstruct results from cached slopes/intercepts
+        results = []
+        for id_article, rec in cached_models.items():
+            results.append({
+                "id_article":      id_article,
+                "conso_jour_moy":  rec["conso_jour_moy"],
+                "conso_jour_pred": rec["conso_jour_pred"],
+                "confiance":       rec["confiance"],
+            })
+        return pd.DataFrame(results)
+
+    # ── train per-article ───────────────────────────────────────────
+    results       = []
+    models_cache  = {}
+    r2_values     = []
 
     for id_article, grp in sales_df.groupby("id_article"):
-        grp = grp.sort_values("mois_date")
-        n   = len(grp)
-
-        # Convert month to numeric index (0, 1, 2, …)
-        grp = grp.copy()
-        grp["t"] = range(n)
+        grp = grp.sort_values("mois_date").copy()
+        grp["t"] = range(len(grp))
+        n = len(grp)
         y = grp["qte_vendue"].values.astype(float)
 
         if n < 3:
-            # Not enough data — use mean
-            conso_moy_mensuelle = float(y.mean()) if n > 0 else 0.0
-            r2 = 0.0
+            conso_moy = float(y.mean()) if n > 0 else 0.0
+            r2        = 0.0
+            conso_pred = conso_moy
         else:
             X = grp[["t"]].values
             model = LinearRegression()
             model.fit(X, y)
-            y_pred = model.predict(X)
-            r2 = max(0.0, float(r2_score(y, y_pred)))
+            y_pred     = model.predict(X)
+            r2         = max(0.0, float(r2_score(y, y_pred)))
+            conso_pred = max(0.0, float(model.predict([[n]])[0]))
+            conso_moy  = float(y.mean())
 
-            # Predict next period (t = n)
-            next_pred = float(model.predict([[n]])[0])
-            conso_moy_mensuelle = max(0.0, next_pred)
+        r2_values.append(r2)
+        conso_jour_moy  = conso_moy  / 30.0
+        conso_jour_pred = conso_pred / 30.0
 
-        conso_jour = conso_moy_mensuelle / 30.0
+        rec = {
+            "conso_jour_moy":  conso_jour_moy,
+            "conso_jour_pred": conso_jour_pred,
+            "confiance":       round(r2 * 100, 2),
+        }
+        results.append({"id_article": id_article, **rec})
+        models_cache[id_article] = rec
 
-        results.append({
-            "id_article":       id_article,
-            "conso_jour_moy":   float(y.mean() / 30.0) if len(y) > 0 else 0.0,
-            "conso_jour_pred":  conso_jour,
-            "confiance":        round(r2 * 100, 2),
-        })
+    # Log CV summary
+    if r2_values:
+        import numpy as _np
+        logger.info(
+            f"[KPI-18] Entraînement terminé — "
+            f"R² moyen={_np.mean(r2_values):.3f} ± {_np.std(r2_values):.3f} "
+            f"({len(r2_values)} articles)"
+        )
+
+    # Save to cache
+    try:
+        joblib.dump(
+            {"models": models_cache, "article_ids": article_ids_set},
+            _MODEL_PATH,
+        )
+        logger.info(f"[KPI-18] Modèles sauvegardés dans {_MODEL_PATH}")
+    except Exception as exc:
+        logger.warning(f"[KPI-18] Impossible de sauvegarder les modèles : {exc}")
 
     return pd.DataFrame(results)
 
@@ -216,7 +280,7 @@ def _compute_rupture_dates(
 # ── save results ─────────────────────────────────────────────────────────────
 
 def _save(df: pd.DataFrame) -> None:
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     with DW_ENGINE.begin() as conn:
         conn.execute(
             text("DELETE FROM ML_KPI18_RUPTURE_FORECAST WHERE run_date = :d"),

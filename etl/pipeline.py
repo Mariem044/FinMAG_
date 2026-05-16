@@ -326,33 +326,33 @@ def _resolve_gouvernorat_sql(df: pd.DataFrame) -> pd.Series:
 
 
 # ── kept for reference only — business logic is now in REF_GOUVERNORAT_MAPPING
-# def _normalize_gouvernorat(code_region: str) -> str: ...
+
         "TUNIS": ["TUNIS", "MONTPLAISIR", "LE BARDO", "BARDO",
-                  "EZZAHROUNI", "OMRANE", "AGBA", "ETTADHAMEN",
-                  "MARCHE CENTRAL", "MALASINE", "LAKANIA",
-                  "BEB EL KHADHRA/BEB SOUIKA", "MUTUELLE VILLE/BELVEDAIRE", "MONTFLEURY", "MONFLEURIE", "MONFLEURY",
-                  "MUTUELLE VILLE", "BELVEDAIRE", "BELVEDERE", "OUARDIA", "CITE EL KHADHRA",
-                  "CITE EL KADHRA", "IBN SINA", "LAFAYETTE", "BAB EL KHADHRA", "BAB JDID",
-                  "BAB SAADOUN", "BEB EL KHADHRA", "KHAZNADAR", "CITE NASSER", "CITE NACER",
-                  "CITE ENASSR", "DJEBEL LAHMAR", "DJEBAL LAHMAR", "JBAL LAHMER", "JBAL JLOUD",
-                  "DJEBEL JLOUD", "JEBAL JLOUD", "SIJOUMI", "CENTRAL", "CENTRE VILLE",
-                  "TUNIS 1", "TUNIS 2", "TUNIS 3", "TUNIS 4", "TUNIS NORD", " TUNIS"],
+            "EZZAHROUNI", "OMRANE", "AGBA", "ETTADHAMEN",
+            "MARCHE CENTRAL", "MALASINE", "LAKANIA",
+            "BEB EL KHADHRA/BEB SOUIKA", "MUTUELLE VILLE/BELVEDAIRE", "MONTFLEURY", "MONFLEURIE", "MONFLEURY",
+            "MUTUELLE VILLE", "BELVEDAIRE", "BELVEDERE", "OUARDIA", "CITE EL KHADHRA",
+            "CITE EL KADHRA", "IBN SINA", "LAFAYETTE", "BAB EL KHADHRA", "BAB JDID",
+            "BAB SAADOUN", "BEB EL KHADHRA", "KHAZNADAR", "CITE NASSER", "CITE NACER",
+            "CITE ENASSR", "DJEBEL LAHMAR", "DJEBAL LAHMAR", "JBAL LAHMER", "JBAL JLOUD",
+            "DJEBEL JLOUD", "JEBAL JLOUD", "SIJOUMI", "CENTRAL", "CENTRE VILLE",
+            "TUNIS 1", "TUNIS 2", "TUNIS 3", "TUNIS 4", "TUNIS NORD", " TUNIS"],
         "TUNIS BANLIEUE NORD": ["TUNIS BLN 1", "TUNIS BLN 2", "BANLIEUE NORD",
-                                 "Tunis BLN 3", "URBAIN NORD"],
+                        "Tunis BLN 3", "URBAIN NORD"],
         "ARIANA": ["ARIANA", "EL GHAZELA", "ARIANA 1", "ARIANA SUPERIEUR", "ARIANA SUPÉRIEUR",
-                   "RAOUED", "RAOUED-GHAZELA", "GHAZELA/RAWED", "CITE-GHAZELLA",
-                   "LA SOUKRA", "SOUKRA", "SOKRA", "SIDI THABET", "SIDI THABET-K.ANDALOSS",
-                   "KALAAT ANDALOUS", "KALAA ANDALOUS", "KALLAAT EL ANDALOS", "KALALA ANDALUS",
-                   "MNIHLA", "MNIHLA TUNIS", "RIADH ANDALOUS", " ARIANA", " ARINA"],
+                "RAOUED", "RAOUED-GHAZELA", "GHAZELA/RAWED", "CITE-GHAZELLA",
+                "LA SOUKRA", "SOUKRA", "SOKRA", "SIDI THABET", "SIDI THABET-K.ANDALOSS",
+                "KALAAT ANDALOUS", "KALAA ANDALOUS", "KALLAAT EL ANDALOS", "KALALA ANDALUS",
+                "MNIHLA", "MNIHLA TUNIS", "RIADH ANDALOUS", " ARIANA", " ARINA"],
         "BEN AROUS": ["BEN AROUS", "BEN AROUS 1", "CITE TADHAMON", "BEN AROUS 2", "MOUROUJ", "MOUROUJ 3",
-                      "MOUROUJ 4", "MOUROUJ 5", "MOUROUJ 6", "MOROUJ II", "MOUROJ II",
-                      "MOUROUHJ", "MOROUJ 3", "MOROUJ 4", "FOUCHANA", "FOUCHENA",
-                      "EZZAHRA", " EZZAHRA", "RADES", "MORNAG", "MORNEG", "MORNEGUE",
-                      "BOUMHEL", "BOUMHAL", " BOUMHAL", "BOUMHAL BASSATINE", "MEGRINE",
-                      "HAMMAM LIFF", "HAMMAM LIF", "HAMMEM LIFE", "H.LIF", "BORJ CEDRIA",
-                      "  BORJ CEDRIA", " BORJ CEDRIA 2", "MHAMDIA", "ELMHAMDIA",
-                      "BOU MHL EL BASSATINE", " BEN AROUS", "BEN AROUS/OUARDIA-002",
-                      "TUNIS 4", "BANLIEUE SUD"],
+                    "MOUROUJ 4", "MOUROUJ 5", "MOUROUJ 6", "MOROUJ II", "MOUROJ II",
+                    "MOUROUHJ", "MOROUJ 3", "MOROUJ 4", "FOUCHANA", "FOUCHENA",
+                    "EZZAHRA", " EZZAHRA", "RADES", "MORNAG", "MORNEG", "MORNEGUE",
+                    "BOUMHEL", "BOUMHAL", " BOUMHAL", "BOUMHAL BASSATINE", "MEGRINE",
+                    "HAMMAM LIFF", "HAMMAM LIF", "HAMMEM LIFE", "H.LIF", "BORJ CEDRIA",
+                    "  BORJ CEDRIA", " BORJ CEDRIA 2", "MHAMDIA", "ELMHAMDIA",
+                    "BOU MHL EL BASSATINE", " BEN AROUS", "BEN AROUS/OUARDIA-002",
+                    "TUNIS 4", "BANLIEUE SUD"],
         "MANOUBA": ["MANOUBA", "MANNOUBA", "KSAR SAID",
                     "KSAR SAID - CITE ETTAHRIR", "NAASEN", "SLIMEN", "MGHIRA", "MNNOUBA", "LA MANOUBA", "OUED ELLIL",
                     "OUED ELIL", "DAOUAR HICHER", "DOUAR HICHER", "DOWAR HICHER",
@@ -377,71 +377,71 @@ def _resolve_gouvernorat_sql(df: pd.DataFrame) -> pd.Series:
                     "CAP ZBIB / METLINE", "METLINE", "TINJA", "NEFZA", "NEFZA-BEJA",
                     "TABARKA", "TBARKA", "EL ALIA", "BIZERTE I "],
         "NABEUL": ["NABEUL", "CAP BON", "CAP BON 1", "CAP BON 2", "CAP BON 3",
-                   "HAMMAMET", "KORBA", "KELIBIA", "GROMBALIA", "GROMBELIA",
-                   "MENZEL TEMIME", "MANZEL TMIME", "MENZEL TMIM", "MENZEL BOUZELFA",
-                   "MANZEL BOUZELFA", "MENZEL ABDERRAHMEN", "BEN KHALLED", " NABEUL",
-                   "BENI KHALED", "BENI KHIAR", " BNI KHIAR", "DAR CHAABANE",
-                   "BOUARGOUB", "BOUARADA", "EL HAOUARIA", "TAKELSA", "ENFIDHA",
-                   "MHEDHBA NABEUL"],
+                "HAMMAMET", "KORBA", "KELIBIA", "GROMBALIA", "GROMBELIA",
+                "MENZEL TEMIME", "MANZEL TMIME", "MENZEL TMIM", "MENZEL BOUZELFA",
+                "MANZEL BOUZELFA", "MENZEL ABDERRAHMEN", "BEN KHALLED", " NABEUL",
+                "BENI KHALED", "BENI KHIAR", " BNI KHIAR", "DAR CHAABANE",
+                "BOUARGOUB", "BOUARADA", "EL HAOUARIA", "TAKELSA", "ENFIDHA",
+                "MHEDHBA NABEUL"],
         "ZAGHOUAN": ["ZAGHOUAN", "ZAGOUAN", "ZAGHOUEN", "ZAGHOUANE", "ZAGHOUENE",
-                     "ZAGHOUEN1142", " ZAGHOUEN", "EL FAHS", "FAHS", "TESTOUR",
-                     "JILMA", "SMINJA", "NADHOUR"],
+                    "ZAGHOUEN1142", " ZAGHOUEN", "EL FAHS", "FAHS", "TESTOUR",
+                    "JILMA", "SMINJA", "NADHOUR"],
         "SOUSSE": ["SOUSSE", "SOUSSE MEDINA", "SOUSSE ERRIADH", "HAMMAM SOUSSE",
-                   "HAMMEM SOUSSE", "HAMMEM SAYELA", "AKOUDA", "KALAA KEBIRA",
-                   "KALAA SGHIRA", "MSAKEN", "MSEKEN", " MSEKEN", "SAHEL", " SOUSSE",
-                   "HAMMAM CHOTT"],
+                "HAMMEM SOUSSE", "HAMMEM SAYELA", "AKOUDA", "KALAA KEBIRA",
+                "KALAA SGHIRA", "MSAKEN", "MSEKEN", " MSEKEN", "SAHEL", " SOUSSE",
+                "HAMMAM CHOTT"],
         "MONASTIR": ["Monastir", "MONASTIR", "MONESTIR", "MSAKEN", "MOKNINE",
-                     "TEBOULBA", "TBOLBA", "TEBBOUBA", "KSIBET MADIOUNI",
-                     "KSIBET EL MEDIOUNI", "KSAR HELLAL", "JAMMEL", "BEKALTA",
-                     "ZERMADINE", "MOROUJ II"],
+                    "TEBOULBA", "TBOLBA", "TEBBOUBA", "KSIBET MADIOUNI",
+                    "KSIBET EL MEDIOUNI", "KSAR HELLAL", "JAMMEL", "BEKALTA",
+                    "ZERMADINE", "MOROUJ II"],
         "MAHDIA": ["MAHDIA", " MAHDIA", "EL DJEM", "EL JAM", "EL JEM", "JAM",
-                   "KSOUR ESSEF", "KSOUR ESSAF", "CHEBBA", "SOUASSI", "SOUASSI JEM",
-                   "ESSOUASSI", "BOUHAJLA"],
+                "KSOUR ESSEF", "KSOUR ESSAF", "CHEBBA", "SOUASSI", "SOUASSI JEM",
+                "ESSOUASSI", "BOUHAJLA"],
         "KAIROUAN": ["KAIROUAN", "KAIRAOUEN", "KAIRAOUANE", "KAIRAOUAN", " KAIRAOUEN",
-                     "KAIROUAN NORD", "KAIROUAN SUD", "KAIROUAN NORD", "KAIROUAN SUD",
-                     "HAJEB EL AYOUN", "JILMA", "NASRALLAH", "SBIKHA",
-                     "EL OUSLATIA", "BOUHAJLA", "HAFOUZ CENTER"],
+                    "KAIROUAN NORD", "KAIROUAN SUD", "KAIROUAN NORD", "KAIROUAN SUD",
+                    "HAJEB EL AYOUN", "JILMA", "NASRALLAH", "SBIKHA",
+                    "EL OUSLATIA", "BOUHAJLA", "HAFOUZ CENTER"],
         "KASSERINE": ["KASSERINE", "KASSERINE NORD", "FERIANA", "FOUSSANA", "SBEITLA",
-                      "SBIBA", "GASRINE", "ECHEBIKA"],
+                    "SBIBA", "GASRINE", "ECHEBIKA"],
         "SIDI BOUZID": ["SIDI BOUZID", "SIDI BOUZID EST", "SIDI BOUZID OUEST",
                         "MEKNASSY", "REGUEB", "JILMA", "SIDI ALI BEN AOUN",
                         "MENZEL BOUZAIANE", "NASRALLAH"],
         "SFAX": ["SFAX", " SFAX"],
         "GABES": ["GABES", "BEN GARDEN"],
         "BEJA": ["BEJA", "BÉJA SUD", "BÉJA NORD", "TEBOURSOUK", "TEBOURSEK",
-                 "TESTOUR", "GOUBELLAT", "NEFZA", "AMDOUN", "MEDJEZ EL BAB",
-                 "TEBOURSEK JENDOUBA", "TBARKA", "BOUSSALEM", "OUED MLIZ",
-                 "BARGOU SELIANA", "GAAFOUR", "SILIA GAAFOUR", "BOUSALEM"],
+            "TESTOUR", "GOUBELLAT", "NEFZA", "AMDOUN", "MEDJEZ EL BAB",
+            "TEBOURSEK JENDOUBA", "TBARKA", "BOUSSALEM", "OUED MLIZ",
+            "BARGOU SELIANA", "GAAFOUR", "SILIA GAAFOUR", "BOUSALEM"],
         "JENDOUBA": ["JENDOUBA", "JANDOUBA", "JENDOUBA NORD", "JENDOUBA SUD",
-                     "JENDOUBA CENTRE", " JENDOUBA", "FERNANA", "GHARDIMAOU",
-                     "BALTA", "SAKIET SIDI YOUSSEF", "AIN DRAHAM", "OUED MLIZ",
-                     "TABARKA", "BOUSSALEM"],
+                "JENDOUBA CENTRE", " JENDOUBA", "FERNANA", "GHARDIMAOU",
+                "BALTA", "SAKIET SIDI YOUSSEF", "AIN DRAHAM", "OUED MLIZ",
+                "TABARKA", "BOUSSALEM"],
         "KEF": ["KEF", "EL KEF", "LE KEF", " EL KEF", "KEF OUEST",
                 "TAJEROUINE", "TEJROUINE", "TEJEROUINE", "SAKIET SIDI YOUSSEF",
                 "EL KSOUR KEF", "KRIB", "SILIANA GAAFOUR"],
         "SILIANA": ["SILIANA", "SELIANA", "SELINA", "SILIA", "Siliana Nord",
                     "BARGOU SELIANA", "BOUSSALEM", "MAKTHAR", "GAAFOUR"],
         "GAFSA": ["GAFSA", "GAFSA SUD", "GAFSA NORD", "METLAOUI", "REDEYEF",
-                  "MDHILA", "EL GUETAR", "ECHEBIKA"],
+                "MDHILA", "EL GUETAR", "ECHEBIKA"],
         "TOZEUR": ["TOZEUR", "NEFTA"],
         "KEBILI": ["KEBILI", "DOUZ"],
         "TATAOUINE": ["TATAOUINE"],
         "MEDENINE": ["MEDENINE", "BEN GARDEN", "ZARZIS", "HOUMT SOUK"],
         "CARTHAGE": ["CARTHAGE", "GAMMARTH", "LA MARSA", "LA MARSA/SIDI BOUSAID",
-                     "MARSA", "EL MARSA", "SIDI BOU SAID", "CARTHAGE BYRSA",
-                     "CARTHAGE BIRSA", "BHAR LAZREG", "AIN ZAGOUANE",
-                     "AIN ZAGHOUANE", "AIN ZAGHOUAN", "AIN ZAGHWEN",
-                     "AIN ZAGOUANE ", "AIN ZAGHOUEN ", "AIN ZAGHOUANE ",
-                     "AIN ZAGHWEN/SIDI DAOUD", "AIN ZAGOUANE SIDI DAOUD",
-                     "SIDI DAOUD", "SIDI DAOUED", "EL MANAR", "MANZAH",
-                     "MANZAH 6", "MANZAH 7", "MANZAH ", "MENZAH ", "MONTFLEURIE",
-                     "LE KRAM", "LE KRAM ", "KRAM", "EL KRAM", "LE KRAM OUEST",
-                     "LE KRAM EAST", "LA KRAM OUEST", "LA GOULETTE",
-                     "LA GOULETTE/LE KRAM", "LA GOULETTE/KRAM",
-                     "BORJ LOUZIR", "IBN KHALDOUN"],
+                    "MARSA", "EL MARSA", "SIDI BOU SAID", "CARTHAGE BYRSA",
+                    "CARTHAGE BIRSA", "BHAR LAZREG", "AIN ZAGOUANE",
+                    "AIN ZAGHOUANE", "AIN ZAGHOUAN", "AIN ZAGHWEN",
+                    "AIN ZAGOUANE ", "AIN ZAGHOUEN ", "AIN ZAGHOUANE ",
+                    "AIN ZAGHWEN/SIDI DAOUD", "AIN ZAGOUANE SIDI DAOUD",
+                    "SIDI DAOUD", "SIDI DAOUED", "EL MANAR", "MANZAH",
+                    "MANZAH 6", "MANZAH 7", "MANZAH ", "MENZAH ", "MONTFLEURIE",
+                    "LE KRAM", "LE KRAM ", "KRAM", "EL KRAM", "LE KRAM OUEST",
+                    "LE KRAM EAST", "LA KRAM OUEST", "LA GOULETTE",
+                    "LA GOULETTE/LE KRAM", "LA GOULETTE/KRAM",
+                    "BORJ LOUZIR", "IBN KHALDOUN"],
         "LA MANOUBA": ["LA MANOUBA", "MANNOUBA"],
         "hors zone": ["hors zone", "HORS ZONE", "hors zone (RAOUED)",
-                      "hors zone (cite nasser)", "DIVERS"],
+                    "hors zone (cite nasser)", "DIVERS"],
     }
 
 
@@ -1046,10 +1046,7 @@ def _build_lignes_vente_transform(last_run_date):
                 date_extraction=datetime.now(timezone.utc).date(),
             )
         )
-    return _transform
-
-
-STEPS: List[PipelineStep] = [
+  STEPS: List[PipelineStep] = [
 
     PipelineStep(
         table_name="DIM_DATE",
@@ -1058,180 +1055,232 @@ STEPS: List[PipelineStep] = [
         load_fn=lambda df, tbl, mode: _load_dim_date(df, tbl, mode),
         description="Génère la dimension calendaire de DIM_DATE_START à DIM_DATE_END.",
     ),
-
     PipelineStep(
         table_name="DIM_DOMAINE",
-     lambda **kw: extract.extract_static_dims()["DIM_DOMAINE"],
-     None,
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="DO_Domaine")),
-
-    ("DIM_TYPE_DOC",
-     lambda **kw: extract.extract_static_dims()["DIM_TYPE_DOC"],
-     None,
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="DO_Type")),
-
-    ("DIM_MODE_REGLEMENT",
-     lambda **kw: extract.extract_static_dims()["DIM_MODE_REGLEMENT"],
-     None,
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="RT_Mode")),
-
-    ("DIM_ETAT_REGLEMENT",
-     lambda **kw: extract.extract_static_dims()["DIM_ETAT_REGLEMENT"],
-     None,
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="RT_Etat")),
-
-    ("DIM_ETAT_DOCREGL",
-     lambda **kw: extract.extract_static_dims()["DIM_ETAT_DOCREGL"],
-     None,
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="DR_Regle")),
-
-    ("DIM_TYPE_LIGNE",
-     lambda **kw: extract.extract_static_dims()["DIM_TYPE_LIGNE"],
-     None,
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="type_ligne")),
-
-    ("DIM_SENS_ECRITURE",
-     lambda **kw: extract.extract_static_dims()["DIM_SENS_ECRITURE"],
-     None,
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="EC_Sens")),
-
-    ("DIM_TYPE_TVA",
-     lambda **kw: extract.extract_static_dims()["DIM_TYPE_TVA"],
-     None,
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="type_tva")),
-
-    ("DIM_TYPE_MVT_CAISSE",
-     lambda **kw: extract.extract_dim_type_mvt_caisse(),
-     lambda df, lookups: _add_static_label(df),
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="MC_TypeMvt")),
-
-    ("DIM_SEGMENT",
-     lambda **kw: extract.extract_dim_segment(),
-     lambda df, lookups: (
-         _hash_columns(df, ["cbIndice"])
-         .assign(
-             CT_PrixTTC=lambda d: pd.to_numeric(
-                 d["CT_PrixTTC"], errors="coerce"
-             ).fillna(0).astype("Int16"),
-             libelle_segment=lambda d: (
-                 d["cbIndice"]
-                 .map(lambda v: SEGMENTS.get(int(v), f"Segment {v}"))
-                 .str[:100]
-             ),
-         )
-     ),
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="cbIndice_code")),
-
-    ("DIM_COLLABORATEUR",
-     lambda **kw: extract.extract_dim_collaborateur(kw.get("last_run")),
-     lambda df, lookups: df.assign(
-         CO_Fonction=lambda d: (
-             pd.to_numeric(d["CO_Fonction"], errors="coerce")
-             .pipe(lambda s: s.astype(object).where(s.notna(), other=None))
-             .astype("Int32")
-         )
-     ),
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CO_No")),
-
-    ("DIM_JOURNAL",
-     lambda **kw: extract.extract_dim_journal(kw.get("last_run")),
-     lambda df, lookups: _hash_columns(df, ["JO_Num"]),
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="JO_Num_code")),
-
-    ("DIM_FOURNISSEUR",
-     lambda **kw: extract.extract_dim_fournisseur(kw.get("last_run")),
-     lambda df, lookups: _hash_columns(df, ["CT_Num"]),
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CT_Num_code")),
-
-    ("DIM_BANQUE",
-     lambda **kw: pd.DataFrame(),
-     lambda df, lookups: _assemble_dim_banque(lookups),
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="EB_Abrege_code")),
-
-    ("DIM_FAMILLE",
-     lambda **kw: extract.extract_dim_famille(),
-     lambda df, lookups: _transform_dim_famille(df),
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="FA_CodeFamille_code")),
-
-    ("DIM_CLIENT",
-     lambda **kw: extract.extract_dim_client_mag(kw.get("last_run")),
-     lambda df, lookups: (
-         df.copy()
-         .merge(extract.extract_dim_client_grt(), on="CT_Num", how="left")
-         .pipe(_hash_columns, ["CT_Num"])
-         .assign(
-             id_segment=lambda d: d["N_CatTarif"].apply(
-                 lambda v: lookups.get("DIM_SEGMENT", {}).get(
-                     transform.hash_key(int(v)) if v is not None and str(v).strip().isdigit() else transform.hash_key(v)
-                 )
-             ),
-             id_collab=lambda d: d["CO_No"].map(lookups.get("DIM_COLLABORATEUR", {})),
-             CT_Intitule=lambda d: d["CT_Intitule"].str.strip().str[:100] if "CT_Intitule" in d.columns else None,
-             CT_Ville=lambda d: d["CT_Ville"].str.strip().str[:50] if "CT_Ville" in d.columns else None,
-             CT_CodeRegion=lambda d: d["CT_CodeRegion"].str.strip().str[:50] if "CT_CodeRegion" in d.columns else None,
-         )
-         .assign(gouvernorat=lambda d: _resolve_gouvernorat_sql(d))
-         .drop_duplicates(subset=["CT_Num_code"], keep="last")
-     ),
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CT_Num_code")),
-
-    ("DIM_ARTICLE",
-     lambda **kw: extract.extract_dim_article(kw.get("last_run")),
-     lambda df, lookups: (
-         _hash_columns(df, ["AR_Ref", "FA_CodeFamille", "CT_Num_fourn"])
-         .assign(
-             id_famille=lambda d: d["FA_CodeFamille"].apply(
-                 lambda v: lookups.get("DIM_FAMILLE", {}).get(transform.hash_key(v))
-             ),
-             FA_Intitule=lambda d: d["FA_CodeFamille"].apply(
-                 lambda v: (
-                     _famille_label_lookup().get(int(transform.hash_key(v)))
-                     if v is not None and pd.notna(v) and transform.hash_key(v) is not None
-                     else None
-                 )
-             ),
-             id_fournisseur=lambda d: d["CT_Num_fourn"].apply(
-                 lambda v: lookups.get("DIM_FOURNISSEUR", {}).get(transform.hash_key(v))
-             ),
-         )
-     ),
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="AR_Ref_code")),
-    ("DIM_DEPOT",
-     lambda **kw: extract.extract_dim_depot(kw.get("last_run")),
-     lambda df, lookups: df.copy(),
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="DE_No")),
-
-    ("DIM_CAISSE",
-     lambda **kw: pd.DataFrame(),
-     lambda df, lookups: _assemble_dim_caisse(lookups),
-     lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CA_Numero_code")),
-
-    ("FAIT_LIGNES_VENTE",
-     lambda **kw: pd.concat([
-         extract.extract_fait_lignes_vente(kw.get("last_run")),
-         extract.extract_fait_lignes_achat(kw.get("last_run")),
-     ], ignore_index=True),
-     None,
-     lambda df, tbl, mode: load.load_fact(df, tbl, mode)),
-
-    ("FAIT_REGLEMENTS",
-     lambda **kw: pd.DataFrame(),
-     None,
-     lambda df, tbl, mode: load.load_fact(df, tbl, mode)),
-
-    ("FAIT_ECRITURES",
-     lambda **kw: pd.DataFrame(),
-     None,
-     lambda df, tbl, mode: load.load_fact(df, tbl, mode)),
+        extract_fn=lambda **kw: extract.extract_static_dims()["DIM_DOMAINE"],
+        transform_fn=None,
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="DO_Domaine"),
+        description="Charge les domaines Sage (Vente=0, Achat=1, Stock=2, Interne=3).",
+    ),
+    PipelineStep(
+        table_name="DIM_TYPE_DOC",
+        extract_fn=lambda **kw: extract.extract_static_dims()["DIM_TYPE_DOC"],
+        transform_fn=None,
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="DO_Type"),
+        description="Charge les types de document Sage (Facture, BL, Avoir, …).",
+    ),
+    PipelineStep(
+        table_name="DIM_MODE_REGLEMENT",
+        extract_fn=lambda **kw: extract.extract_static_dims()["DIM_MODE_REGLEMENT"],
+        transform_fn=None,
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="RT_Mode"),
+        description="Modes de règlement : Espèces, Chèque, Virement, Traite, …",
+    ),
+    PipelineStep(
+        table_name="DIM_ETAT_REGLEMENT",
+        extract_fn=lambda **kw: extract.extract_static_dims()["DIM_ETAT_REGLEMENT"],
+        transform_fn=None,
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="RT_Etat"),
+        description="États de règlement Sage (En cours, Soldé, Payé).",
+    ),
+    PipelineStep(
+        table_name="DIM_ETAT_DOCREGL",
+        extract_fn=lambda **kw: extract.extract_static_dims()["DIM_ETAT_DOCREGL"],
+        transform_fn=None,
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="DR_Regle"),
+        description="État de règlement du document (Non réglé=0, Réglé=1).",
+    ),
+    PipelineStep(
+        table_name="DIM_TYPE_LIGNE",
+        extract_fn=lambda **kw: extract.extract_static_dims()["DIM_TYPE_LIGNE"],
+        transform_fn=None,
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="type_ligne"),
+        description="Types de ligne FAIT_ECRITURES (1=Compta, 2=TVA, 3=Caisse, 4=Stock).",
+    ),
+    PipelineStep(
+        table_name="DIM_SENS_ECRITURE",
+        extract_fn=lambda **kw: extract.extract_static_dims()["DIM_SENS_ECRITURE"],
+        transform_fn=None,
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="EC_Sens"),
+        description="Sens de l'écriture comptable (Débit=0, Crédit=1).",
+    ),
+    PipelineStep(
+        table_name="DIM_TYPE_TVA",
+        extract_fn=lambda **kw: extract.extract_static_dims()["DIM_TYPE_TVA"],
+        transform_fn=None,
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="type_tva"),
+        description="Types de TVA (collectée=1, déductible=2).",
+    ),
+    PipelineStep(
+        table_name="DIM_TYPE_MVT_CAISSE",
+        extract_fn=lambda **kw: extract.extract_dim_type_mvt_caisse(),
+        transform_fn=lambda df, lookups: _add_static_label(df),
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="MC_TypeMvt"),
+        description="Types de mouvement caisse Sage (entrées, sorties, remises, …).",
+    ),
+    PipelineStep(
+        table_name="DIM_SEGMENT",
+        extract_fn=lambda **kw: extract.extract_dim_segment(),
+        transform_fn=lambda df, lookups: (
+            _hash_columns(df, ["cbIndice"])
+            .assign(
+                CT_PrixTTC=lambda d: pd.to_numeric(
+                    d["CT_PrixTTC"], errors="coerce"
+                ).fillna(0).astype("Int16"),
+                libelle_segment=lambda d: (
+                    d["cbIndice"]
+                    .map(lambda v: SEGMENTS.get(int(v), f"Segment {v}"))
+                    .str[:100]
+                ),
+            )
+        ),
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="cbIndice_code"),
+        description="Segments clients Sage (Détaillants, Grossistes, HORECA, Semi-gros, Distributeur).",
+    ),
+    PipelineStep(
+        table_name="DIM_COLLABORATEUR",
+        extract_fn=lambda **kw: extract.extract_dim_collaborateur(kw.get("last_run")),
+        transform_fn=lambda df, lookups: df.assign(
+            CO_Fonction=lambda d: (
+                pd.to_numeric(d["CO_Fonction"], errors="coerce")
+                .pipe(lambda s: s.astype(object).where(s.notna(), other=None))
+                .astype("Int32")
+            )
+        ),
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CO_No"),
+        description="Collaborateurs (commerciaux) issus de F_COLLABORATEUR.",
+    ),
+    PipelineStep(
+        table_name="DIM_JOURNAL",
+        extract_fn=lambda **kw: extract.extract_dim_journal(kw.get("last_run")),
+        transform_fn=lambda df, lookups: _hash_columns(df, ["JO_Num"]),
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="JO_Num_code"),
+        description="Journaux comptables Sage (ventes, achats, banque, caisse, OD).",
+    ),
+    PipelineStep(
+        table_name="DIM_FOURNISSEUR",
+        extract_fn=lambda **kw: extract.extract_dim_fournisseur(kw.get("last_run")),
+        transform_fn=lambda df, lookups: _hash_columns(df, ["CT_Num"]),
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CT_Num_code"),
+        description="Fournisseurs issus du plan comptable tiers Sage (CT_Type=1).",
+    ),
+    PipelineStep(
+        table_name="DIM_BANQUE",
+        extract_fn=lambda **kw: pd.DataFrame(),
+        transform_fn=lambda df, lookups: _assemble_dim_banque(lookups),
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="EB_Abrege_code"),
+        description="Comptes bancaires consolidés depuis MAG_ENGINE et GRT_ENGINE.",
+    ),
+    PipelineStep(
+        table_name="DIM_FAMILLE",
+        extract_fn=lambda **kw: extract.extract_dim_famille(),
+        transform_fn=lambda df, lookups: _transform_dim_famille(df),
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="FA_CodeFamille_code"),
+        description="Familles d'articles Sage sur 3 niveaux hiérarchiques.",
+    ),
+    PipelineStep(
+        table_name="DIM_CLIENT",
+        extract_fn=lambda **kw: extract.extract_dim_client_mag(kw.get("last_run")),
+        transform_fn=lambda df, lookups: (
+            df.copy()
+            .merge(extract.extract_dim_client_grt(), on="CT_Num", how="left")
+            .pipe(_hash_columns, ["CT_Num"])
+            .assign(
+                id_segment=lambda d: d["N_CatTarif"].apply(
+                    lambda v: lookups.get("DIM_SEGMENT", {}).get(
+                        transform.hash_key(int(v))
+                        if v is not None and str(v).strip().isdigit()
+                        else transform.hash_key(v)
+                    )
+                ),
+                id_collab=lambda d: d["CO_No"].map(lookups.get("DIM_COLLABORATEUR", {})),
+                CT_Intitule=lambda d: d["CT_Intitule"].str.strip().str[:100] if "CT_Intitule" in d.columns else None,
+                CT_Ville=lambda d: d["CT_Ville"].str.strip().str[:50] if "CT_Ville" in d.columns else None,
+                CT_CodeRegion=lambda d: d["CT_CodeRegion"].str.strip().str[:50] if "CT_CodeRegion" in d.columns else None,
+            )
+            .assign(gouvernorat=lambda d: _resolve_gouvernorat_sql(d))
+            .drop_duplicates(subset=["CT_Num_code"], keep="last")
+        ),
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CT_Num_code"),
+        description="Clients consolidés MAG+GRT. Gouvernorat résolu via REF_GOUVERNORAT_MAPPING.",
+    ),
+    PipelineStep(
+        table_name="DIM_ARTICLE",
+        extract_fn=lambda **kw: extract.extract_dim_article(kw.get("last_run")),
+        transform_fn=lambda df, lookups: (
+            _hash_columns(df, ["AR_Ref", "FA_CodeFamille", "CT_Num_fourn"])
+            .assign(
+                id_famille=lambda d: d["FA_CodeFamille"].apply(
+                    lambda v: lookups.get("DIM_FAMILLE", {}).get(transform.hash_key(v))
+                ),
+                FA_Intitule=lambda d: d["FA_CodeFamille"].apply(
+                    lambda v: (
+                        _famille_label_lookup().get(int(transform.hash_key(v)))
+                        if v is not None and pd.notna(v) and transform.hash_key(v) is not None
+                        else None
+                    )
+                ),
+                id_fournisseur=lambda d: d["CT_Num_fourn"].apply(
+                    lambda v: lookups.get("DIM_FOURNISSEUR", {}).get(transform.hash_key(v))
+                ),
+            )
+        ),
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="AR_Ref_code"),
+        description="Articles/produits depuis F_ARTICLE. Liés aux familles et fournisseurs.",
+    ),
+    PipelineStep(
+        table_name="DIM_DEPOT",
+        extract_fn=lambda **kw: extract.extract_dim_depot(kw.get("last_run")),
+        transform_fn=lambda df, lookups: df.copy(),
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="DE_No"),
+        description="Dépôts de stockage issus de F_DEPOT.",
+    ),
+    PipelineStep(
+        table_name="DIM_CAISSE",
+        extract_fn=lambda **kw: pd.DataFrame(),
+        transform_fn=lambda df, lookups: _assemble_dim_caisse(lookups),
+        load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CA_Numero_code"),
+        description="Caisses consolidées depuis MAG_ENGINE et GRT_ENGINE (F_MVTCAISSE).",
+    ),
+    PipelineStep(
+        table_name="FAIT_LIGNES_VENTE",
+        extract_fn=lambda **kw: pd.concat([
+            extract.extract_fait_lignes_vente(kw.get("last_run")),
+            extract.extract_fait_lignes_achat(kw.get("last_run")),
+        ], ignore_index=True),
+        transform_fn=None,
+        load_fn=lambda df, tbl, mode: load.load_fact(df, tbl, mode),
+        description="Lignes de documents vente + achat (DO_Domaine=0/1). Grain = une ligne de document.",
+    ),
+    PipelineStep(
+        table_name="FAIT_REGLEMENTS",
+        extract_fn=lambda **kw: pd.DataFrame(),
+        transform_fn=None,
+        load_fn=lambda df, tbl, mode: load.load_fact(df, tbl, mode),
+        description="Règlements clients et fournisseurs consolidés depuis MAG et GRT. Grain = un règlement.",
+    ),
+    PipelineStep(
+        table_name="FAIT_ECRITURES",
+        extract_fn=lambda **kw: pd.DataFrame(),
+        transform_fn=None,
+        load_fn=lambda df, tbl, mode: load.load_fact(df, tbl, mode),
+        description="Écritures multi-grain : compta (1), TVA (2), mouvements caisse (3), stock snapshot (4).",
+    ),
 ]
 
 
 def run_pipeline(force_full: bool = False) -> None:
+    """
+    Orchestrate the full ETL pipeline:
+      1. Determine load mode (full vs delta) from ETL_AUDIT.
+      2. Apply DDL migrations (CREATE tables, ALTER columns, CREATE views).
+      3. For each PipelineStep: extract → transform → load → build lookup.
+      4. Compute derived KPIs in SQL (DSI, RFM scores).
+      5. Mark the audit row SUCCESS or ERROR.
 
-    if not acquire_lock():
-        logger.error("Another ETL run is active.")
-        sys.exit(1)
-
+    Concurrency protection is handled entirely by sp_getapplock inside
+    start_run() — no application-level lock is needed here.
+    """
     if force_full:
         last_run_date, mode = None, "full"
         logger.info("Force full load requested via --full flag.")
@@ -1242,21 +1291,13 @@ def run_pipeline(force_full: bool = False) -> None:
     ddl.create_all_tables(drop_existing=False)
     ddl.apply_schema_migrations()
 
-    with DW_ENGINE.begin() as conn:
-        for label, sql in KPI18_MIGRATION:
-            try:
-                conn.execute(text(sql))
-                logger.info(f"  [MIGRATION OK] {label}")
-            except Exception as exc:
-                logger.warning(f"  [MIGRATION WARN] {label}: {exc}")
-
     thresholds = _compute_thresholds()
     global _PIPELINE_THRESHOLDS
     _PIPELINE_THRESHOLDS = thresholds["buckets_impaye"]
     logger.info(f"Thresholds computed from DW: {thresholds}")
-    run_id = start_run(mode)
-    run_finished = False
-    fk_disabled  = False
+
+    run_id      = start_run(mode)
+    fk_disabled = False
 
     lookups: Dict = {}
 
@@ -1277,13 +1318,19 @@ def run_pipeline(force_full: bool = False) -> None:
             fk_disabled = True
             logger.info("FK constraints disabled for full load.")
 
-        for (table_name, extract_fn, _transform_fn, load_fn) in STEPS:
+        for step in STEPS:
+            table_name   = step.table_name
+            extract_fn   = step.extract_fn
+            _transform_fn = step.transform_fn
+            load_fn      = step.load_fn
+
             with table_timer(run_id, table_name) as ctx:
-                logger.info(f"--- Processing {table_name} ---")
+                logger.info(f"--- [{table_name}] {step.description} ---")
 
                 transform_fn = _RUNTIME_TRANSFORMS.get(table_name, _transform_fn)
 
                 df_raw = extract_fn(last_run=last_run_date)
+                n_extracted = len(df_raw)
 
                 if table_name == "DIM_DATE":
                     df = _generate_dim_date()
@@ -1292,28 +1339,34 @@ def run_pipeline(force_full: bool = False) -> None:
                 else:
                     df = df_raw
 
+                n_loaded = len(df)
                 load_fn(df, table_name, mode)
 
                 if table_name in LOOKUP_CONFIG:
                     nat_col, surr_col = LOOKUP_CONFIG[table_name]
                     lookups[table_name] = _build_lookup(table_name, nat_col, surr_col)
 
-                ctx["rows_inserted"] = len(df)
+                ctx["rows_inserted"] = n_loaded
                 ctx["rows_updated"]  = 0
 
-        logger.info("--- Computing dsi_jours ---")
+                # Volume log — visible in ETL log and useful for profiling
+                orphaned = max(0, n_extracted - n_loaded)
+                logger.info(
+                    f"[{table_name}] extracted={n_extracted} "
+                    f"loaded={n_loaded} orphaned={orphaned}"
+                )
+
+        logger.info("--- Computing dsi_jours (stock coverage indicator) ---")
         _compute_dsi_jours(thresholds)
 
-        logger.info("--- Computing RFM scores ---")
+        logger.info("--- Computing RFM scores (client segmentation) ---")
         _compute_rfm_scores(thresholds)
 
         end_run(run_id, "SUCCESS")
-        run_finished = True
 
     except Exception as exc:
         logger.exception("ETL pipeline failed")
         end_run(run_id, "ERROR", error_msg=str(exc))
-        run_finished = True
         raise
 
     finally:
@@ -1329,3 +1382,4 @@ def run_pipeline(force_full: bool = False) -> None:
 
 if __name__ == "__main__":
     run_pipeline(force_full="--full" in sys.argv)
+

@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import argparse
 import warnings
-from datetime import date
+from datetime import datetime, timezone
+from pathlib import Path
 
 import pandas as pd
 from sqlalchemy import text
@@ -24,6 +25,11 @@ from etl.config import DW_ENGINE
 from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+_MODEL_DIR = Path(__file__).parent / "models"
+_MODEL_DIR.mkdir(exist_ok=True)
+_MODEL_PATH = _MODEL_DIR / "kpi05_prophet.joblib"
+_MODEL_MAX_AGE_DAYS = 7
 
 # ── DDL for result table ──────────────────────────────────────────────────────
 _DDL = """
@@ -77,33 +83,59 @@ def _train_and_forecast(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
     """
     Fit Prophet on df[['ds','y']] and return horizon months of forecasts
     plus the fitted values for historical periods.
+
+    Model persistence:
+      The fitted model is serialised to ml/models/kpi05_prophet.joblib.
+      On the next run, if the file is < 7 days old, the saved model is
+      reused and only prediction is re-run (no refitting), which cuts
+      typical runtime from ~60s to < 2s.
     """
     try:
+        import joblib
         from prophet import Prophet          # type: ignore
     except ImportError:
         raise ImportError(
-            "prophet is not installed. Run: pip install prophet --break-system-packages"
+            "prophet and joblib are required. "
+            "Run: pip install prophet joblib"
         )
 
-    model = Prophet(
-        yearly_seasonality=True,
-        weekly_seasonality=False,
-        daily_seasonality=False,
-        seasonality_mode="multiplicative",   # better for sales with growth
-        interval_width=0.80,
-        changepoint_prior_scale=0.15,        # allows trend changes
-    )
+    model = None
+    if _MODEL_PATH.exists():
+        model_age_days = (
+            datetime.now(timezone.utc).timestamp() - _MODEL_PATH.stat().st_mtime
+        ) / 86400
+        if model_age_days < _MODEL_MAX_AGE_DAYS:
+            try:
+                model = joblib.load(_MODEL_PATH)
+                logger.info(
+                    f"[KPI-05] Loaded Prophet model from cache "
+                    f"(age={model_age_days:.1f}d)"
+                )
+            except Exception as exc:
+                logger.warning(f"[KPI-05] Cache load failed ({exc}), retraining.")
+                model = None
 
-    # Add Tunisian/Islamic holidays manually (Ramadan effect on FMCG)
-    model.add_seasonality(name="ramadan_approx", period=354.37, fourier_order=3)
+    if model is None:
+        model = Prophet(
+            yearly_seasonality=True,
+            weekly_seasonality=False,
+            daily_seasonality=False,
+            seasonality_mode="multiplicative",
+            interval_width=0.80,
+            changepoint_prior_scale=0.15,
+        )
+        # Ramadan seasonality (approximate 354.37-day Islamic year)
+        model.add_seasonality(name="ramadan_approx", period=354.37, fourier_order=3)
+        model.fit(df)
+        try:
+            joblib.dump(model, _MODEL_PATH)
+            logger.info(f"[KPI-05] Prophet model saved to {_MODEL_PATH}")
+        except Exception as exc:
+            logger.warning(f"[KPI-05] Could not save model: {exc}")
 
-    model.fit(df)
-
-    # Future dataframe = history + horizon months
-    future = model.make_future_dataframe(periods=horizon, freq="MS")
+    future   = model.make_future_dataframe(periods=horizon, freq="MS")
     forecast = model.predict(future)
 
-    # Mark which rows are historical vs future
     last_hist = df["ds"].max()
     forecast["is_historical"] = (forecast["ds"] <= last_hist).astype(int)
 
@@ -112,12 +144,12 @@ def _train_and_forecast(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
     result["yhat_lower"] = result["yhat_lower"].clip(lower=0)
     result["yhat_upper"] = result["yhat_upper"].clip(lower=0)
 
-    logger.info(f"[KPI-05] Forecast generated: {horizon} future months")
+    logger.info(f"[KPI-05] Prévision générée : {horizon} mois futurs")
     return result
 
 
 def _save_forecast(forecast: pd.DataFrame) -> None:
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     with DW_ENGINE.begin() as conn:
         # Delete previous run
         conn.execute(text("DELETE FROM ML_KPI05_CA_FORECAST WHERE run_date = :d"), {"d": today})

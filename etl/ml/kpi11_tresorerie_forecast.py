@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import argparse
 import warnings
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -32,6 +33,11 @@ from etl.config import DW_ENGINE
 from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+_MODEL_DIR = Path(__file__).parent / "models"
+_MODEL_DIR.mkdir(exist_ok=True)
+_MODEL_PATH = _MODEL_DIR / "kpi11_xgb.joblib"
+_MODEL_MAX_AGE_DAYS = 7
 
 # ── DDL ──────────────────────────────────────────────────────────────────────
 _DDL = """
@@ -154,7 +160,7 @@ def _layer1_deterministic(open_df: pd.DataFrame, horizon: int) -> pd.DataFrame:
     Payments with known echeance dates within the horizon.
     These are near-certain inflows — full amount at echeance date.
     """
-    today = date.today()
+    today  = datetime.now(timezone.utc).date()
     cutoff = today + timedelta(days=horizon)
 
     df = open_df[open_df["date_echeance"].notna()].copy()
@@ -186,7 +192,7 @@ def _layer2_statistical(open_df: pd.DataFrame, hist_df: pd.DataFrame, horizon: i
     For unpaid invoices without echeance date: estimate payment timing
     using the historical average delay per segment.
     """
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
 
     # Average payment delay by segment from historical data
     if not hist_df.empty and "libelle_segment" in hist_df.columns:
@@ -249,7 +255,7 @@ def _layer3_ml(open_df: pd.DataFrame, hist_df: pd.DataFrame, horizon: int) -> pd
                        "Run: pip install xgboost --break-system-packages")
         return pd.DataFrame(columns=["forecast_date", "encaissements_prevu", "layer"])
 
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
 
     # ── feature builder ──
     def _build_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -285,20 +291,44 @@ def _layer3_ml(open_df: pd.DataFrame, hist_df: pd.DataFrame, horizon: int) -> pd
         logger.warning("[KPI-11] ML layer: degenerate labels — skipping")
         return pd.DataFrame(columns=["forecast_date", "encaissements_prevu", "layer"])
 
-    model = XGBClassifier(
-        n_estimators=100,
-        max_depth=4,
-        learning_rate=0.1,
-        subsample=0.8,
-        use_label_encoder=False,
-        eval_metric="logloss",
-        random_state=42,
-        verbosity=0,
-    )
-    model.fit(X_train, y_train)
+    # ── try to load cached model ────────────────────────────────────
+    model = None
+    if _MODEL_PATH.exists():
+        age_days = (
+            datetime.now(timezone.utc).timestamp() - _MODEL_PATH.stat().st_mtime
+        ) / 86400
+        if age_days < _MODEL_MAX_AGE_DAYS:
+            try:
+                import joblib
+                model = joblib.load(_MODEL_PATH)
+                logger.info(
+                    f"[KPI-11] Loaded XGBoost model from cache "
+                    f"(age={age_days:.1f}d)"
+                )
+            except Exception as exc:
+                logger.warning(f"[KPI-11] Cache load failed ({exc}), retraining.")
+
+    if model is None:
+        model = XGBClassifier(
+            n_estimators=100,
+            max_depth=4,
+            learning_rate=0.1,
+            subsample=0.8,
+            eval_metric="logloss",
+            random_state=42,
+            verbosity=0,
+        )
+        model.fit(X_train, y_train)
+        
+        try:
+            import joblib
+            joblib.dump(model, _MODEL_PATH)
+            logger.info(f"[KPI-11] Model saved to {_MODEL_PATH}")
+        except Exception as exc:
+            logger.warning(f"[KPI-11] Could not save model: {exc}")
 
     train_acc = model.score(X_train, y_train)
-    logger.info(f"[KPI-11] XGBoost trained — accuracy: {train_acc:.3f}")
+    logger.info(f"[KPI-11] XGBoost accuracy: {train_acc:.3f}")
 
     # Score open invoices
     X_open = _build_features(open_df)
@@ -330,7 +360,7 @@ def _layer3_ml(open_df: pd.DataFrame, hist_df: pd.DataFrame, horizon: int) -> pd
 # ── combine & bucket ──────────────────────────────────────────────────────────
 
 def _combine_and_bucket(layers: list[pd.DataFrame], horizon: int) -> pd.DataFrame:
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
 
     if not layers or all(d.empty for d in layers):
         return pd.DataFrame()
@@ -378,7 +408,7 @@ def _combine_and_bucket(layers: list[pd.DataFrame], horizon: int) -> pd.DataFram
 # ── save ──────────────────────────────────────────────────────────────────────
 
 def _save(df: pd.DataFrame) -> None:
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     with DW_ENGINE.begin() as conn:
         conn.execute(
             text("DELETE FROM ML_KPI11_TRESORERIE_FORECAST WHERE run_date = :d"),

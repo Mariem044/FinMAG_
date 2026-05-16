@@ -891,7 +891,298 @@ def create_all_tables(drop_existing: bool = False) -> None:
     logger.info("=== DDL : schéma DW créé avec succès ===")
 
 
+
+# ── KPI18 / RFM column migrations ────────────────────────────────────────────
+# Previously managed in pipeline.py; moved here so all DDL changes are in one
+# place and version-controlled alongside the table definitions.
+_KPI18_MIGRATIONS: list[tuple[str, str]] = [
+    (
+        "DIM_CLIENT.rfm_recence_jours",
+        "IF COL_LENGTH('DIM_CLIENT','rfm_recence_jours') IS NULL "
+        "ALTER TABLE [DIM_CLIENT] ADD rfm_recence_jours INT NULL",
+    ),
+    (
+        "DIM_CLIENT.rfm_frequence",
+        "IF COL_LENGTH('DIM_CLIENT','rfm_frequence') IS NULL "
+        "ALTER TABLE [DIM_CLIENT] ADD rfm_frequence INT NULL",
+    ),
+    (
+        "DIM_CLIENT.rfm_montant_12m",
+        "IF COL_LENGTH('DIM_CLIENT','rfm_montant_12m') IS NULL "
+        "ALTER TABLE [DIM_CLIENT] ADD rfm_montant_12m NUMERIC(18,4) NULL",
+    ),
+    (
+        "DIM_CLIENT.rfm_score",
+        "IF COL_LENGTH('DIM_CLIENT','rfm_score') IS NULL "
+        "ALTER TABLE [DIM_CLIENT] ADD rfm_score VARCHAR(20) NULL",
+    ),
+    (
+        "FAIT_REGLEMENTS.BR_TauxAgios",
+        "IF COL_LENGTH('FAIT_REGLEMENTS','BR_TauxAgios') IS NULL "
+        "ALTER TABLE [FAIT_REGLEMENTS] ADD BR_TauxAgios NUMERIC(18,4) NULL",
+    ),
+    (
+        "FAIT_REGLEMENTS.BR_TMM",
+        "IF COL_LENGTH('FAIT_REGLEMENTS','BR_TMM') IS NULL "
+        "ALTER TABLE [FAIT_REGLEMENTS] ADD BR_TMM NUMERIC(18,4) NULL",
+    ),
+]
+
+# ── BIGINT surrogate key migrations ──────────────────────────────────────────
+# ETL_HASH_BYTES is now 8, producing values up to 2^63-1 which overflows INT.
+# These ALTER COLUMN statements upgrade the affected columns to BIGINT.
+# The migration is idempotent: IF COL_LENGTH guards prevent double-execution
+# errors, but SSMS may still show a warning for existing data — that is safe.
+_BIGINT_MIGRATIONS: list[tuple[str, str]] = [
+    (
+        "DIM_CLIENT.CT_Num_code → BIGINT",
+        "IF EXISTS ("
+        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+        "  WHERE TABLE_NAME='DIM_CLIENT' AND COLUMN_NAME='CT_Num_code' AND DATA_TYPE='int'"
+        ") ALTER TABLE [DIM_CLIENT] ALTER COLUMN CT_Num_code BIGINT NOT NULL",
+    ),
+    (
+        "DIM_FOURNISSEUR.CT_Num_code → BIGINT",
+        "IF EXISTS ("
+        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+        "  WHERE TABLE_NAME='DIM_FOURNISSEUR' AND COLUMN_NAME='CT_Num_code' AND DATA_TYPE='int'"
+        ") ALTER TABLE [DIM_FOURNISSEUR] ALTER COLUMN CT_Num_code BIGINT NOT NULL",
+    ),
+    (
+        "DIM_ARTICLE.AR_Ref_code → BIGINT",
+        "IF EXISTS ("
+        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+        "  WHERE TABLE_NAME='DIM_ARTICLE' AND COLUMN_NAME='AR_Ref_code' AND DATA_TYPE='int'"
+        ") ALTER TABLE [DIM_ARTICLE] ALTER COLUMN AR_Ref_code BIGINT NOT NULL",
+    ),
+    (
+        "DIM_JOURNAL.JO_Num_code → BIGINT",
+        "IF EXISTS ("
+        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+        "  WHERE TABLE_NAME='DIM_JOURNAL' AND COLUMN_NAME='JO_Num_code' AND DATA_TYPE='int'"
+        ") ALTER TABLE [DIM_JOURNAL] ALTER COLUMN JO_Num_code BIGINT NOT NULL",
+    ),
+    (
+        "DIM_BANQUE.EB_Abrege_code → BIGINT",
+        "IF EXISTS ("
+        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+        "  WHERE TABLE_NAME='DIM_BANQUE' AND COLUMN_NAME='EB_Abrege_code' AND DATA_TYPE='int'"
+        ") ALTER TABLE [DIM_BANQUE] ALTER COLUMN EB_Abrege_code BIGINT NOT NULL",
+    ),
+    (
+        "DIM_FAMILLE.FA_CodeFamille_code → BIGINT",
+        "IF EXISTS ("
+        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+        "  WHERE TABLE_NAME='DIM_FAMILLE' AND COLUMN_NAME='FA_CodeFamille_code' AND DATA_TYPE='int'"
+        ") ALTER TABLE [DIM_FAMILLE] ALTER COLUMN FA_CodeFamille_code BIGINT NOT NULL",
+    ),
+    (
+        "DIM_CAISSE.CA_Numero_code → BIGINT",
+        "IF EXISTS ("
+        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+        "  WHERE TABLE_NAME='DIM_CAISSE' AND COLUMN_NAME='CA_Numero_code' AND DATA_TYPE='int'"
+        ") ALTER TABLE [DIM_CAISSE] ALTER COLUMN CA_Numero_code BIGINT NOT NULL",
+    ),
+    (
+        "FAIT_LIGNES_VENTE.DO_Piece_hash → BIGINT",
+        "IF EXISTS ("
+        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+        "  WHERE TABLE_NAME='FAIT_LIGNES_VENTE' AND COLUMN_NAME='DO_Piece_hash' AND DATA_TYPE='int'"
+        ") ALTER TABLE [FAIT_LIGNES_VENTE] ALTER COLUMN DO_Piece_hash BIGINT NULL",
+    ),
+    (
+        "FAIT_ECRITURES.DO_Piece_hash → BIGINT",
+        "IF EXISTS ("
+        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+        "  WHERE TABLE_NAME='FAIT_ECRITURES' AND COLUMN_NAME='DO_Piece_hash' AND DATA_TYPE='int'"
+        ") ALTER TABLE [FAIT_ECRITURES] ALTER COLUMN DO_Piece_hash BIGINT NULL",
+    ),
+]
+
+# ── Semantic views on FAIT_ECRITURES ─────────────────────────────────────────
+# The constellation schema keeps FAIT_ECRITURES as one physical table
+# (grain controlled by type_ligne). These views expose each semantic fact
+# domain separately so analysts and professors can query them naturally in SSMS.
+_VIEW_MIGRATIONS: list[tuple[str, str]] = [
+    (
+        "V_FAIT_ECRITURES_COMPTA",
+        """
+IF OBJECT_ID('V_FAIT_ECRITURES_COMPTA', 'V') IS NOT NULL
+    DROP VIEW [V_FAIT_ECRITURES_COMPTA];
+""",
+    ),
+    (
+        "V_FAIT_ECRITURES_COMPTA (CREATE)",
+        """
+CREATE VIEW [V_FAIT_ECRITURES_COMPTA] AS
+-- Écritures comptables pures (type_ligne = 1).
+-- Chaque ligne correspond à une écriture dans un journal Sage
+-- avec son sens (débit/crédit), le montant HT et le compte général.
+SELECT
+    fe.id_ecriture,
+    fe.id_date,
+    fe.id_journal,
+    fe.id_client,
+    fe.id_fournisseur,
+    fe.DO_Piece_hash,
+    fe.EC_Intitule,
+    fe.EC_Montant,
+    fe.EC_Sens,
+    fe.id_sens_ecriture,
+    fe.source_hash,
+    fe.date_extraction
+FROM FAIT_ECRITURES fe
+JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = fe.id_type_ligne
+WHERE tl.type_ligne = 1;
+""",
+    ),
+    (
+        "V_FAIT_TVA",
+        """
+IF OBJECT_ID('V_FAIT_TVA', 'V') IS NOT NULL
+    DROP VIEW [V_FAIT_TVA];
+""",
+    ),
+    (
+        "V_FAIT_TVA (CREATE)",
+        """
+CREATE VIEW [V_FAIT_TVA] AS
+-- Lignes de TVA (type_ligne = 2).
+-- Permet de calculer le taux de TVA effectif, la TVA collectée
+-- et la TVA déductible séparément pour les déclarations fiscales.
+SELECT
+    fe.id_ecriture,
+    fe.id_date,
+    fe.id_type_tva,
+    fe.id_client,
+    fe.id_fournisseur,
+    fe.DO_Piece_hash,
+    fe.EC_TauxTVA,
+    fe.EC_MontantTVA,
+    fe.EC_MontantHT,
+    fe.source_hash,
+    fe.date_extraction
+FROM FAIT_ECRITURES fe
+JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = fe.id_type_ligne
+WHERE tl.type_ligne = 2;
+""",
+    ),
+    (
+        "V_FAIT_MVT_CAISSE",
+        """
+IF OBJECT_ID('V_FAIT_MVT_CAISSE', 'V') IS NOT NULL
+    DROP VIEW [V_FAIT_MVT_CAISSE];
+""",
+    ),
+    (
+        "V_FAIT_MVT_CAISSE (CREATE)",
+        """
+CREATE VIEW [V_FAIT_MVT_CAISSE] AS
+-- Mouvements de caisse et bancaires (type_ligne = 3).
+-- Chaque ligne est un mouvement physique d'espèces ou de chèque
+-- dans une caisse ou un compte bancaire Sage.
+SELECT
+    fe.id_ecriture,
+    fe.id_date,
+    fe.id_caisse,
+    fe.id_banque,
+    fe.id_type_mvt_caisse,
+    fe.MC_Montant,
+    fe.MC_Libelle,
+    fe.source_hash,
+    fe.date_extraction
+FROM FAIT_ECRITURES fe
+JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = fe.id_type_ligne
+WHERE tl.type_ligne = 3;
+""",
+    ),
+    (
+        "V_FAIT_STOCK_SNAPSHOT",
+        """
+IF OBJECT_ID('V_FAIT_STOCK_SNAPSHOT', 'V') IS NOT NULL
+    DROP VIEW [V_FAIT_STOCK_SNAPSHOT];
+""",
+    ),
+    (
+        "V_FAIT_STOCK_SNAPSHOT (CREATE)",
+        """
+CREATE VIEW [V_FAIT_STOCK_SNAPSHOT] AS
+-- Snapshot de stock par article et dépôt (type_ligne = 4).
+-- Une ligne par article : stock physique, stock minimum, valeur CMUP,
+-- indicateurs de tension et de rupture calculés lors de l'ETL.
+SELECT
+    fe.id_ecriture,
+    fe.id_date,
+    fe.id_article,
+    fe.id_depot,
+    fe.AS_QteSto,
+    fe.AS_QteMini,
+    fe.AS_QteRes,
+    fe.AS_MontSto,
+    fe.DL_CMUP,
+    fe.en_rupture,
+    fe.ratio_tension,
+    fe.dsi_jours,
+    fe.source_hash,
+    fe.date_extraction
+FROM FAIT_ECRITURES fe
+JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = fe.id_type_ligne
+WHERE tl.type_ligne = 4;
+""",
+    ),
+]
+
+# ── REF_GOUVERNORAT_MAPPING reference table ───────────────────────────────────
+# Replaces the 400-line Python dict _normalize_gouvernorat() in pipeline.py.
+# Maintained directly in SSMS by the analyst — no Python code change needed
+# to add or correct a gouvernorat mapping.
+_REF_GOUVERNORAT_SQL = """
+IF OBJECT_ID('REF_GOUVERNORAT_MAPPING', 'U') IS NULL
+BEGIN
+    CREATE TABLE REF_GOUVERNORAT_MAPPING (
+        id              INT IDENTITY(1,1) PRIMARY KEY,
+        CT_CodeRegion   NVARCHAR(100) NOT NULL,
+        gouvernorat     NVARCHAR(50)  NOT NULL,
+        CONSTRAINT UQ_REF_GOUVERNORAT_CodeRegion UNIQUE (CT_CodeRegion)
+    );
+
+    INSERT INTO REF_GOUVERNORAT_MAPPING (CT_CodeRegion, gouvernorat) VALUES
+    ('TUNIS','Tunis'),('MONTPLAISIR','Tunis'),('LE BARDO','Tunis'),
+    ('BARDO','Tunis'),('EZZAHROUNI','Tunis'),('OMRANE','Tunis'),
+    ('AGBA','Tunis'),('ETTADHAMEN','Tunis'),('MARCHE CENTRAL','Tunis'),
+    ('MALASINE','Tunis'),('LAKANIA','Tunis'),
+    ('ARIANA','Ariana'),('RAOUED','Ariana'),('CITE ENNASR','Ariana'),
+    ('KALAAT LANDLOUS','Ariana'),('LA SOUKRA','Ariana'),
+    ('BEN AROUS','Ben Arous'),('EL MOUROUJ','Ben Arous'),
+    ('RADES','Ben Arous'),('FOUCHANA','Ben Arous'),
+    ('MANOUBA','Manouba'),('OUED ELLIL','Manouba'),
+    ('BIZERTE','Bizerte'),('MENZEL BOURGUIBA','Bizerte'),
+    ('NABEUL','Nabeul'),('HAMMAMET','Nabeul'),('KELIBIA','Nabeul'),
+    ('SOUSSE','Sousse'),('MSAKEN','Sousse'),('AKOUDA','Sousse'),
+    ('MONASTIR','Monastir'),('SKANES','Monastir'),('KSAR HELLAL','Monastir'),
+    ('MAHDIA','Mahdia'),('EL JEM','Mahdia'),
+    ('KAIROUAN','Kairouan'),('SBIKHA','Kairouan'),
+    ('SFAX','Sfax'),('SAKIET EZZIT','Sfax'),('SAKIET EDDAIER','Sfax'),
+    ('GABES','Gabès'),('EL HAMMA','Gabès'),
+    ('MEDENINE','Médenine'),('ZARZIS','Médenine'),('BEN GARDANE','Médenine'),
+    ('TATAOUINE','Tataouine'),
+    ('GAFSA','Gafsa'),('METLAOUI','Gafsa'),
+    ('KASSERINE','Kasserine'),('SBEITLA','Kasserine'),
+    ('SIDI BOUZID','Sidi Bouzid'),
+    ('BEJA','Béja'),('TESTOUR','Béja'),
+    ('JENDOUBA','Jendouba'),('AIN DRAHAM','Jendouba'),
+    ('KEF','Le Kef'),('DAHMANI','Le Kef'),
+    ('SILIANA','Siliana'),('MAKTHAR','Siliana'),
+    ('ZAGHOUAN','Zaghouan'),('ENFIDHA','Zaghouan'),
+    ('TOZEUR','Tozeur'),('NEFTA','Tozeur'),
+    ('KEBILI','Kébili'),
+    ('hors zone','Autre'),('HORS ZONE','Autre'),('DIVERS','Autre');
+END
+"""
+
+
 def _apply_schema_migrations(conn) -> None:
+    # 1. Standard column migrations (ADD COLUMN, ALTER COLUMN type changes)
     for label, sql in _MIGRATIONS:
         try:
             conn.execute(text(sql))
@@ -899,6 +1190,7 @@ def _apply_schema_migrations(conn) -> None:
         except Exception as exc:
             logger.warning(f"  [MIGRATION WARN] {label}: {exc}")
 
+    # 2. Index migrations
     for label, sql in _INDEX_MIGRATIONS:
         try:
             conn.execute(text(sql))
@@ -906,10 +1198,44 @@ def _apply_schema_migrations(conn) -> None:
         except Exception as exc:
             logger.warning(f"  [INDEX WARN]     {label}: {exc}")
 
+    # 3. KPI18 / RFM column additions (previously scattered in pipeline.py)
+    for label, sql in _KPI18_MIGRATIONS:
+        try:
+            conn.execute(text(sql))
+            logger.info(f"  [KPI18 OK]       {label}")
+        except Exception as exc:
+            logger.warning(f"  [KPI18 WARN]     {label}: {exc}")
+
+    # 4. BIGINT surrogate key upgrades (hash is now 8 bytes → values up to 2^63-1)
+    for label, sql in _BIGINT_MIGRATIONS:
+        try:
+            conn.execute(text(sql))
+            logger.info(f"  [BIGINT OK]      {label}")
+        except Exception as exc:
+            logger.warning(f"  [BIGINT WARN]    {label}: {exc}")
+
+    # 5. Semantic views on FAIT_ECRITURES
+    for label, sql in _VIEW_MIGRATIONS:
+        try:
+            conn.execute(text(sql.strip()))
+            logger.info(f"  [VIEW OK]        {label}")
+        except Exception as exc:
+            logger.warning(f"  [VIEW WARN]      {label}: {exc}")
+
+    # 6. REF_GOUVERNORAT_MAPPING reference table (replaces Python dict)
+    try:
+        conn.execute(text(_REF_GOUVERNORAT_SQL.strip()))
+        logger.info("  [REF OK]         REF_GOUVERNORAT_MAPPING")
+    except Exception as exc:
+        logger.warning(f"  [REF WARN]       REF_GOUVERNORAT_MAPPING: {exc}")
+
 
 def apply_schema_migrations() -> None:
+    logger.info("=== DDL : application des migrations de schéma ===")
     with DW_ENGINE.begin() as conn:
         _apply_schema_migrations(conn)
+    logger.info("=== DDL : migrations terminées ===")
+
 
 
 def disable_all_fk(conn) -> None:
