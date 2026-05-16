@@ -1185,7 +1185,10 @@ STEPS: List[Step] = [
      lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CA_Numero_code")),
 
     ("FAIT_LIGNES_VENTE",
-     lambda **kw: extract.extract_fait_lignes_vente(kw.get("last_run")),
+     lambda **kw: pd.concat([
+         extract.extract_fait_lignes_vente(kw.get("last_run")),
+         extract.extract_fait_lignes_achat(kw.get("last_run")),
+     ], ignore_index=True),
      None,
      lambda df, tbl, mode: load.load_fact(df, tbl, mode)),
 

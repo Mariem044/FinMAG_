@@ -459,12 +459,65 @@ def get_impayes():
             "region": "",
             "representant": "",
             "dateEcheance": "",
+            @app.get("/api/tresorerie/impayes")
+def get_impayes():
+    sql = """
+        WITH buckets AS (
+            SELECT
+                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delai_reel_jours)
+                    AS p50,
+                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delai_reel_jours) * 6
+                    AS p50x6,
+                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delai_reel_jours) * 18
+                    AS p50x18
+            FROM FAIT_REGLEMENTS
+            WHERE delai_reel_jours > 0 AND DR_Regle = 0
+        ),
+        deduped AS (
+            SELECT
+                id_client,
+                RT_Num,
+                MAX(RT_Montant) AS RT_Montant,
+                MAX(delai_reel_jours) AS delai_reel_jours,
+                MAX(DR_Regle) AS DR_Regle
+            FROM FAIT_REGLEMENTS
+            WHERE id_client IS NOT NULL
+            GROUP BY id_client, RT_Num
+        )
+        SELECT
+            c.CT_Num_code,
+            SUM(r.RT_Montant) AS montant_impaye,
+            MAX(r.delai_reel_jours) AS anciennete,
+            MAX(b.p50) AS seuil_attention,
+            MAX(b.p50x6) AS seuil_urgent,
+            MAX(b.p50x18) AS seuil_critique
+        FROM deduped r
+        JOIN DIM_CLIENT c ON c.id_client = r.id_client
+        CROSS JOIN buckets b
+        WHERE r.DR_Regle = 0
+        GROUP BY c.CT_Num_code
+        HAVING SUM(r.RT_Montant) > 0
+        ORDER BY montant_impaye DESC
+    """
+    return [
+        {
+            "client": f"Client {r.CT_Num_code}",
+            "code": str(r.CT_Num_code),
+            "montant": _num(r.montant_impaye),
+            "montantImpaye": _num(r.montant_impaye),
+            "anciennete": _int(r.anciennete),
+            "region": "",
+            "representant": "",
+            "dateEcheance": "",
             "statut": (
-                "Critique" if _int(r.anciennete) > 90   # bucket 3: >90 days
-                else "Urgent" if _int(r.anciennete) > 30  # bucket 2: 30-90 days
-                else "Attention" if _int(r.anciennete) > 5  # bucket 1: 5-30 days
-                else "Normal"                               # bucket 0: 0-5 days
-),
+                "Critique" if _int(r.anciennete) > _num(r.seuil_critique)
+                else "Urgent" if _int(r.anciennete) > _num(r.seuil_urgent)
+                else "Attention" if _int(r.anciennete) > _num(r.seuil_attention)
+                else "Normal"
+            ),
+        }
+        for r in _rows(sql)
+    ]
         }
         for r in _rows(sql)
     ]
@@ -796,38 +849,58 @@ def get_acteurs_fournisseurs():
 
 @app.get("/api/acteurs/fournisseur-concentration")
 def get_fournisseur_concentration():
-    # Use CT_SvCA (fournisseur CA in Sage) as purchase reference.
-    # The old query used FAIT_LIGNES_VENTE with DO_Domaine=1 which is always
-    # empty because that table only stores sales (DO_Domaine=0).
     sql = """
-        WITH totals AS (
-            SELECT SUM(COALESCE(f.CT_SvCA, 0)) AS total_achats
-            FROM DIM_FOURNISSEUR f
-            WHERE f.CT_SvCA IS NOT NULL AND f.CT_SvCA > 0
+        WITH achats AS (
+            SELECT
+                f.id_fournisseur,
+                f.CT_Num_code,
+                SUM(flv.DL_MontantHT) AS montant_achat,
+                COUNT(DISTINCT flv.id_article) AS nb_articles_achetes
+            FROM FAIT_LIGNES_VENTE flv
+            JOIN DIM_DOMAINE dom ON dom.id_domaine = flv.id_domaine
+            JOIN DIM_ARTICLE a ON a.id_article = flv.id_article
+            JOIN DIM_FOURNISSEUR f ON f.id_fournisseur = a.id_fournisseur
+            WHERE dom.DO_Domaine = 1
+            GROUP BY f.id_fournisseur, f.CT_Num_code
+        ),
+        total AS (
+            SELECT SUM(montant_achat) AS total_achats
+            FROM achats
+        ),
+        hhi_threshold AS (
+            SELECT
+                POWER(
+                    PERCENTILE_CONT(0.8) WITHIN GROUP (ORDER BY montant_achat)
+                    / NULLIF(total_achats, 0),
+                2) AS seuil
+            FROM achats
+            CROSS JOIN total
         )
-        SELECT 
-            COALESCE(CONVERT(VARCHAR(30), f.CT_Num_code), 'Sans fournisseur') AS fournisseur,
-            COUNT(a.id_article)            AS nb_articles,
-            COALESCE(f.CT_SvCA, 0)        AS montant_achat,
-            CASE
-                WHEN t.total_achats > 0
-                THEN POWER(COALESCE(f.CT_SvCA, 0) / t.total_achats, 2)
-                ELSE 0
-            END AS hhi_contribution
-        FROM DIM_ARTICLE a
-        LEFT JOIN DIM_FOURNISSEUR f ON f.id_fournisseur = a.id_fournisseur
-        CROSS JOIN totals t
-        GROUP BY f.CT_Num_code, f.CT_SvCA, t.total_achats
-        ORDER BY montant_achat DESC
+        SELECT
+            a.CT_Num_code,
+            a.montant_achat,
+            a.nb_articles_achetes,
+            COALESCE(art_count.nb_articles_catalogue, 0) AS nb_articles_catalogue,
+            POWER(a.montant_achat / NULLIF(t.total_achats, 0), 2) AS hhi_contribution,
+            h.seuil AS hhi_threshold
+        FROM achats a
+        CROSS JOIN total t
+        CROSS JOIN hhi_threshold h
+        LEFT JOIN (
+            SELECT id_fournisseur, COUNT(*) AS nb_articles_catalogue
+            FROM DIM_ARTICLE
+            GROUP BY id_fournisseur
+        ) art_count ON art_count.id_fournisseur = a.id_fournisseur
+        ORDER BY a.montant_achat DESC
     """
     return [
         {
-            "fournisseur": f"Fournisseur {r.fournisseur}",
-            "nbArticles": _int(r.nb_articles),
+            "fournisseur": f"Fournisseur {r.CT_Num_code}",
+            "nbArticles": _int(r.nb_articles_catalogue),
+            "nbArticlesAchetes": _int(r.nb_articles_achetes),
             "montantAchat": _num(r.montant_achat),
             "hhi": round(_num(r.hhi_contribution), 4),
-            # HHI > 0.25 indicates high concentration risk per standard economic theory
-"risqueConcentration": _num(r.hhi_contribution) > 0.25,
+            "risqueConcentration": _num(r.hhi_contribution) > _num(r.hhi_threshold),
         }
         for r in _rows(sql)
     ]
