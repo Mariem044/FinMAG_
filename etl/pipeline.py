@@ -21,8 +21,7 @@ from etl.config import (
     TYPES_MVT_CAISSE,
     DIM_DATE_START,
     DIM_DATE_END,
-    FENETRE_RFM_JOURS,
-    BUCKETS_IMPAYE,
+    AUDIT_TABLE_NAME,
 )
 from etl.utils.logger import get_logger
 from etl.utils.audit import (
@@ -69,6 +68,82 @@ KPI18_MIGRATION: list[tuple[str, str]] = [
     ),
 ]
 
+def _compute_thresholds() -> dict:
+    sql = """
+        SELECT
+            (SELECT TOP 1 rfm_recence_jours FROM (
+                SELECT rfm_recence_jours,
+                       NTILE(3) OVER (ORDER BY rfm_recence_jours) AS tile
+                FROM DIM_CLIENT WHERE rfm_recence_jours IS NOT NULL
+            ) t WHERE tile = 1 ORDER BY rfm_recence_jours DESC) AS p33_recence,
+
+            (SELECT TOP 1 rfm_recence_jours FROM (
+                SELECT rfm_recence_jours,
+                       NTILE(3) OVER (ORDER BY rfm_recence_jours) AS tile
+                FROM DIM_CLIENT WHERE rfm_recence_jours IS NOT NULL
+            ) t WHERE tile = 2 ORDER BY rfm_recence_jours DESC) AS p66_recence,
+
+            (SELECT TOP 1 rfm_recence_jours FROM (
+                SELECT rfm_recence_jours,
+                       NTILE(10) OVER (ORDER BY rfm_recence_jours) AS tile
+                FROM DIM_CLIENT WHERE rfm_recence_jours IS NOT NULL
+            ) t WHERE tile = 9 ORDER BY rfm_recence_jours DESC) AS p90_recence,
+
+            (SELECT TOP 1 rfm_frequence FROM (
+                SELECT rfm_frequence,
+                       NTILE(3) OVER (ORDER BY rfm_frequence) AS tile
+                FROM DIM_CLIENT WHERE rfm_frequence IS NOT NULL
+            ) t WHERE tile = 2 ORDER BY rfm_frequence DESC) AS p66_frequence,
+
+            (SELECT TOP 1 rfm_frequence FROM (
+                SELECT rfm_frequence,
+                       NTILE(3) OVER (ORDER BY rfm_frequence) AS tile
+                FROM DIM_CLIENT WHERE rfm_frequence IS NOT NULL
+            ) t WHERE tile = 1 ORDER BY rfm_frequence DESC) AS p33_frequence,
+
+            (SELECT AVG(cycle) FROM (
+                SELECT DATEDIFF(DAY, MIN(d.date_val), MAX(d.date_val)) AS cycle
+                FROM FAIT_LIGNES_VENTE v
+                JOIN DIM_DATE d ON d.id_date = v.id_date
+                JOIN DIM_DOMAINE dom ON dom.id_domaine = v.id_domaine
+                WHERE dom.DO_Domaine = 0
+                GROUP BY v.id_client
+                HAVING COUNT(DISTINCT d.date_val) > 1
+            ) cycles) AS avg_purchase_cycle,
+
+            (SELECT TOP 1 delai_reel_jours FROM (
+                SELECT delai_reel_jours,
+                       NTILE(10) OVER (ORDER BY delai_reel_jours) AS tile
+                FROM FAIT_REGLEMENTS WHERE delai_reel_jours > 0 AND DR_Regle = 0
+            ) t WHERE tile = 5 ORDER BY delai_reel_jours DESC) AS p50_delay,
+
+            (SELECT AVG(CAST(ratio AS FLOAT)) FROM (
+                SELECT CAST(AS_QteRes AS FLOAT) / NULLIF(AS_QteSto, 0) AS ratio
+                FROM FAIT_ECRITURES fe
+                JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = fe.id_type_ligne
+                WHERE tl.type_ligne = 4
+                AND AS_QteRes IS NOT NULL AND AS_QteSto > 0
+            ) r) AS avg_tension_ratio
+        FROM (SELECT 1 AS x) dummy
+    """
+    with DW_ENGINE.connect() as conn:
+        row = conn.execute(text(sql)).fetchone()
+
+    avg_cycle  = int(row.avg_purchase_cycle) if row.avg_purchase_cycle else 365
+    p50_delay  = int(row.p50_delay)          if row.p50_delay          else 5
+    avg_tension = float(row.avg_tension_ratio) if row.avg_tension_ratio else 0.2
+
+    return {
+        "fenetre_rfm":          avg_cycle,
+        "fenetre_dsi":          avg_cycle,
+        "champion_recence":     int(row.p33_recence)   if row.p33_recence   else avg_cycle // 9,
+        "champion_frequence":   int(row.p66_frequence) if row.p66_frequence else 30,
+        "fidele_recence":       int(row.p66_recence)   if row.p66_recence   else avg_cycle // 6,
+        "fidele_frequence":     int(row.p33_frequence) if row.p33_frequence else 12,
+        "arisque_recence":      int(row.p90_recence)   if row.p90_recence   else avg_cycle // 3,
+        "buckets_impaye":       [0, p50_delay, p50_delay * 6, p50_delay * 18],
+        "seuil_tension_stock":  avg_tension * 2.5,
+    }
 
 def _safe_int16(series: pd.Series) -> pd.Series:
     s = pd.to_numeric(series, errors="coerce")
@@ -168,6 +243,8 @@ def _resolve_today_id(lookups: Dict, today: date) -> Optional[int]:
     return None
 
 
+_PIPELINE_THRESHOLDS: list[int] = []
+
 def _bucket_from_echeance(row) -> Optional[int]:
     if row.get("DR_Regle", 1) != 0:
         return None
@@ -180,7 +257,7 @@ def _bucket_from_echeance(row) -> Optional[int]:
         return None
     if days_overdue <= 0:
         return None
-    seuils = BUCKETS_IMPAYE[1:]  # [30, 60, 90]
+    seuils = _PIPELINE_THRESHOLDS[1:]
     for i, seuil in enumerate(seuils):
         if days_overdue <= seuil:
             return i
@@ -837,24 +914,24 @@ def _assemble_fait_ecritures(
     return df
 
 
-def _compute_dsi_jours() -> None:
+def _compute_dsi_jours(thresholds: dict) -> None:
     sql = """
         UPDATE fe
         SET
-            fe.qte_vendue_365j = sub.qte_vendue_365j,
+            fe.qte_vendue_365j = sub.qte_vendue,
             fe.dsi_jours = CASE
-                WHEN sub.qte_vendue_365j > 0
-                THEN fe.AS_QteSto / (sub.qte_vendue_365j / 365.0)
+                WHEN sub.qte_vendue > 0
+                THEN fe.AS_QteSto / (sub.qte_vendue / CAST(:fenetre AS FLOAT))
                 ELSE NULL
             END
         FROM FAIT_ECRITURES fe
         INNER JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = fe.id_type_ligne
         INNER JOIN (
-            SELECT flv.id_article, SUM(flv.DL_Qte) AS qte_vendue_365j
+            SELECT flv.id_article, SUM(flv.DL_Qte) AS qte_vendue
             FROM FAIT_LIGNES_VENTE flv
             JOIN DIM_DATE d ON d.id_date = flv.id_date
             JOIN DIM_DOMAINE dom ON dom.id_domaine = flv.id_domaine
-            WHERE d.date_val >= DATEADD(DAY, -365, CAST(GETDATE() AS DATE))
+            WHERE d.date_val >= DATEADD(DAY, -:fenetre, CAST(GETDATE() AS DATE))
               AND dom.DO_Domaine = 0
             GROUP BY flv.id_article
         ) sub ON sub.id_article = fe.id_article
@@ -862,12 +939,12 @@ def _compute_dsi_jours() -> None:
     """
     with DW_ENGINE.begin() as conn:
         conn.execute(text("SET NOCOUNT OFF"))
-        result = conn.execute(text(sql))
+        result = conn.execute(text(sql), {"fenetre": thresholds["fenetre_dsi"]})
         rowcount = result.rowcount if result.rowcount >= 0 else "unknown"
-        logger.info(f"dsi_jours computed: {rowcount} stock rows updated.")
+        logger.info(f"dsi_jours computed: {rowcount} stock rows updated (window={thresholds['fenetre_dsi']} days).")
 
 
-def _compute_rfm_scores() -> None:
+def _compute_rfm_scores(thresholds: dict) -> None:
     sql = """
         UPDATE c
         SET
@@ -875,10 +952,10 @@ def _compute_rfm_scores() -> None:
             c.rfm_frequence      = rfm.frequence,
             c.rfm_montant_12m    = rfm.montant_12m,
             c.rfm_score          = CASE
-                WHEN rfm.recence_jours <= 90  AND rfm.frequence >= 10 THEN 'Champion'
-                WHEN rfm.recence_jours <= 180 AND rfm.frequence >= 4  THEN 'Fidèle'
-                WHEN rfm.recence_jours <= 270 THEN 'À risque'
-                WHEN rfm.recence_jours IS NULL THEN 'Dormant'
+                WHEN rfm.recence_jours <= :champion_recence   AND rfm.frequence >= :champion_freq THEN 'Champion'
+                WHEN rfm.recence_jours <= :fidele_recence     AND rfm.frequence >= :fidele_freq   THEN 'Fidèle'
+                WHEN rfm.recence_jours <= :arisque_recence    THEN 'À risque'
+                WHEN rfm.recence_jours IS NULL                THEN 'Dormant'
                 ELSE 'Dormant'
             END
         FROM DIM_CLIENT c
@@ -898,12 +975,16 @@ def _compute_rfm_scores() -> None:
     """
     with DW_ENGINE.begin() as conn:
         conn.execute(text("SET NOCOUNT OFF"))
-        result = conn.execute(text(sql), {"fenetre": FENETRE_RFM_JOURS})
+        result = conn.execute(text(sql), {
+            "fenetre":          thresholds["fenetre_rfm"],
+            "champion_recence": thresholds["champion_recence"],
+            "champion_freq":    thresholds["champion_frequence"],
+            "fidele_recence":   thresholds["fidele_recence"],
+            "fidele_freq":      thresholds["fidele_frequence"],
+            "arisque_recence":  thresholds["arisque_recence"],
+        })
         rowcount = result.rowcount if result.rowcount >= 0 else "unknown"
-        logger.info(
-            f"RFM scores computed: {rowcount} clients updated "
-            f"(window={FENETRE_RFM_JOURS} days)."
-        )
+        logger.info(f"RFM scores computed: {rowcount} clients updated (window={thresholds['fenetre_rfm']} days).")
 
 
 def _load_dim_date(df: pd.DataFrame, table: str, mode: str) -> None:
@@ -1144,6 +1225,10 @@ def run_pipeline(force_full: bool = False) -> None:
             except Exception as exc:
                 logger.warning(f"  [MIGRATION WARN] {label}: {exc}")
 
+    thresholds = _compute_thresholds()
+    global _PIPELINE_THRESHOLDS
+    _PIPELINE_THRESHOLDS = thresholds["buckets_impaye"]
+    logger.info(f"Thresholds computed from DW: {thresholds}")
     run_id = start_run(mode)
     run_finished = False
     fk_disabled  = False
@@ -1192,10 +1277,10 @@ def run_pipeline(force_full: bool = False) -> None:
                 ctx["rows_updated"]  = 0
 
         logger.info("--- Computing dsi_jours ---")
-        _compute_dsi_jours()
+        _compute_dsi_jours(thresholds)
 
-        logger.info("--- Computing RFM scores (KPI-18) ---")
-        _compute_rfm_scores()
+        logger.info("--- Computing RFM scores ---")
+        _compute_rfm_scores(thresholds)
 
         end_run(run_id, "SUCCESS")
         run_finished = True

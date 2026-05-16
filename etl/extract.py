@@ -12,7 +12,7 @@ from etl.utils.logger import get_logger
 logger = get_logger(__name__)
 
 import os as _os
-_QUERY_TIMEOUT: int = int(_os.getenv("ETL_QUERY_TIMEOUT", "120"))
+_QUERY_TIMEOUT: int = int(_os.environ["ETL_QUERY_TIMEOUT"])
 
 
 # ---------------------------------------------------------------------------

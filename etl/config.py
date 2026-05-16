@@ -160,25 +160,7 @@ DOMAINES: dict[int, str] = {
     3: "Interne",
 }
 
-SEUIL_TENSION_STOCK: float     = float(os.environ["ETL_SEUIL_TENSION_STOCK"])
-FENETRE_RFM_JOURS:   int       = int(os.environ["ETL_FENETRE_RFM_JOURS"])
-BUCKETS_IMPAYE:      list[int] = [
-    int(x) for x in os.environ["ETL_BUCKETS_IMPAYE"].split(",")
-]
-FENETRE_DSI_JOURS:   int       = int(os.environ["ETL_FENETRE_DSI_JOURS"])
-AUDIT_TABLE_NAME:    str       = os.environ["ETL_AUDIT_TABLE"]
-RFM_CHAMPION_RECENCE:   int    = int(os.environ["ETL_RFM_CHAMPION_RECENCE"])
-RFM_CHAMPION_FREQUENCE: int    = int(os.environ["ETL_RFM_CHAMPION_FREQUENCE"])
-RFM_FIDELE_RECENCE:     int    = int(os.environ["ETL_RFM_FIDELE_RECENCE"])
-RFM_FIDELE_FREQUENCE:   int    = int(os.environ["ETL_RFM_FIDELE_FREQUENCE"])
-RFM_ARISQUE_RECENCE:    int    = int(os.environ["ETL_RFM_ARISQUE_RECENCE"])
-
-RFM_SEGMENTS: dict[str, list[str]] = {
-    "Champion":    ["0-30j", "4-5 cmd", "TOP Montant"],
-    "Fidèle":      ["30-60j", "3-4 cmd", "BON Montant"],
-    "À risque":    ["60-90j", "1-2 cmd", "MOYEN Montant"],
-    "Dormant":     [">90j", "1 cmd", "FAIBLE Montant"],
-}
+AUDIT_TABLE_NAME: str = os.environ["ETL_AUDIT_TABLE"]
 
 
 import pandas as _pd
