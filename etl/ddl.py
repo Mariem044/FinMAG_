@@ -12,6 +12,72 @@ logger = get_logger(__name__)
 
 
 _DDL_GROUPE_1: list[tuple[str, str]] = [
+    ("REF_SEGMENTS_MAPPING", """
+CREATE TABLE REF_SEGMENTS_MAPPING (
+    cbIndice         SMALLINT NOT NULL PRIMARY KEY,
+    libelle_segment  NVARCHAR(100) NOT NULL
+)"""),
+
+    ("REF_TYPES_MVT_CAISSE_MAPPING", """
+CREATE TABLE REF_TYPES_MVT_CAISSE_MAPPING (
+    MC_TypeMvt       SMALLINT NOT NULL PRIMARY KEY,
+    libelle_type_mvt NVARCHAR(100) NOT NULL
+)"""),
+
+    ("REF_MODES_REGLEMENT_MAPPING", """
+CREATE TABLE REF_MODES_REGLEMENT_MAPPING (
+    RT_Mode          SMALLINT NOT NULL PRIMARY KEY,
+    libelle_mode_reg NVARCHAR(100) NOT NULL
+)"""),
+
+    ("REF_ETATS_REGLEMENT_MAPPING", """
+CREATE TABLE REF_ETATS_REGLEMENT_MAPPING (
+    RT_Etat          SMALLINT NOT NULL PRIMARY KEY,
+    libelle_etat_reg NVARCHAR(100) NOT NULL
+)"""),
+
+    ("REF_ETATS_DOCREGL_MAPPING", """
+CREATE TABLE REF_ETATS_DOCREGL_MAPPING (
+    DR_Regle         SMALLINT NOT NULL PRIMARY KEY,
+    libelle_etat_docregl NVARCHAR(100) NOT NULL
+)"""),
+
+    ("REF_TYPES_LIGNE_MAPPING", """
+CREATE TABLE REF_TYPES_LIGNE_MAPPING (
+    type_ligne       SMALLINT NOT NULL PRIMARY KEY,
+    libelle_type_ligne NVARCHAR(100) NOT NULL
+)"""),
+
+    ("REF_SENS_ECRITURE_MAPPING", """
+CREATE TABLE REF_SENS_ECRITURE_MAPPING (
+    EC_Sens          SMALLINT NOT NULL PRIMARY KEY,
+    libelle_sens     NVARCHAR(100) NOT NULL
+)"""),
+
+    ("REF_TYPES_TVA_MAPPING", """
+CREATE TABLE REF_TYPES_TVA_MAPPING (
+    type_tva         SMALLINT NOT NULL PRIMARY KEY,
+    libelle_type_tva NVARCHAR(100) NOT NULL
+)"""),
+
+    ("REF_TYPES_DOC_MAPPING", """
+CREATE TABLE REF_TYPES_DOC_MAPPING (
+    DO_Type          SMALLINT NOT NULL PRIMARY KEY,
+    libelle_type_doc NVARCHAR(100) NOT NULL
+)"""),
+
+    ("REF_DOMAINES_MAPPING", """
+CREATE TABLE REF_DOMAINES_MAPPING (
+    DO_Domaine       SMALLINT NOT NULL PRIMARY KEY,
+    libelle_domaine  NVARCHAR(100) NOT NULL
+)"""),
+
+    ("ETL_LOOKUP_CONFIG", """
+CREATE TABLE ETL_LOOKUP_CONFIG (
+    table_name       VARCHAR(100) NOT NULL PRIMARY KEY,
+    natural_col      VARCHAR(100) NOT NULL,
+    surrogate_col    VARCHAR(100) NOT NULL
+)"""),
 
     ("DIM_DATE", """
 CREATE TABLE DIM_DATE (
@@ -96,7 +162,7 @@ CREATE TABLE DIM_TYPE_MVT_CAISSE (
     ("DIM_BANQUE", """
 CREATE TABLE DIM_BANQUE (
     id_banque          INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    EB_Abrege_code     INT NOT NULL UNIQUE,
+    EB_Abrege_code     BIGINT NOT NULL UNIQUE,
     EB_Banque          INT NULL,
     source             SMALLINT NOT NULL DEFAULT 1,
     row_hash           BINARY(32) NULL
@@ -118,7 +184,7 @@ _DDL_GROUPE_2: list[tuple[str, str]] = [
 CREATE TABLE DIM_SEGMENT (
     id_segment         INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     cbIndice           SMALLINT NOT NULL UNIQUE,
-    cbIndice_code      INT NOT NULL UNIQUE,
+    cbIndice_code      BIGINT NOT NULL UNIQUE,
     CT_PrixTTC         SMALLINT NOT NULL DEFAULT 0,
     libelle_segment    NVARCHAR(100) NOT NULL,
     row_hash           BINARY(32) NULL
@@ -137,7 +203,7 @@ CREATE TABLE DIM_COLLABORATEUR (
     ("DIM_JOURNAL", """
 CREATE TABLE DIM_JOURNAL (
     id_journal         INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    JO_Num_code        INT NOT NULL UNIQUE,
+    JO_Num_code        BIGINT NOT NULL UNIQUE,
     JO_Type            SMALLINT NULL,
     row_hash           BINARY(32) NULL
 )"""),
@@ -145,7 +211,7 @@ CREATE TABLE DIM_JOURNAL (
     ("DIM_FOURNISSEUR", """
 CREATE TABLE DIM_FOURNISSEUR (
     id_fournisseur     INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    CT_Num_code        INT NOT NULL UNIQUE,
+    CT_Num_code        BIGINT NOT NULL UNIQUE,
     CT_Sommeil         SMALLINT NOT NULL DEFAULT 0,
     CT_Encours         NUMERIC(18,4) NULL,
     CT_SvCA            NUMERIC(18,4) NULL,
@@ -162,11 +228,11 @@ _DDL_GROUPE_3: list[tuple[str, str]] = [
     ("DIM_FAMILLE", """
 CREATE TABLE DIM_FAMILLE (
     id_famille          INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    FA_CodeFamille_code INT NOT NULL UNIQUE,
+    FA_CodeFamille_code BIGINT NOT NULL UNIQUE,
     FA_Intitule         NVARCHAR(100) NULL,
-    niveau_0_code       INT NULL,
-    niveau_1_code       INT NULL,
-    niveau_2_code       INT NULL,
+    niveau_0_code       BIGINT NULL,
+    niveau_1_code       BIGINT NULL,
+    niveau_2_code       BIGINT NULL,
     row_hash            BINARY(32) NULL
 )"""),
 ]
@@ -180,7 +246,7 @@ _DDL_GROUPE_4: list[tuple[str, str]] = [
     ("DIM_CLIENT", """
 CREATE TABLE DIM_CLIENT (
     id_client               INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    CT_Num_code             INT NOT NULL UNIQUE,
+    CT_Num_code             BIGINT NOT NULL UNIQUE,
     CT_Sommeil              SMALLINT NOT NULL DEFAULT 0,
     id_segment              INT NULL REFERENCES DIM_SEGMENT(id_segment)
                                 ON DELETE NO ACTION,
@@ -218,7 +284,7 @@ _DDL_GROUPE_5: list[tuple[str, str]] = [
     ("DIM_ARTICLE", """
 CREATE TABLE DIM_ARTICLE (
     id_article         INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    AR_Ref_code        INT NOT NULL UNIQUE,
+    AR_Ref_code        BIGINT NOT NULL UNIQUE,
     id_famille         INT NULL REFERENCES DIM_FAMILLE(id_famille)
                            ON DELETE NO ACTION,
     id_fournisseur     INT NULL REFERENCES DIM_FOURNISSEUR(id_fournisseur)
@@ -251,7 +317,7 @@ CREATE TABLE DIM_DEPOT (
     ("DIM_CAISSE", """
 CREATE TABLE DIM_CAISSE (
     id_caisse          INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    CA_Numero_code     INT NOT NULL UNIQUE,
+    CA_Numero_code     BIGINT NOT NULL UNIQUE,
     CA_Type            SMALLINT NULL,
     id_journal         INT NULL REFERENCES DIM_JOURNAL(id_journal)
                            ON DELETE NO ACTION,
@@ -291,7 +357,7 @@ CREATE TABLE FAIT_LIGNES_VENTE (
     DO_MontantRegle    NUMERIC(18,4) NULL,
     DL_CMUP            NUMERIC(18,4) NULL,
     DL_PrixRU          NUMERIC(18,4) NULL,
-    DO_Piece_hash      INT NULL,
+    DO_Piece_hash      BIGINT NULL,
     source_hash        BINARY(32) NULL,
     date_extraction    DATE NOT NULL
 )"""),
@@ -370,13 +436,22 @@ CREATE TABLE FAIT_ECRITURES (
                            ON DELETE NO ACTION,
     id_type_tva        INT NULL REFERENCES DIM_TYPE_TVA(id_type_tva)
                            ON DELETE NO ACTION,
-    id_type_mvt        INT NULL REFERENCES DIM_TYPE_MVT_CAISSE(id_type_mvt)
+    id_type_mvt_caisse INT NULL REFERENCES DIM_TYPE_MVT_CAISSE(id_type_mvt)
                            ON DELETE NO ACTION,
-    id_sens            INT NULL REFERENCES DIM_SENS_ECRITURE(id_sens)
+    id_sens_ecriture   INT NULL REFERENCES DIM_SENS_ECRITURE(id_sens)
                            ON DELETE NO ACTION,
     id_caisse          INT NULL REFERENCES DIM_CAISSE(id_caisse)
                            ON DELETE NO ACTION,
+    DO_Piece_hash      BIGINT NULL,
+    EC_Intitule        NVARCHAR(100) NULL,
+    EC_Sens            SMALLINT NULL,
     EC_Montant         NUMERIC(18,4) NULL,
+    EC_TauxTVA         NUMERIC(18,4) NULL,
+    EC_MontantTVA      NUMERIC(18,4) NULL,
+    EC_MontantHT       NUMERIC(18,4) NULL,
+    MC_Montant         NUMERIC(18,4) NULL,
+    MC_Libelle         NVARCHAR(100) NULL,
+    DL_CMUP            NUMERIC(18,4) NULL,
     CG_Num             INT NULL,
     TA_Taux01          NUMERIC(18,4) NULL,
     RT_Base01          NUMERIC(18,4) NULL,
@@ -470,7 +545,7 @@ _MIGRATIONS: list[tuple[str, str]] = [
     (
         "DIM_SEGMENT.cbIndice_code",
         "IF COL_LENGTH('DIM_SEGMENT','cbIndice_code') IS NULL "
-        "ALTER TABLE [DIM_SEGMENT] ADD cbIndice_code INT NULL",
+        "ALTER TABLE [DIM_SEGMENT] ADD cbIndice_code BIGINT NULL",
     ),
     (
         "DIM_SEGMENT.CT_PrixTTC",
@@ -926,77 +1001,78 @@ _KPI18_MIGRATIONS: list[tuple[str, str]] = [
         "IF COL_LENGTH('FAIT_REGLEMENTS','BR_TMM') IS NULL "
         "ALTER TABLE [FAIT_REGLEMENTS] ADD BR_TMM NUMERIC(18,4) NULL",
     ),
+    (
+        "FAIT_ECRITURES.missing_columns",
+        "IF COL_LENGTH('FAIT_ECRITURES', 'DO_Piece_hash') IS NULL ALTER TABLE [FAIT_ECRITURES] ADD DO_Piece_hash BIGINT NULL; "
+        "IF COL_LENGTH('FAIT_ECRITURES', 'EC_Intitule') IS NULL ALTER TABLE [FAIT_ECRITURES] ADD EC_Intitule NVARCHAR(100) NULL; "
+        "IF COL_LENGTH('FAIT_ECRITURES', 'EC_Sens') IS NULL ALTER TABLE [FAIT_ECRITURES] ADD EC_Sens SMALLINT NULL; "
+        "IF COL_LENGTH('FAIT_ECRITURES', 'id_sens_ecriture') IS NULL ALTER TABLE [FAIT_ECRITURES] ADD id_sens_ecriture INT NULL; "
+        "IF COL_LENGTH('FAIT_ECRITURES', 'EC_TauxTVA') IS NULL ALTER TABLE [FAIT_ECRITURES] ADD EC_TauxTVA NUMERIC(18,4) NULL; "
+        "IF COL_LENGTH('FAIT_ECRITURES', 'EC_MontantTVA') IS NULL ALTER TABLE [FAIT_ECRITURES] ADD EC_MontantTVA NUMERIC(18,4) NULL; "
+        "IF COL_LENGTH('FAIT_ECRITURES', 'EC_MontantHT') IS NULL ALTER TABLE [FAIT_ECRITURES] ADD EC_MontantHT NUMERIC(18,4) NULL; "
+        "IF COL_LENGTH('FAIT_ECRITURES', 'id_type_mvt_caisse') IS NULL ALTER TABLE [FAIT_ECRITURES] ADD id_type_mvt_caisse INT NULL; "
+        "IF COL_LENGTH('FAIT_ECRITURES', 'MC_Montant') IS NULL ALTER TABLE [FAIT_ECRITURES] ADD MC_Montant NUMERIC(18,4) NULL; "
+        "IF COL_LENGTH('FAIT_ECRITURES', 'MC_Libelle') IS NULL ALTER TABLE [FAIT_ECRITURES] ADD MC_Libelle NVARCHAR(100) NULL; "
+        "IF COL_LENGTH('FAIT_ECRITURES', 'DL_CMUP') IS NULL ALTER TABLE [FAIT_ECRITURES] ADD DL_CMUP NUMERIC(18,4) NULL;",
+    ),
 ]
+
 
 # ── BIGINT surrogate key migrations ──────────────────────────────────────────
 # ETL_HASH_BYTES is now 8, producing values up to 2^63-1 which overflows INT.
 # These ALTER COLUMN statements upgrade the affected columns to BIGINT.
-# The migration is idempotent: IF COL_LENGTH guards prevent double-execution
-# errors, but SSMS may still show a warning for existing data — that is safe.
+# We must drop unique constraints before altering columns and recreate them after.
 _BIGINT_MIGRATIONS: list[tuple[str, str]] = [
     (
-        "DIM_CLIENT.CT_Num_code → BIGINT",
-        "IF EXISTS ("
-        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
-        "  WHERE TABLE_NAME='DIM_CLIENT' AND COLUMN_NAME='CT_Num_code' AND DATA_TYPE='int'"
-        ") ALTER TABLE [DIM_CLIENT] ALTER COLUMN CT_Num_code BIGINT NOT NULL",
-    ),
-    (
-        "DIM_FOURNISSEUR.CT_Num_code → BIGINT",
-        "IF EXISTS ("
-        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
-        "  WHERE TABLE_NAME='DIM_FOURNISSEUR' AND COLUMN_NAME='CT_Num_code' AND DATA_TYPE='int'"
-        ") ALTER TABLE [DIM_FOURNISSEUR] ALTER COLUMN CT_Num_code BIGINT NOT NULL",
-    ),
-    (
-        "DIM_ARTICLE.AR_Ref_code → BIGINT",
-        "IF EXISTS ("
-        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
-        "  WHERE TABLE_NAME='DIM_ARTICLE' AND COLUMN_NAME='AR_Ref_code' AND DATA_TYPE='int'"
-        ") ALTER TABLE [DIM_ARTICLE] ALTER COLUMN AR_Ref_code BIGINT NOT NULL",
-    ),
-    (
-        "DIM_JOURNAL.JO_Num_code → BIGINT",
-        "IF EXISTS ("
-        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
-        "  WHERE TABLE_NAME='DIM_JOURNAL' AND COLUMN_NAME='JO_Num_code' AND DATA_TYPE='int'"
-        ") ALTER TABLE [DIM_JOURNAL] ALTER COLUMN JO_Num_code BIGINT NOT NULL",
-    ),
-    (
-        "DIM_BANQUE.EB_Abrege_code → BIGINT",
-        "IF EXISTS ("
-        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
-        "  WHERE TABLE_NAME='DIM_BANQUE' AND COLUMN_NAME='EB_Abrege_code' AND DATA_TYPE='int'"
-        ") ALTER TABLE [DIM_BANQUE] ALTER COLUMN EB_Abrege_code BIGINT NOT NULL",
-    ),
-    (
-        "DIM_FAMILLE.FA_CodeFamille_code → BIGINT",
-        "IF EXISTS ("
-        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
-        "  WHERE TABLE_NAME='DIM_FAMILLE' AND COLUMN_NAME='FA_CodeFamille_code' AND DATA_TYPE='int'"
-        ") ALTER TABLE [DIM_FAMILLE] ALTER COLUMN FA_CodeFamille_code BIGINT NOT NULL",
-    ),
-    (
-        "DIM_CAISSE.CA_Numero_code → BIGINT",
-        "IF EXISTS ("
-        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
-        "  WHERE TABLE_NAME='DIM_CAISSE' AND COLUMN_NAME='CA_Numero_code' AND DATA_TYPE='int'"
-        ") ALTER TABLE [DIM_CAISSE] ALTER COLUMN CA_Numero_code BIGINT NOT NULL",
-    ),
-    (
-        "FAIT_LIGNES_VENTE.DO_Piece_hash → BIGINT",
-        "IF EXISTS ("
-        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
-        "  WHERE TABLE_NAME='FAIT_LIGNES_VENTE' AND COLUMN_NAME='DO_Piece_hash' AND DATA_TYPE='int'"
-        ") ALTER TABLE [FAIT_LIGNES_VENTE] ALTER COLUMN DO_Piece_hash BIGINT NULL",
-    ),
-    (
-        "FAIT_ECRITURES.DO_Piece_hash → BIGINT",
-        "IF EXISTS ("
-        "  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
-        "  WHERE TABLE_NAME='FAIT_ECRITURES' AND COLUMN_NAME='DO_Piece_hash' AND DATA_TYPE='int'"
-        ") ALTER TABLE [FAIT_ECRITURES] ALTER COLUMN DO_Piece_hash BIGINT NULL",
-    ),
+        f"{t}.{c} → BIGINT",
+        f"""
+IF EXISTS (
+  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS 
+  WHERE TABLE_NAME='{t}' AND COLUMN_NAME='{c}' AND DATA_TYPE='int'
+) 
+BEGIN
+    DECLARE @obj_name NVARCHAR(256);
+    SELECT TOP 1 @obj_name = i.name 
+    FROM sys.indexes i 
+    JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+    JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+    WHERE i.object_id = OBJECT_ID('{t}') AND c.name = '{c}' AND i.is_unique = 1;
+
+    IF @obj_name IS NOT NULL
+    BEGIN
+        DECLARE @drop_sql NVARCHAR(512);
+        IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = @obj_name)
+            SET @drop_sql = 'ALTER TABLE [{t}] DROP CONSTRAINT [' + @obj_name + ']';
+        ELSE
+            SET @drop_sql = 'DROP INDEX [' + @obj_name + '] ON [{t}]';
+        EXEC sp_executesql @drop_sql;
+    END
+
+    ALTER TABLE [{t}] ALTER COLUMN {c} BIGINT {"NOT NULL" if not c.endswith("hash") else "NULL"};
+    
+    IF @obj_name IS NOT NULL AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = @obj_name AND object_id = OBJECT_ID('{t}'))
+    BEGIN
+        DECLARE @add_sql NVARCHAR(512) = 'ALTER TABLE [{t}] ADD CONSTRAINT [' + @obj_name + '] UNIQUE ({c})';
+        EXEC sp_executesql @add_sql;
+    END
+END
+"""
+    )
+    for t, c in (
+        ("DIM_CLIENT", "CT_Num_code"),
+        ("DIM_FOURNISSEUR", "CT_Num_code"),
+        ("DIM_ARTICLE", "AR_Ref_code"),
+        ("DIM_JOURNAL", "JO_Num_code"),
+        ("DIM_BANQUE", "EB_Abrege_code"),
+        ("DIM_FAMILLE", "FA_CodeFamille_code"),
+        ("DIM_FAMILLE", "niveau_0_code"),
+        ("DIM_FAMILLE", "niveau_1_code"),
+        ("DIM_FAMILLE", "niveau_2_code"),
+        ("DIM_CAISSE", "CA_Numero_code"),
+        ("DIM_SEGMENT", "cbIndice_code"),
+        ("FAIT_LIGNES_VENTE", "DO_Piece_hash"),
+        ("FAIT_ECRITURES", "DO_Piece_hash"),
+    )
 ]
 
 # ── Semantic views on FAIT_ECRITURES ─────────────────────────────────────────
@@ -1181,6 +1257,110 @@ END
 """
 
 
+_REF_DICTIONARY_SQL = """
+    -- 1. Populate REF_SEGMENTS_MAPPING
+    IF NOT EXISTS (SELECT 1 FROM REF_SEGMENTS_MAPPING)
+    BEGIN
+        INSERT INTO REF_SEGMENTS_MAPPING (cbIndice, libelle_segment) VALUES
+        (1, 'DÉTAILLANTS'), (2, 'GROSSISTES'), (3, 'HORECA'), (4, 'SEMI-GROS'), (5, 'DISTRIBUTEUR')
+    END
+
+    -- 2. Populate REF_TYPES_MVT_CAISSE_MAPPING
+    IF NOT EXISTS (SELECT 1 FROM REF_TYPES_MVT_CAISSE_MAPPING)
+    BEGIN
+        INSERT INTO REF_TYPES_MVT_CAISSE_MAPPING (MC_TypeMvt, libelle_type_mvt) VALUES
+        (0, 'Entrée'), (1, 'Sortie'), (2, 'Remise en banque chèques'), 
+        (3, 'Remise en banque espèces'), (4, 'Bordereau de carte bancaire'), 
+        (5, 'Bon de caisse'), (6, 'Escompte'), (7, 'Règlement fournisseur')
+    END
+
+    -- 3. Populate ETL_LOOKUP_CONFIG
+    IF NOT EXISTS (SELECT 1 FROM ETL_LOOKUP_CONFIG)
+    BEGIN
+        INSERT INTO ETL_LOOKUP_CONFIG (table_name, natural_col, surrogate_col) VALUES
+        ('DIM_DATE', 'date_val', 'id_date'),
+        ('DIM_DOMAINE', 'DO_Domaine', 'id_domaine'),
+        ('DIM_TYPE_DOC', 'DO_Type', 'id_type_doc'),
+        ('DIM_MODE_REGLEMENT', 'RT_Mode', 'id_mode_reg'),
+        ('DIM_ETAT_REGLEMENT', 'RT_Etat', 'id_etat_reg'),
+        ('DIM_ETAT_DOCREGL', 'DR_Regle', 'id_etat_docregl'),
+        ('DIM_TYPE_LIGNE', 'type_ligne', 'id_type_ligne'),
+        ('DIM_SENS_ECRITURE', 'EC_Sens', 'id_sens_ecriture'),
+        ('DIM_TYPE_TVA', 'type_tva', 'id_type_tva'),
+        ('DIM_TYPE_MVT_CAISSE', 'MC_TypeMvt', 'id_type_mvt_caisse'),
+        ('DIM_SEGMENT', 'cbIndice_code', 'id_segment'),
+        ('DIM_COLLABORATEUR', 'CO_No', 'id_collab'),
+        ('DIM_FAMILLE', 'FA_CodeFamille_code', 'id_famille'),
+        ('DIM_CLIENT', 'CT_Num_code', 'id_client'),
+        ('DIM_FOURNISSEUR', 'CT_Num_code', 'id_fournisseur'),
+        ('DIM_JOURNAL', 'JO_Num_code', 'id_journal'),
+        ('DIM_BANQUE', 'EB_Abrege_code', 'id_banque'),
+        ('DIM_ARTICLE', 'AR_Ref_code', 'id_article'),
+        ('DIM_DEPOT', 'DE_No', 'id_depot'),
+        ('DIM_CAISSE', 'CA_Numero_code', 'id_caisse')
+    END
+
+    -- 4. Populate REF_MODES_REGLEMENT_MAPPING
+    IF NOT EXISTS (SELECT 1 FROM REF_MODES_REGLEMENT_MAPPING)
+    BEGIN
+        INSERT INTO REF_MODES_REGLEMENT_MAPPING (RT_Mode, libelle_mode_reg) VALUES
+        (1, 'Espèces'), (2, 'Chèque'), (3, 'Virement'), (4, 'Traite'), 
+        (5, 'LCR'), (7, 'Carte'), (8, 'Autre')
+    END
+
+    -- 5. Populate REF_ETATS_REGLEMENT_MAPPING
+    IF NOT EXISTS (SELECT 1 FROM REF_ETATS_REGLEMENT_MAPPING)
+    BEGIN
+        INSERT INTO REF_ETATS_REGLEMENT_MAPPING (RT_Etat, libelle_etat_reg) VALUES
+        (0, 'En cours'), (1, 'Soldé'), (2, 'Payé')
+    END
+
+    -- 6. Populate REF_ETATS_DOCREGL_MAPPING
+    IF NOT EXISTS (SELECT 1 FROM REF_ETATS_DOCREGL_MAPPING)
+    BEGIN
+        INSERT INTO REF_ETATS_DOCREGL_MAPPING (DR_Regle, libelle_etat_docregl) VALUES
+        (0, 'Non réglé'), (1, 'Réglé')
+    END
+
+    -- 7. Populate REF_TYPES_LIGNE_MAPPING
+    IF NOT EXISTS (SELECT 1 FROM REF_TYPES_LIGNE_MAPPING)
+    BEGIN
+        INSERT INTO REF_TYPES_LIGNE_MAPPING (type_ligne, libelle_type_ligne) VALUES
+        (1, 'Ecriture comptable'), (2, 'TVA'), (3, 'Mouvement caisse'), (4, 'Stock snapshot')
+    END
+
+    -- 8. Populate REF_SENS_ECRITURE_MAPPING
+    IF NOT EXISTS (SELECT 1 FROM REF_SENS_ECRITURE_MAPPING)
+    BEGIN
+        INSERT INTO REF_SENS_ECRITURE_MAPPING (EC_Sens, libelle_sens) VALUES
+        (0, 'Débit'), (1, 'Crédit')
+    END
+
+    -- 9. Populate REF_TYPES_TVA_MAPPING
+    IF NOT EXISTS (SELECT 1 FROM REF_TYPES_TVA_MAPPING)
+    BEGIN
+        INSERT INTO REF_TYPES_TVA_MAPPING (type_tva, libelle_type_tva) VALUES
+        (1, 'TVA collectée'), (2, 'TVA déductible')
+    END
+
+    -- 10. Populate REF_TYPES_DOC_MAPPING
+    IF NOT EXISTS (SELECT 1 FROM REF_TYPES_DOC_MAPPING)
+    BEGIN
+        INSERT INTO REF_TYPES_DOC_MAPPING (DO_Type, libelle_type_doc) VALUES
+        (1, 'Devis'), (2, 'Bon de commande'), (3, 'Bon de livraison'), (4, 'Bon de retour'),
+        (5, 'Bon d''avoir HT'), (6, 'Facture'), (7, 'Avoir'), (11, 'Préparation de commande'),
+        (12, 'Bon de commande fournisseur'), (13, 'Bon de réception'), (14, 'Bon de retour fournisseur'),
+        (15, 'Bon d''avoir fournisseur HT'), (16, 'Facture fournisseur'), (17, 'Avoir fournisseur')
+    END
+
+    -- 11. Populate REF_DOMAINES_MAPPING
+    IF NOT EXISTS (SELECT 1 FROM REF_DOMAINES_MAPPING)
+    BEGIN
+        INSERT INTO REF_DOMAINES_MAPPING (DO_Domaine, libelle_domaine) VALUES
+        (0, 'Vente'), (1, 'Achat'), (2, 'Stock'), (3, 'Interne')
+    END
+"""
+
 def _apply_schema_migrations(conn) -> None:
     # 1. Standard column migrations (ADD COLUMN, ALTER COLUMN type changes)
     for label, sql in _MIGRATIONS:
@@ -1228,6 +1408,13 @@ def _apply_schema_migrations(conn) -> None:
         logger.info("  [REF OK]         REF_GOUVERNORAT_MAPPING")
     except Exception as exc:
         logger.warning(f"  [REF WARN]       REF_GOUVERNORAT_MAPPING: {exc}")
+
+    # 7. REF Data for segments, caisse and lookup config
+    try:
+        conn.execute(text(_REF_DICTIONARY_SQL.strip()))
+        logger.info("  [REF OK]         REF_DICTIONARY_SQL (Segments, Caisse, Config)")
+    except Exception as exc:
+        logger.warning(f"  [REF WARN]       REF_DICTIONARY_SQL: {exc}")
 
 
 def apply_schema_migrations() -> None:

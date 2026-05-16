@@ -6,7 +6,7 @@ from typing import Optional
 import pandas as pd
 from sqlalchemy import text
 
-from etl.config import MAG_ENGINE, GRT_ENGINE, DIM_DATE_START, DIM_DATE_END
+from etl.config import MAG_ENGINE, GRT_ENGINE, DW_ENGINE, DIM_DATE_START, DIM_DATE_END
 from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -28,6 +28,10 @@ def _read(engine, sql: str, params: Optional[dict] = None) -> pd.DataFrame:
         )
     logger.debug(f"Extracted {len(df)} rows — {sql[:80].strip()}...")
     return df
+
+
+def _read_dw(sql: str) -> pd.DataFrame:
+    return _read(DW_ENGINE, sql)
 
 
 def _delta_filter(col: str, last_run: Optional[datetime]) -> tuple[str, dict]:
@@ -109,9 +113,10 @@ def extract_exercices_fiscaux() -> list[tuple[date, date]]:
 
 def extract_dim_segment() -> pd.DataFrame:
     sql = """
-        SELECT cbIndice, CT_PrixTTC
-        FROM P_CATTARIF
-        WHERE cbIndice BETWEEN 1 AND 5
+        SELECT s.cbIndice, s.CT_PrixTTC, m.libelle_segment
+        FROM P_CATTARIF s
+        LEFT JOIN DW_SIAD.dbo.REF_SEGMENTS_MAPPING m ON m.cbIndice = s.cbIndice
+        WHERE s.cbIndice BETWEEN 1 AND 5
     """
     return _read(MAG_ENGINE, sql)
 
@@ -590,9 +595,10 @@ def extract_fait_mvtcaisse(last_run: Optional[datetime] = None) -> pd.DataFrame:
 
 def extract_dim_type_mvt_caisse() -> pd.DataFrame:
     sql = """
-        SELECT DISTINCT MC_TypeMvt AS code_type_mvt
-        FROM F_MvtCaisse
-        WHERE MC_TypeMvt IS NOT NULL
+        SELECT DISTINCT mc.MC_TypeMvt AS code_type_mvt, m.libelle_type_mvt
+        FROM F_MvtCaisse mc
+        LEFT JOIN DW_SIAD.dbo.REF_TYPES_MVT_CAISSE_MAPPING m ON m.MC_TypeMvt = mc.MC_TypeMvt
+        WHERE mc.MC_TypeMvt IS NOT NULL
     """
     return _read(GRT_ENGINE, sql)
 
@@ -602,23 +608,15 @@ def extract_dim_type_mvt_caisse() -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def extract_static_dims() -> dict[str, pd.DataFrame]:
-    from etl.config import (
-        MODES_REGLEMENT, ETATS_REGLEMENT, ETATS_DOCREGL,
-        TYPES_LIGNE, SENS_ECRITURE, TYPES_TVA, DOMAINES, TYPES_DOC,
-    )
-
-    def _df(d: dict, code_col: str, lib_col: str) -> pd.DataFrame:
-        return pd.DataFrame([(k, v) for k, v in d.items()], columns=[code_col, lib_col])
-
     return {
-        "DIM_DOMAINE":         _df(DOMAINES,          "DO_Domaine",    "libelle_domaine"),
-        "DIM_TYPE_DOC":        _df(TYPES_DOC,          "DO_Type",       "libelle_type_doc"),
-        "DIM_MODE_REGLEMENT":  _df(MODES_REGLEMENT,    "RT_Mode",       "libelle_mode_reg"),
-        "DIM_ETAT_REGLEMENT":  _df(ETATS_REGLEMENT,    "RT_Etat",       "libelle_etat_reg"),
-        "DIM_ETAT_DOCREGL":    _df(ETATS_DOCREGL,      "DR_Regle",      "libelle_etat_docregl"),
-        "DIM_TYPE_LIGNE":      _df(TYPES_LIGNE,        "type_ligne",    "libelle_type_ligne"),
-        "DIM_SENS_ECRITURE":   _df(SENS_ECRITURE,      "EC_Sens",       "libelle_sens"),
-        "DIM_TYPE_TVA":        _df(TYPES_TVA,          "type_tva",      "libelle_type_tva"),
+        "DIM_DOMAINE":         _read_dw("SELECT DO_Domaine, libelle_domaine FROM REF_DOMAINES_MAPPING"),
+        "DIM_TYPE_DOC":        _read_dw("SELECT DO_Type, libelle_type_doc FROM REF_TYPES_DOC_MAPPING"),
+        "DIM_MODE_REGLEMENT":  _read_dw("SELECT RT_Mode, libelle_mode_reg FROM REF_MODES_REGLEMENT_MAPPING"),
+        "DIM_ETAT_REGLEMENT":  _read_dw("SELECT RT_Etat, libelle_etat_reg FROM REF_ETATS_REGLEMENT_MAPPING"),
+        "DIM_ETAT_DOCREGL":    _read_dw("SELECT DR_Regle, libelle_etat_docregl FROM REF_ETATS_DOCREGL_MAPPING"),
+        "DIM_TYPE_LIGNE":      _read_dw("SELECT type_ligne, libelle_type_ligne FROM REF_TYPES_LIGNE_MAPPING"),
+        "DIM_SENS_ECRITURE":   _read_dw("SELECT EC_Sens, libelle_sens FROM REF_SENS_ECRITURE_MAPPING"),
+        "DIM_TYPE_TVA":        _read_dw("SELECT type_tva, libelle_type_tva FROM REF_TYPES_TVA_MAPPING"),
     }
 
 

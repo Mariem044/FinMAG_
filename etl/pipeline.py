@@ -19,8 +19,6 @@ warnings.filterwarnings(
 
 from etl.config import (
     DW_ENGINE,
-    SEGMENTS,
-    TYPES_MVT_CAISSE,
     DIM_DATE_START,
     DIM_DATE_END,
     AUDIT_TABLE_NAME,
@@ -156,28 +154,14 @@ def _build_lookup(table_name: str, natural_hash_col: str, surrogate_id_col: str)
     return lookup
 
 
-LOOKUP_CONFIG: Dict[str, Tuple[str, str]] = {
-    "DIM_DATE":            ("date_val",           "id_date"),
-    "DIM_DOMAINE":         ("DO_Domaine",          "id_domaine"),
-    "DIM_TYPE_DOC":        ("DO_Type",             "id_type_doc"),
-    "DIM_MODE_REGLEMENT":  ("RT_Mode",             "id_mode_reg"),
-    "DIM_ETAT_REGLEMENT":  ("RT_Etat",             "id_etat_reg"),
-    "DIM_ETAT_DOCREGL":    ("DR_Regle",            "id_etat_docregl"),
-    "DIM_TYPE_LIGNE":      ("type_ligne",          "id_type_ligne"),
-    "DIM_SENS_ECRITURE":   ("EC_Sens",             "id_sens"),
-    "DIM_TYPE_TVA":        ("type_tva",            "id_type_tva"),
-    "DIM_TYPE_MVT_CAISSE": ("MC_TypeMvt",          "id_type_mvt"),
-    "DIM_SEGMENT":         ("cbIndice_code",       "id_segment"),
-    "DIM_COLLABORATEUR":   ("CO_No",               "id_collab"),
-    "DIM_FAMILLE":         ("FA_CodeFamille_code", "id_famille"),
-    "DIM_CLIENT":          ("CT_Num_code",         "id_client"),
-    "DIM_FOURNISSEUR":     ("CT_Num_code",         "id_fournisseur"),
-    "DIM_JOURNAL":         ("JO_Num_code",         "id_journal"),
-    "DIM_BANQUE":          ("EB_Abrege_code",      "id_banque"),
-    "DIM_ARTICLE":         ("AR_Ref_code",         "id_article"),
-    "DIM_DEPOT":           ("DE_No",               "id_depot"),
-    "DIM_CAISSE":          ("CA_Numero_code",      "id_caisse"),
-}
+def _get_lookup_config() -> Dict[str, Tuple[str, str]]:
+    sql = "SELECT table_name, natural_col, surrogate_col FROM ETL_LOOKUP_CONFIG"
+    with DW_ENGINE.connect() as conn:
+        df = pd.read_sql(text(sql), conn)
+    return {
+        row["table_name"]: (row["natural_col"], row["surrogate_col"])
+        for _, row in df.iterrows()
+    }
 
 # PipelineStep is defined at the top of this module as a @dataclass.
 
@@ -271,14 +255,44 @@ def _transform_dim_famille(df: pd.DataFrame) -> pd.DataFrame:
     ]]
 
 
+def _transform_dim_segment(df: pd.DataFrame) -> pd.DataFrame:
+    df = _hash_columns(df, ["cbIndice"])
+    df["CT_PrixTTC"] = pd.to_numeric(df["CT_PrixTTC"], errors="coerce").fillna(0).astype("Int16")
+    
+    try:
+        sql = "SELECT cbIndice, libelle_segment FROM REF_SEGMENTS_MAPPING"
+        with DW_ENGINE.connect() as conn:
+            ref_df = pd.read_sql(text(sql), conn)
+        ref_map = dict(zip(ref_df["cbIndice"], ref_df["libelle_segment"]))
+    except Exception as exc:
+        logger.warning(f"REF_SEGMENTS_MAPPING not available: {exc}")
+        ref_map = {}
+
+    df["libelle_segment"] = (
+        df["cbIndice"]
+        .map(lambda v: ref_map.get(int(v), f"Segment {v}"))
+        .str[:100]
+    )
+    return df
+
+
 def _add_static_label(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     if "code_type_mvt" in df.columns and "MC_TypeMvt" not in df.columns:
         df = df.rename(columns={"code_type_mvt": "MC_TypeMvt"})
     df["MC_TypeMvt"] = pd.to_numeric(df["MC_TypeMvt"], errors="coerce").astype("Int16")
+    
+    try:
+        sql = "SELECT MC_TypeMvt, libelle_type_mvt FROM REF_TYPES_MVT_CAISSE_MAPPING"
+        with DW_ENGINE.connect() as conn:
+            ref_df = pd.read_sql(text(sql), conn)
+        ref_map = dict(zip(ref_df["MC_TypeMvt"], ref_df["libelle_type_mvt"]))
+    except Exception as exc:
+        logger.warning(f"REF_TYPES_MVT_CAISSE_MAPPING not available: {exc}")
+        ref_map = {}
+
     df["libelle_type_mvt"] = df["MC_TypeMvt"].map(
-        lambda v: TYPES_MVT_CAISSE.get(int(v), f"Type caisse {int(v)}")
-        if pd.notna(v) else None
+        lambda v: ref_map.get(int(v), f"Type caisse {int(v)}") if pd.notna(v) else None
     )
     return df
 
@@ -327,122 +341,7 @@ def _resolve_gouvernorat_sql(df: pd.DataFrame) -> pd.Series:
 
 # ── kept for reference only — business logic is now in REF_GOUVERNORAT_MAPPING
 
-        "TUNIS": ["TUNIS", "MONTPLAISIR", "LE BARDO", "BARDO",
-            "EZZAHROUNI", "OMRANE", "AGBA", "ETTADHAMEN",
-            "MARCHE CENTRAL", "MALASINE", "LAKANIA",
-            "BEB EL KHADHRA/BEB SOUIKA", "MUTUELLE VILLE/BELVEDAIRE", "MONTFLEURY", "MONFLEURIE", "MONFLEURY",
-            "MUTUELLE VILLE", "BELVEDAIRE", "BELVEDERE", "OUARDIA", "CITE EL KHADHRA",
-            "CITE EL KADHRA", "IBN SINA", "LAFAYETTE", "BAB EL KHADHRA", "BAB JDID",
-            "BAB SAADOUN", "BEB EL KHADHRA", "KHAZNADAR", "CITE NASSER", "CITE NACER",
-            "CITE ENASSR", "DJEBEL LAHMAR", "DJEBAL LAHMAR", "JBAL LAHMER", "JBAL JLOUD",
-            "DJEBEL JLOUD", "JEBAL JLOUD", "SIJOUMI", "CENTRAL", "CENTRE VILLE",
-            "TUNIS 1", "TUNIS 2", "TUNIS 3", "TUNIS 4", "TUNIS NORD", " TUNIS"],
-        "TUNIS BANLIEUE NORD": ["TUNIS BLN 1", "TUNIS BLN 2", "BANLIEUE NORD",
-                        "Tunis BLN 3", "URBAIN NORD"],
-        "ARIANA": ["ARIANA", "EL GHAZELA", "ARIANA 1", "ARIANA SUPERIEUR", "ARIANA SUPÉRIEUR",
-                "RAOUED", "RAOUED-GHAZELA", "GHAZELA/RAWED", "CITE-GHAZELLA",
-                "LA SOUKRA", "SOUKRA", "SOKRA", "SIDI THABET", "SIDI THABET-K.ANDALOSS",
-                "KALAAT ANDALOUS", "KALAA ANDALOUS", "KALLAAT EL ANDALOS", "KALALA ANDALUS",
-                "MNIHLA", "MNIHLA TUNIS", "RIADH ANDALOUS", " ARIANA", " ARINA"],
-        "BEN AROUS": ["BEN AROUS", "BEN AROUS 1", "CITE TADHAMON", "BEN AROUS 2", "MOUROUJ", "MOUROUJ 3",
-                    "MOUROUJ 4", "MOUROUJ 5", "MOUROUJ 6", "MOROUJ II", "MOUROJ II",
-                    "MOUROUHJ", "MOROUJ 3", "MOROUJ 4", "FOUCHANA", "FOUCHENA",
-                    "EZZAHRA", " EZZAHRA", "RADES", "MORNAG", "MORNEG", "MORNEGUE",
-                    "BOUMHEL", "BOUMHAL", " BOUMHAL", "BOUMHAL BASSATINE", "MEGRINE",
-                    "HAMMAM LIFF", "HAMMAM LIF", "HAMMEM LIFE", "H.LIF", "BORJ CEDRIA",
-                    "  BORJ CEDRIA", " BORJ CEDRIA 2", "MHAMDIA", "ELMHAMDIA",
-                    "BOU MHL EL BASSATINE", " BEN AROUS", "BEN AROUS/OUARDIA-002",
-                    "TUNIS 4", "BANLIEUE SUD"],
-        "MANOUBA": ["MANOUBA", "MANNOUBA", "KSAR SAID",
-                    "KSAR SAID - CITE ETTAHRIR", "NAASEN", "SLIMEN", "MGHIRA", "MNNOUBA", "LA MANOUBA", "OUED ELLIL",
-                    "OUED ELIL", "DAOUAR HICHER", "DOUAR HICHER", "DOWAR HICHER",
-                    "DENDEN", "DEN DEN", "DEN-DEN", "Den - Den", "MORNAGUIA",
-                    "TEBOURBA", "TBOURBA", "TEBORBA", "TEBBOURBA", "TEBOURSEK",
-                    "TEBBOUBA", "TBORSOK", "BORJ AMRI", "BORJ EL AMRI", "BOURJ AMRI",
-                    "JDAIDA", "JEDEIDA", "JDEIDA", "JEDAIDA", "JEDEIDA",
-                    "TEBOURBA/BATTAN", "BORJ LOUZIR", " BORJ LOUZIR",
-                    "LAOUINA-EL WAHAT", "LAOUINA", "LAAWIINA", "LAAOUINA",
-                    "LAAWINA-ELWAHAT", "LAOUINA-WAHAT"],
-        "BIZERTE": ["BIZERTE", "BIZERTE I", "SAJNENE/GHZELA", "BIZERTE II", "BIZERTE 1", "BIZERTE NORD",
-                    "BIZERTE SUD", "BIZERTZ I", "BIZETE I", "BIZEZRTE II", " BIZERTE ",
-                    "MENZEL BOURGUIBA", "MANZEL BOURGUIBA", "M.BOURGUIBA",
-                    "MANZEL BOURGUIBA TINJA", "MENZEL ABDERRAHMEN", "MANZEL ABDELRAHMEN",
-                    "MENZEL ABD ELRAHMEN", "MENZEL DJMIL", "MENZEL JMIL", "MANZEL JMIL",
-                    "MENZEL DJEMIL", "MENZEL JEMIL", " MANZEL JMIL",
-                    "RAS DJEBEL", "RAS JBAL", "RAS JBEL", "RAS DJEBAL", " RAS JBAL",
-                    "EL ALIA", "ALIA", "MATEUR", "JARZOUNA", "SEJNANE", "SAJNENE",
-                    "SAJNEN/GHZELA", "SAJNEN", "GHAR EL MILH", "OUSJA",
-                    "GHAR EL MILH_OUSJA", "OUSJA/GHAR MELH", "OUSJA/GHAR MELAH",
-                    "SOUNINE / RAFRAF", "RAFRAF", "RAF RAF", "RAFRAF/BIZERTE-005",
-                    "CAP ZBIB / METLINE", "METLINE", "TINJA", "NEFZA", "NEFZA-BEJA",
-                    "TABARKA", "TBARKA", "EL ALIA", "BIZERTE I "],
-        "NABEUL": ["NABEUL", "CAP BON", "CAP BON 1", "CAP BON 2", "CAP BON 3",
-                "HAMMAMET", "KORBA", "KELIBIA", "GROMBALIA", "GROMBELIA",
-                "MENZEL TEMIME", "MANZEL TMIME", "MENZEL TMIM", "MENZEL BOUZELFA",
-                "MANZEL BOUZELFA", "MENZEL ABDERRAHMEN", "BEN KHALLED", " NABEUL",
-                "BENI KHALED", "BENI KHIAR", " BNI KHIAR", "DAR CHAABANE",
-                "BOUARGOUB", "BOUARADA", "EL HAOUARIA", "TAKELSA", "ENFIDHA",
-                "MHEDHBA NABEUL"],
-        "ZAGHOUAN": ["ZAGHOUAN", "ZAGOUAN", "ZAGHOUEN", "ZAGHOUANE", "ZAGHOUENE",
-                    "ZAGHOUEN1142", " ZAGHOUEN", "EL FAHS", "FAHS", "TESTOUR",
-                    "JILMA", "SMINJA", "NADHOUR"],
-        "SOUSSE": ["SOUSSE", "SOUSSE MEDINA", "SOUSSE ERRIADH", "HAMMAM SOUSSE",
-                "HAMMEM SOUSSE", "HAMMEM SAYELA", "AKOUDA", "KALAA KEBIRA",
-                "KALAA SGHIRA", "MSAKEN", "MSEKEN", " MSEKEN", "SAHEL", " SOUSSE",
-                "HAMMAM CHOTT"],
-        "MONASTIR": ["Monastir", "MONASTIR", "MONESTIR", "MSAKEN", "MOKNINE",
-                    "TEBOULBA", "TBOLBA", "TEBBOUBA", "KSIBET MADIOUNI",
-                    "KSIBET EL MEDIOUNI", "KSAR HELLAL", "JAMMEL", "BEKALTA",
-                    "ZERMADINE", "MOROUJ II"],
-        "MAHDIA": ["MAHDIA", " MAHDIA", "EL DJEM", "EL JAM", "EL JEM", "JAM",
-                "KSOUR ESSEF", "KSOUR ESSAF", "CHEBBA", "SOUASSI", "SOUASSI JEM",
-                "ESSOUASSI", "BOUHAJLA"],
-        "KAIROUAN": ["KAIROUAN", "KAIRAOUEN", "KAIRAOUANE", "KAIRAOUAN", " KAIRAOUEN",
-                    "KAIROUAN NORD", "KAIROUAN SUD", "KAIROUAN NORD", "KAIROUAN SUD",
-                    "HAJEB EL AYOUN", "JILMA", "NASRALLAH", "SBIKHA",
-                    "EL OUSLATIA", "BOUHAJLA", "HAFOUZ CENTER"],
-        "KASSERINE": ["KASSERINE", "KASSERINE NORD", "FERIANA", "FOUSSANA", "SBEITLA",
-                    "SBIBA", "GASRINE", "ECHEBIKA"],
-        "SIDI BOUZID": ["SIDI BOUZID", "SIDI BOUZID EST", "SIDI BOUZID OUEST",
-                        "MEKNASSY", "REGUEB", "JILMA", "SIDI ALI BEN AOUN",
-                        "MENZEL BOUZAIANE", "NASRALLAH"],
-        "SFAX": ["SFAX", " SFAX"],
-        "GABES": ["GABES", "BEN GARDEN"],
-        "BEJA": ["BEJA", "BÉJA SUD", "BÉJA NORD", "TEBOURSOUK", "TEBOURSEK",
-            "TESTOUR", "GOUBELLAT", "NEFZA", "AMDOUN", "MEDJEZ EL BAB",
-            "TEBOURSEK JENDOUBA", "TBARKA", "BOUSSALEM", "OUED MLIZ",
-            "BARGOU SELIANA", "GAAFOUR", "SILIA GAAFOUR", "BOUSALEM"],
-        "JENDOUBA": ["JENDOUBA", "JANDOUBA", "JENDOUBA NORD", "JENDOUBA SUD",
-                "JENDOUBA CENTRE", " JENDOUBA", "FERNANA", "GHARDIMAOU",
-                "BALTA", "SAKIET SIDI YOUSSEF", "AIN DRAHAM", "OUED MLIZ",
-                "TABARKA", "BOUSSALEM"],
-        "KEF": ["KEF", "EL KEF", "LE KEF", " EL KEF", "KEF OUEST",
-                "TAJEROUINE", "TEJROUINE", "TEJEROUINE", "SAKIET SIDI YOUSSEF",
-                "EL KSOUR KEF", "KRIB", "SILIANA GAAFOUR"],
-        "SILIANA": ["SILIANA", "SELIANA", "SELINA", "SILIA", "Siliana Nord",
-                    "BARGOU SELIANA", "BOUSSALEM", "MAKTHAR", "GAAFOUR"],
-        "GAFSA": ["GAFSA", "GAFSA SUD", "GAFSA NORD", "METLAOUI", "REDEYEF",
-                "MDHILA", "EL GUETAR", "ECHEBIKA"],
-        "TOZEUR": ["TOZEUR", "NEFTA"],
-        "KEBILI": ["KEBILI", "DOUZ"],
-        "TATAOUINE": ["TATAOUINE"],
-        "MEDENINE": ["MEDENINE", "BEN GARDEN", "ZARZIS", "HOUMT SOUK"],
-        "CARTHAGE": ["CARTHAGE", "GAMMARTH", "LA MARSA", "LA MARSA/SIDI BOUSAID",
-                    "MARSA", "EL MARSA", "SIDI BOU SAID", "CARTHAGE BYRSA",
-                    "CARTHAGE BIRSA", "BHAR LAZREG", "AIN ZAGOUANE",
-                    "AIN ZAGHOUANE", "AIN ZAGHOUAN", "AIN ZAGHWEN",
-                    "AIN ZAGOUANE ", "AIN ZAGHOUEN ", "AIN ZAGHOUANE ",
-                    "AIN ZAGHWEN/SIDI DAOUD", "AIN ZAGOUANE SIDI DAOUD",
-                    "SIDI DAOUD", "SIDI DAOUED", "EL MANAR", "MANZAH",
-                    "MANZAH 6", "MANZAH 7", "MANZAH ", "MENZAH ", "MONTFLEURIE",
-                    "LE KRAM", "LE KRAM ", "KRAM", "EL KRAM", "LE KRAM OUEST",
-                    "LE KRAM EAST", "LA KRAM OUEST", "LA GOULETTE",
-                    "LA GOULETTE/LE KRAM", "LA GOULETTE/KRAM",
-                    "BORJ LOUZIR", "IBN KHALDOUN"],
-        "LA MANOUBA": ["LA MANOUBA", "MANNOUBA"],
-        "hors zone": ["hors zone", "HORS ZONE", "hors zone (RAOUED)",
-                    "hors zone (cite nasser)", "DIVERS"],
-    }
+
 
 
 
@@ -778,8 +677,8 @@ def _assemble_fait_ecritures(
             id_client=lambda d: d["CT_Num"].apply(
                 lambda v: lookups.get("DIM_CLIENT", {}).get(transform.hash_key(v))
             ),
-            id_sens=lambda d: d["EC_Sens"].apply(
-                lambda v: _lookup_code(lookups, "DIM_SENS_ECRITURE", v)
+            id_sens_ecriture=lambda d: d["EC_Sens"].apply(
+                lambda v: lookups["DIM_SENS_ECRITURE"].get(v)
             ),
             id_type_tva=lambda d: d["JO_Type"].apply(
                 lambda v: _lookup_code(
@@ -798,7 +697,7 @@ def _assemble_fait_ecritures(
             date_extraction=today,
         )
     )
-    )
+
 
     df2 = (
         _normalize_ecriturec(extract.extract_fait_regtaxe(last_run), "F_REGTAXE")
@@ -844,8 +743,8 @@ def _assemble_fait_ecritures(
             id_caisse=lambda d: d["CA_No"].apply(
                 lambda v: lookups.get("DIM_CAISSE", {}).get(transform.hash_key(v))
             ),
-            id_type_mvt=lambda d: d["MC_TypeMvt"].apply(
-                lambda v: _lookup_code(lookups, "DIM_TYPE_MVT_CAISSE", v)
+            id_type_mvt_caisse=lambda d: d["MC_TypeMvt"].apply(
+                lambda v: lookups["DIM_TYPE_MVT_CAISSE"].get(v)
             ),
             source_hash=lambda d: d.apply(
                 lambda row: _source_hash(
@@ -889,9 +788,9 @@ def _assemble_fait_ecritures(
             id_journal   =pd.NA,
             id_banque    =pd.NA,
             id_client    =pd.NA,
-            id_sens      =pd.NA,
+            id_sens_ecriture =pd.NA,
+            id_type_mvt_caisse =pd.NA,
             id_type_tva  =pd.NA,
-            id_type_mvt  =pd.NA,
             id_caisse    =pd.NA,
             id_article   =lambda d: d["AR_Ref"].apply(
                 lambda v: lookups.get("DIM_ARTICLE", {}).get(transform.hash_key(str(v).strip())) if pd.notna(v) else None
@@ -1044,10 +943,10 @@ def _build_lignes_vente_transform(last_run_date):
                     axis=1,
                 ),
                 date_extraction=datetime.now(timezone.utc).date(),
-            )
         )
-  STEPS: List[PipelineStep] = [
+    )
 
+STEPS: List[PipelineStep] = [
     PipelineStep(
         table_name="DIM_DATE",
         extract_fn=lambda **kw: pd.DataFrame(),
@@ -1121,19 +1020,7 @@ def _build_lignes_vente_transform(last_run_date):
     PipelineStep(
         table_name="DIM_SEGMENT",
         extract_fn=lambda **kw: extract.extract_dim_segment(),
-        transform_fn=lambda df, lookups: (
-            _hash_columns(df, ["cbIndice"])
-            .assign(
-                CT_PrixTTC=lambda d: pd.to_numeric(
-                    d["CT_PrixTTC"], errors="coerce"
-                ).fillna(0).astype("Int16"),
-                libelle_segment=lambda d: (
-                    d["cbIndice"]
-                    .map(lambda v: SEGMENTS.get(int(v), f"Segment {v}"))
-                    .str[:100]
-                ),
-            )
-        ),
+        transform_fn=lambda df, lookups: _transform_dim_segment(df),
         load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="cbIndice_code"),
         description="Segments clients Sage (Détaillants, Grossistes, HORECA, Semi-gros, Distributeur).",
     ),
@@ -1342,8 +1229,9 @@ def run_pipeline(force_full: bool = False) -> None:
                 n_loaded = len(df)
                 load_fn(df, table_name, mode)
 
-                if table_name in LOOKUP_CONFIG:
-                    nat_col, surr_col = LOOKUP_CONFIG[table_name]
+                lookup_config_map = _get_lookup_config()
+                if table_name in lookup_config_map:
+                    nat_col, surr_col = lookup_config_map[table_name]
                     lookups[table_name] = _build_lookup(table_name, nat_col, surr_col)
 
                 ctx["rows_inserted"] = n_loaded
@@ -1382,4 +1270,3 @@ def run_pipeline(force_full: bool = False) -> None:
 
 if __name__ == "__main__":
     run_pipeline(force_full="--full" in sys.argv)
-

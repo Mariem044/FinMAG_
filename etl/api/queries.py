@@ -1,4 +1,4 @@
-﻿import json # serializing data 
+import json # serializing data 
 import logging # logging for debugging and monitoring
 import os # to read env variables
 import re # for text processing
@@ -996,7 +996,7 @@ def get_caisse_mouvements_by_type():
             SUM(ABS(COALESCE(e.MC_Credit, 0)) + ABS(COALESCE(e.MC_Debit, 0))) AS value
         FROM FAIT_ECRITURES e
         JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
-        LEFT JOIN DIM_TYPE_MVT_CAISSE tm ON tm.id_type_mvt = e.id_type_mvt
+        LEFT JOIN DIM_TYPE_MVT_CAISSE tm ON tm.id_type_mvt = e.id_type_mvt_caisse
         WHERE tl.type_ligne = 3
         GROUP BY tm.libelle_type_mvt, tm.MC_TypeMvt
         ORDER BY SUM(ABS(COALESCE(e.MC_Credit, 0)) + ABS(COALESCE(e.MC_Debit, 0))) DESC
@@ -1044,7 +1044,7 @@ def get_fiscalite_kpis():
             SUM(CASE WHEN s.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END) AS credit
         FROM FAIT_ECRITURES e
         JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
-        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
+        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens_ecriture
         WHERE tl.type_ligne IN (1, 2)
         """
     )
@@ -1069,7 +1069,7 @@ def get_fiscalite_journaux():
             SUM(CASE WHEN s.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END) AS credit
         FROM FAIT_ECRITURES e
         LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
-        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
+        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens_ecriture
         GROUP BY j.JO_Num_code
         ORDER BY
             SUM(CASE WHEN s.EC_Sens = 0 THEN ABS(e.EC_Montant) ELSE 0 END)
@@ -1120,7 +1120,7 @@ def get_fiscalite_ecritures():
         JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
         LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
         LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
-        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
+        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens_ecriture
         WHERE tl.type_ligne IN (1, 2)
         AND e.EC_No IS NOT NULL
         AND e.EC_Montant IS NOT NULL
@@ -1192,7 +1192,7 @@ def get_fiscalite_balance_by_month():
         FROM FAIT_ECRITURES e
         JOIN DIM_DATE d ON d.id_date = e.id_date
         JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
-        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens
+        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens_ecriture
         WHERE tl.type_ligne IN (1, 2)
         GROUP BY d.mois
         ORDER BY d.mois

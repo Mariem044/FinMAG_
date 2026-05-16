@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from datetime import timezone
+from datetime import timezone, date, datetime
 from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
@@ -73,8 +73,9 @@ GRT_ENGINE: Engine = _make_engine(os.environ["GRT_CONN"], pool_size=3)
 
 
 CHUNK_SIZE:        int = int(os.environ["ETL_CHUNK_SIZE"])
-DIM_DATE_START:    str = os.environ["DIM_DATE_START"]
-DIM_DATE_END:      str = os.environ["DIM_DATE_END"]
+DIM_DATE_START:    date = datetime.strptime(os.environ["DIM_DATE_START"], "%Y-%m-%d").date()
+DIM_DATE_END:      date = datetime.strptime(os.environ["DIM_DATE_END"], "%Y-%m-%d").date()
+AUDIT_TABLE_NAME:  str = os.environ.get("ETL_AUDIT_TABLE", "ETL_AUDIT")
 ERROR_MSG_MAX_LEN: int = int(os.environ.get("ETL_ERROR_MSG_MAX_LEN", "500"))
 
 # ── hash configuration ───────────────────────────────────────────────────────
@@ -87,95 +88,6 @@ if _HASH_BYTES < 8:
         f"ETL_HASH_BYTES={_HASH_BYTES} is too small. "
         "Set ETL_HASH_BYTES=8 in .env to avoid surrogate key collisions."
     )
-
-# ── stock tension threshold ──────────────────────────────────────────────────
-# Articles with ratio_tension >= SEUIL_TENSION_STOCK are flagged as "tense".
-SEUIL_TENSION_STOCK: float = float(os.environ.get("SEUIL_TENSION_STOCK", "0.5"))
-
-
-SEGMENTS: dict[int, str] = {
-    1: "DÉTAILLANTS",
-    2: "GROSSISTES",
-    3: "HORECA",
-    4: "SEMI-GROS",
-    5: "DISTRIBUTEUR",
-}
-
-MODES_REGLEMENT: dict[int, str] = {
-    1: "Espèces",
-    2: "Chèque",
-    3: "Virement",
-    4: "Traite",
-    5: "LCR",
-    7: "Carte",
-    8: "Autre",
-}
-
-ETATS_REGLEMENT: dict[int, str] = {
-    0: "En cours",
-    1: "Soldé",
-    2: "Payé",
-}
-
-ETATS_DOCREGL: dict[int, str] = {
-    0: "Non réglé",
-    1: "Réglé",
-}
-
-TYPES_LIGNE: dict[int, str] = {
-    1: "Ecriture comptable",
-    2: "TVA",
-    3: "Mouvement caisse",
-    4: "Stock snapshot",
-}
-
-SENS_ECRITURE: dict[int, str] = {
-    0: "Débit",
-    1: "Crédit",
-}
-
-TYPES_TVA: dict[int, str] = {
-    1: "TVA collectée",
-    2: "TVA déductible",
-}
-
-TYPES_MVT_CAISSE: dict[int, str] = {
-    1: "Entree especes",
-    2: "Sortie especes",
-    3: "Entree cheque",
-    4: "Sortie cheque",
-    5: "Virement caisse",
-    6: "Depot bancaire",
-    7: "Retrait bancaire",
-    8: "Remise en banque",
-    54: "Regularisation caisse",
-}
-
-TYPES_DOC: dict[int, str] = {
-    1:  "Devis",
-    2:  "Bon de commande",
-    3:  "Bon de livraison",
-    4:  "Bon de retour",
-    5:  "Bon d'avoir HT",
-    6:  "Facture",
-    7:  "Avoir",
-    11: "Préparation de commande",
-    12: "Bon de commande fournisseur",
-    13: "Bon de réception",
-    14: "Bon de retour fournisseur",
-    15: "Bon d'avoir fournisseur HT",
-    16: "Facture fournisseur",
-    17: "Avoir fournisseur",
-}
-
-DOMAINES: dict[int, str] = {
-    0: "Vente",
-    1: "Achat",
-    2: "Stock",
-    3: "Interne",
-}
-
-AUDIT_TABLE_NAME: str = os.environ["ETL_AUDIT_TABLE"]
 
 
 def hash_key(value: Optional[str | int | float]) -> Optional[int]:

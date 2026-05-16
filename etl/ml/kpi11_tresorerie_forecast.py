@@ -257,6 +257,11 @@ def _layer3_ml(open_df: pd.DataFrame, hist_df: pd.DataFrame, horizon: int) -> pd
 
     today = datetime.now(timezone.utc).date()
 
+    # Determine unique categories dynamically from historical data
+    # (Removes the need for hardcoded Python dictionaries)
+    rfm_categories = hist_df["rfm_score"].dropna().unique() if not hist_df.empty else []
+    seg_categories = hist_df["libelle_segment"].dropna().unique() if not hist_df.empty else []
+
     # ── feature builder ──
     def _build_features(df: pd.DataFrame) -> pd.DataFrame:
         f = pd.DataFrame()
@@ -264,13 +269,9 @@ def _layer3_ml(open_df: pd.DataFrame, hist_df: pd.DataFrame, horizon: int) -> pd
         f["nb_jour"]     = pd.to_numeric(df["RT_NbJour"], errors="coerce").fillna(30)
         f["delai_hist"]  = pd.to_numeric(df["delai_reel_jours"], errors="coerce").fillna(0)
 
-        # Encode RFM segment
-        rfm_map = {"Champion": 4, "Fidèle": 3, "À risque": 2, "Dormant": 1, "Nouveau": 2}
-        f["rfm_num"] = df["rfm_score"].map(rfm_map).fillna(2).astype(int)
-
-        # Encode segment
-        seg_map = {"DÉTAILLANTS": 1, "GROSSISTES": 2, "HORECA": 3, "SEMI-GROS": 4, "DISTRIBUTEUR": 5}
-        f["seg_num"] = df["libelle_segment"].map(seg_map).fillna(1).astype(int)
+        # Encode dynamically using historical categories
+        f["rfm_num"] = pd.Categorical(df["rfm_score"], categories=rfm_categories).codes
+        f["seg_num"] = pd.Categorical(df["libelle_segment"], categories=seg_categories).codes
 
         return f
 
