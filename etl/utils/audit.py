@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import os
 import time
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Generator, Optional
-
-import os
 
 from sqlalchemy import text
 
@@ -15,63 +14,14 @@ from etl.utils.logger import get_logger
 logger = get_logger(__name__)
 
 _TABLE = os.environ["ETL_AUDIT_TABLE"]
-_STALE_RUNNING_HOURS = int(os.environ["ETL_STALE_RUNNING_HOURS"])
-
-
-def _abort_stale_runs(conn) -> None:
-    conn.execute(
-        text(
-            f"UPDATE {_TABLE} "
-            "SET status = 'ABORTED', "
-            "error_msg = COALESCE(error_msg, 'Aborted automatically: stale RUNNING run'), "
-            "duration_seconds = DATEDIFF(SECOND, run_date, GETUTCDATE()) "
-            "WHERE status = 'RUNNING' "
-            "AND table_name = 'PIPELINE' "
-            "AND run_date < DATEADD(HOUR, -:hours, GETUTCDATE())"
-        ),
-        {"hours": _STALE_RUNNING_HOURS},
-    )
-
-
-def acquire_lock() -> bool:
-    try:
-        with DW_ENGINE.begin() as conn:
-            _abort_stale_runs(conn)
-            result = conn.execute(
-                text(
-                    f"SELECT COUNT(*) FROM {_TABLE} "
-                    "WHERE status = 'RUNNING' "
-                    "AND table_name = 'PIPELINE'"
-                )
-            ).scalar()
-
-        if result > 0:
-            logger.error(
-                "Another ETL run is already marked RUNNING in ETL_AUDIT. "
-                "Aborting to avoid data corruption."
-            )
-            return False
-        return True
-    except Exception as exc:
-        logger.warning(f"acquire_lock: audit table missing or unavailable - {exc}")
-        return True
-
-
-def release_lock(run_id: int) -> None:
-    try:
-        with DW_ENGINE.begin() as conn:
-            conn.execute(
-                text(
-                    f"UPDATE {_TABLE} SET status='ABORTED' "
-                    "WHERE run_id = :rid AND status = 'RUNNING'"
-                ),
-                {"rid": run_id},
-            )
-    except Exception as exc:
-        logger.warning(f"release_lock: {exc}")
+_STALE_RUNNING_HOURS = int(os.environ.get("ETL_STALE_RUNNING_HOURS", "6"))
 
 
 def get_last_run_info() -> tuple[Optional[datetime], str]:
+    """
+    Return (last_success_datetime, mode) where mode is 'full' or 'delta'.
+    Called at the start of each pipeline run to determine the load strategy.
+    """
     try:
         with DW_ENGINE.connect() as conn:
             result = conn.execute(
@@ -94,6 +44,14 @@ def get_last_run_info() -> tuple[Optional[datetime], str]:
 
 
 def start_run(mode: str) -> int:
+    """
+    Acquire a SQL Server application lock and create a RUNNING pipeline row
+    in ETL_AUDIT. Raises on lock contention so two concurrent runs are
+    impossible even in a multi-worker deployment.
+
+    Also automatically aborts any stale RUNNING rows older than
+    ETL_STALE_RUNNING_HOURS hours.
+    """
     with DW_ENGINE.begin() as conn:
         result = conn.execute(
             text(
@@ -148,7 +106,7 @@ def log_table(
                     "VALUES (:dt, 'TABLE', :tbl, :ins, :upd, :dur, :sta, :err)"
                 ),
                 {
-                    "dt": datetime.utcnow(),
+                    "dt": datetime.now(timezone.utc),
                     "tbl": table_name,
                     "ins": rows_inserted,
                     "upd": rows_updated,
@@ -181,6 +139,26 @@ def end_run(run_id: int, status: str, error_msg: Optional[str] = None) -> None:
         logger.info(f"[AUDIT] Run {run_id} finished - status={status}")
     except Exception as exc:
         logger.error(f"[AUDIT] end_run: {exc}")
+
+
+def release_lock(run_id: int) -> None:
+    """
+    Mark a RUNNING pipeline row as ABORTED if the pipeline did not finish
+    cleanly (called in the finally block of run_pipeline).
+    The SQL Server application lock is released automatically when the
+    transaction in start_run() commits, so this only updates the audit row.
+    """
+    try:
+        with DW_ENGINE.begin() as conn:
+            conn.execute(
+                text(
+                    f"UPDATE {_TABLE} SET status='ABORTED' "
+                    "WHERE run_id = :rid AND status = 'RUNNING'"
+                ),
+                {"rid": run_id},
+            )
+    except Exception as exc:
+        logger.warning(f"release_lock: {exc}")
 
 
 @contextmanager

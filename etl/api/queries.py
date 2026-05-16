@@ -427,41 +427,6 @@ def get_tresorerie_summary():
 @app.get("/api/tresorerie/impayes")
 def get_impayes():
     sql = """
-        WITH deduped AS (
-            SELECT
-                id_client,
-                RT_Num,
-                MAX(RT_Montant) AS RT_Montant,
-                MAX(delai_reel_jours) AS delai_reel_jours,
-                MAX(DR_Regle) AS DR_Regle
-            FROM FAIT_REGLEMENTS
-            WHERE id_client IS NOT NULL
-            GROUP BY id_client, RT_Num
-        )
-        SELECT 
-            c.CT_Num_code,
-            SUM(r.RT_Montant) AS montant_impaye,
-            MAX(r.delai_reel_jours) AS anciennete
-        FROM deduped r
-        JOIN DIM_CLIENT c ON c.id_client = r.id_client
-        WHERE r.DR_Regle = 0
-        GROUP BY c.CT_Num_code
-        HAVING SUM(r.RT_Montant) > 0
-        ORDER BY montant_impaye DESC
-    """
-    return [
-        {
-            "client": f"Client {r.CT_Num_code}",
-            "code": str(r.CT_Num_code),
-            "montant": _num(r.montant_impaye),
-            "montantImpaye": _num(r.montant_impaye),
-            "anciennete": _int(r.anciennete),
-            "region": "",
-            "representant": "",
-            "dateEcheance": "",
-            @app.get("/api/tresorerie/impayes")
-def get_impayes():
-    sql = """
         WITH buckets AS (
             SELECT
                 PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delai_reel_jours)
@@ -518,9 +483,7 @@ def get_impayes():
         }
         for r in _rows(sql)
     ]
-        }
-        for r in _rows(sql)
-    ]
+
 
 @app.get("/api/tresorerie/impayes-fournisseurs")
 def get_impayes_fournisseurs():
@@ -1168,9 +1131,9 @@ def get_fiscalite_ecritures():
         {
             "date": _date_str(r.date_val) if r.date_val else "",
             "numPiece": f"EC-{r.EC_No}" if r.EC_No else "",
-            "journal": f"Journal {r.journal_code}" if r.journal_code else "â€”",
-            "compte": str(r.CG_Num) if r.CG_Num else "â€”",
-            "libelle": f"Ã‰criture {r.EC_No}" if r.EC_No else "â€”",
+            "journal": f"Journal {r.journal_code}" if r.journal_code else "—",
+            "compte": str(r.CG_Num) if r.CG_Num else "—",
+            "libelle": f"Écriture {r.EC_No}" if r.EC_No else "—",
             "debit": _num(r.EC_Montant) if _int(r.sens) == 0 else 0,
             "credit": _num(r.EC_Montant) if _int(r.sens) == 1 else 0,
             "solde": _num(r.EC_Montant) * (1 if _int(r.sens) == 0 else -1),

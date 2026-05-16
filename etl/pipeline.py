@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import sys
 import warnings
-from datetime import datetime, date
-from typing import Callable, Dict, List, Tuple, Optional
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from functools import lru_cache
+from typing import Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 from sqlalchemy import text
@@ -25,48 +27,39 @@ from etl.config import (
 )
 from etl.utils.logger import get_logger
 from etl.utils.audit import (
-    acquire_lock, start_run, end_run, release_lock,
+    start_run, end_run, release_lock,
     table_timer, get_last_run_info,
 )
-from functools import lru_cache
 
 from etl import ddl, extract, transform, load
 
 logger = get_logger(__name__)
 
 
-KPI18_MIGRATION: list[tuple[str, str]] = [
-    (
-        "DIM_CLIENT.rfm_recence_jours",
-        "IF COL_LENGTH('DIM_CLIENT','rfm_recence_jours') IS NULL "
-        "ALTER TABLE [DIM_CLIENT] ADD rfm_recence_jours INT NULL",
-    ),
-    (
-        "DIM_CLIENT.rfm_frequence",
-        "IF COL_LENGTH('DIM_CLIENT','rfm_frequence') IS NULL "
-        "ALTER TABLE [DIM_CLIENT] ADD rfm_frequence INT NULL",
-    ),
-    (
-        "DIM_CLIENT.rfm_montant_12m",
-        "IF COL_LENGTH('DIM_CLIENT','rfm_montant_12m') IS NULL "
-        "ALTER TABLE [DIM_CLIENT] ADD rfm_montant_12m NUMERIC(18,4) NULL",
-    ),
-    (
-        "DIM_CLIENT.rfm_score",
-        "IF COL_LENGTH('DIM_CLIENT','rfm_score') IS NULL "
-        "ALTER TABLE [DIM_CLIENT] ADD rfm_score VARCHAR(20) NULL",
-    ),
-    (
-        "FAIT_REGLEMENTS.BR_TauxAgios",
-        "IF COL_LENGTH('FAIT_REGLEMENTS','BR_TauxAgios') IS NULL "
-        "ALTER TABLE [FAIT_REGLEMENTS] ADD BR_TauxAgios NUMERIC(18,4) NULL",
-    ),
-    (
-        "FAIT_REGLEMENTS.BR_TMM",
-        "IF COL_LENGTH('FAIT_REGLEMENTS','BR_TMM') IS NULL "
-        "ALTER TABLE [FAIT_REGLEMENTS] ADD BR_TMM NUMERIC(18,4) NULL",
-    ),
-]
+@dataclass
+class PipelineStep:
+    """
+    Describes one ETL step in the pipeline.
+
+    Attributes
+    ----------
+    table_name   : target DW table name
+    extract_fn   : callable(**kw) -> DataFrame drawn from source systems
+    transform_fn : optional callable(DataFrame, lookups) -> DataFrame
+    load_fn      : callable(DataFrame, table_name, mode) -> None
+    description  : plain-language description of what this step computes
+                   (shown in log output and useful for professor review)
+    """
+    table_name:   str
+    extract_fn:   Callable
+    transform_fn: Optional[Callable]
+    load_fn:      Callable
+    description:  str
+
+
+# KPI18_MIGRATION has been moved to ddl.py (_MIGRATIONS list).
+# It runs as part of ddl.apply_schema_migrations() and is no longer
+# managed here to avoid duplication.
 
 def _compute_thresholds() -> dict:
     sql = """
@@ -186,12 +179,7 @@ LOOKUP_CONFIG: Dict[str, Tuple[str, str]] = {
     "DIM_CAISSE":          ("CA_Numero_code",      "id_caisse"),
 }
 
-Step = Tuple[
-    str,
-    Callable[..., pd.DataFrame],
-    Optional[Callable[[pd.DataFrame, Dict], pd.DataFrame]],
-    Callable[[pd.DataFrame, str, str], None],
-]
+# PipelineStep is defined at the top of this module as a @dataclass.
 
 
 def _hash_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
@@ -252,7 +240,8 @@ def _bucket_from_echeance(row) -> Optional[int]:
     if echeance is None or pd.isna(echeance):
         return None
     try:
-        days_overdue = (date.today() - pd.Timestamp(echeance).date()).days
+        today = datetime.now(timezone.utc).date()
+        days_overdue = (today - pd.Timestamp(echeance).date()).days
     except Exception:
         return None
     if days_overdue <= 0:
@@ -294,11 +283,50 @@ def _add_static_label(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _normalize_gouvernorat(code_region: str) -> str:
-    if not code_region or pd.isna(code_region):
-        return "Autre"
-    cr = str(code_region).strip().upper()
-    mapping = {
+def _resolve_gouvernorat_sql(df: pd.DataFrame) -> pd.Series:
+    """
+    Resolve gouvernorat labels for all clients via a SQL JOIN on
+    REF_GOUVERNORAT_MAPPING instead of the 400-line Python dict.
+
+    Falls back to 'Autre' for unmatched codes. The reference table is
+    populated once during schema migration (migrations/005_ref_gouvernorat.sql)
+    and maintained by the DBA/analyst in SSMS.
+    """
+    if "CT_CodeRegion" not in df.columns:
+        return pd.Series("Autre", index=df.index)
+
+    # Build a temporary mapping from the DW reference table
+    try:
+        gov_sql = """
+            SELECT CT_CodeRegion, gouvernorat
+            FROM REF_GOUVERNORAT_MAPPING
+        """
+        with DW_ENGINE.connect() as conn:
+            gov_df = pd.read_sql(text(gov_sql), conn)
+        gov_map = dict(zip(
+            gov_df["CT_CodeRegion"].str.strip().str.upper(),
+            gov_df["gouvernorat"],
+        ))
+    except Exception as exc:
+        logger.warning(
+            f"[DIM_CLIENT] REF_GOUVERNORAT_MAPPING not available ({exc}); "
+            "run migrations/005_ref_gouvernorat.sql in SSMS first. "
+            "Defaulting all gouvernorat to 'Autre'."
+        )
+        return pd.Series("Autre", index=df.index)
+
+    return (
+        df["CT_CodeRegion"]
+        .fillna("")
+        .str.strip()
+        .str.upper()
+        .map(gov_map)
+        .fillna("Autre")
+    )
+
+
+# ── kept for reference only — business logic is now in REF_GOUVERNORAT_MAPPING
+# def _normalize_gouvernorat(code_region: str) -> str: ...
         "TUNIS": ["TUNIS", "MONTPLAISIR", "LE BARDO", "BARDO",
                   "EZZAHROUNI", "OMRANE", "AGBA", "ETTADHAMEN",
                   "MARCHE CENTRAL", "MALASINE", "LAKANIA",
@@ -415,18 +443,7 @@ def _normalize_gouvernorat(code_region: str) -> str:
         "hors zone": ["hors zone", "HORS ZONE", "hors zone (RAOUED)",
                       "hors zone (cite nasser)", "DIVERS"],
     }
-    for gouvernorat, keywords in mapping.items():
-        for kw in keywords:
-            if cr == kw.strip().upper():
-                return gouvernorat
-    # fallback: try prefix match on major cities
-    for gov in ["TUNIS", "BIZERTE", "SOUSSE", "NABEUL", "ARIANA", "BEN AROUS",
-                "MANOUBA", "SFAX", "KAIROUAN", "MONASTIR", "MAHDIA", "BEJA",
-                "JENDOUBA", "KEF", "SILIANA", "KASSERINE", "SIDI BOUZID",
-                "GAFSA", "GABES", "MEDENINE", "TATAOUINE", "ZAGHOUAN"]:
-        if cr.startswith(gov):
-            return gov
-    return "Autre"
+
 
 
 @lru_cache(maxsize=1)
@@ -634,7 +651,7 @@ def _assemble_fait_reglements(
             ),
             axis=1,
         ),
-        date_extraction=date.today(),
+        date_extraction=datetime.now(timezone.utc).date(),
     ).drop_duplicates(subset=["source_hash"], keep="last")
 
 
@@ -738,7 +755,7 @@ def _assemble_fait_ecritures(
     last_run: Optional[datetime],
     lookups:  Dict,
 ) -> pd.DataFrame:
-    today    = date.today()
+    today    = datetime.now(timezone.utc).date()
     today_id = _resolve_today_id(lookups, today)
 
     def _resolve_date(d):
@@ -780,6 +797,7 @@ def _assemble_fait_ecritures(
             ),
             date_extraction=today,
         )
+    )
     )
 
     df2 = (
@@ -904,7 +922,7 @@ def _assemble_fait_ecritures(
     if "source_hash" not in df.columns:
         df["source_hash"] = None
     if "date_extraction" not in df.columns:
-        df["date_extraction"] = date.today()
+        df["date_extraction"] = datetime.now(timezone.utc).date()
 
     before = len(df)
     df = df.drop_duplicates(subset=["source_hash"], keep="last")
@@ -1021,24 +1039,28 @@ def _build_lignes_vente_transform(last_run_date):
                 source_hash=lambda d: d.apply(
                     lambda row: _source_hash(
                         "DOCLIGNE", row.get("DO_Domaine"), row.get("DO_Type"),
-                        row.get("DO_Piece"), row.get("DL_Ligne"), row.get("AR_Ref"),
+                        row.get("DO_Piece"), row.get("DL_Ligne"), row.get("AR_Ref")
                     ),
                     axis=1,
                 ),
-                date_extraction=date.today(),
+                date_extraction=datetime.now(timezone.utc).date(),
             )
         )
     return _transform
 
 
-STEPS: List[Step] = [
+STEPS: List[PipelineStep] = [
 
-    ("DIM_DATE",
-     lambda **kw: pd.DataFrame(),
-     None,
-     lambda df, tbl, mode: _load_dim_date(df, tbl, mode)),
+    PipelineStep(
+        table_name="DIM_DATE",
+        extract_fn=lambda **kw: pd.DataFrame(),
+        transform_fn=None,
+        load_fn=lambda df, tbl, mode: _load_dim_date(df, tbl, mode),
+        description="Génère la dimension calendaire de DIM_DATE_START à DIM_DATE_END.",
+    ),
 
-    ("DIM_DOMAINE",
+    PipelineStep(
+        table_name="DIM_DOMAINE",
      lambda **kw: extract.extract_static_dims()["DIM_DOMAINE"],
      None,
      lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="DO_Domaine")),
@@ -1147,8 +1169,8 @@ STEPS: List[Step] = [
              CT_Intitule=lambda d: d["CT_Intitule"].str.strip().str[:100] if "CT_Intitule" in d.columns else None,
              CT_Ville=lambda d: d["CT_Ville"].str.strip().str[:50] if "CT_Ville" in d.columns else None,
              CT_CodeRegion=lambda d: d["CT_CodeRegion"].str.strip().str[:50] if "CT_CodeRegion" in d.columns else None,
-             gouvernorat=lambda d: d["CT_CodeRegion"].apply(_normalize_gouvernorat) if "CT_CodeRegion" in d.columns else None,
          )
+         .assign(gouvernorat=lambda d: _resolve_gouvernorat_sql(d))
          .drop_duplicates(subset=["CT_Num_code"], keep="last")
      ),
      lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="CT_Num_code")),

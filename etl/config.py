@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-import os
 import hashlib
+import os
+from datetime import timezone
 from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
 
 import logging
+import pandas as _pd
+
 logging.getLogger("pyodbc").setLevel(logging.WARNING)
 
 from dotenv import load_dotenv
@@ -72,7 +75,22 @@ GRT_ENGINE: Engine = _make_engine(os.environ["GRT_CONN"], pool_size=3)
 CHUNK_SIZE:        int = int(os.environ["ETL_CHUNK_SIZE"])
 DIM_DATE_START:    str = os.environ["DIM_DATE_START"]
 DIM_DATE_END:      str = os.environ["DIM_DATE_END"]
-ERROR_MSG_MAX_LEN: int = int(os.environ["ETL_ERROR_MSG_MAX_LEN"])
+ERROR_MSG_MAX_LEN: int = int(os.environ.get("ETL_ERROR_MSG_MAX_LEN", "500"))
+
+# ── hash configuration ───────────────────────────────────────────────────────
+# ETL_HASH_BYTES must be >= 8 to avoid birthday-paradox collisions on large
+# datasets. With 4 bytes (31 bits of usable range) collisions are expected
+# around 55,000 rows; 8 bytes (63 bits) raises that threshold to ~4.3 billion.
+_HASH_BYTES: int = int(os.environ.get("ETL_HASH_BYTES", "8"))
+if _HASH_BYTES < 8:
+    raise ValueError(
+        f"ETL_HASH_BYTES={_HASH_BYTES} is too small. "
+        "Set ETL_HASH_BYTES=8 in .env to avoid surrogate key collisions."
+    )
+
+# ── stock tension threshold ──────────────────────────────────────────────────
+# Articles with ratio_tension >= SEUIL_TENSION_STOCK are flagged as "tense".
+SEUIL_TENSION_STOCK: float = float(os.environ.get("SEUIL_TENSION_STOCK", "0.5"))
 
 
 SEGMENTS: dict[int, str] = {
@@ -150,9 +168,6 @@ TYPES_DOC: dict[int, str] = {
     17: "Avoir fournisseur",
 }
 
-
-
-
 DOMAINES: dict[int, str] = {
     0: "Vente",
     1: "Achat",
@@ -163,9 +178,16 @@ DOMAINES: dict[int, str] = {
 AUDIT_TABLE_NAME: str = os.environ["ETL_AUDIT_TABLE"]
 
 
-import pandas as _pd
-
 def hash_key(value: Optional[str | int | float]) -> Optional[int]:
+    """
+    Compute a stable surrogate key for a natural key value.
+
+    Uses the first _HASH_BYTES bytes of SHA-256 (big-endian, sign-masked)
+    so the result fits in a SQL Server BIGINT column without overflow.
+    The mask strips the sign bit so all values are positive.
+
+    Returns None for NULL/NaN/empty inputs.
+    """
     if value is None:
         return None
     try:
@@ -177,9 +199,7 @@ def hash_key(value: Optional[str | int | float]) -> Optional[int]:
     if not normalized:
         return None
     digest = hashlib.sha256(normalized.encode("utf-8")).digest()
-    hash_bytes = int(os.environ["ETL_HASH_BYTES"])
-    return int.from_bytes(digest[:hash_bytes], "big") & ((1 << (hash_bytes * 8 - 1)) - 1)
-
+    return int.from_bytes(digest[:_HASH_BYTES], "big") & ((1 << (_HASH_BYTES * 8 - 1)) - 1)
 
 
 DW_TABLES_ORDER: list[str] = [
