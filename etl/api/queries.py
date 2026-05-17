@@ -662,7 +662,6 @@ def get_top_familles(
 
 
 @app.get("/api/ventes/ca-by-region")
-@app.get("/api/ventes/ca-by-region")
 def get_ca_by_region(
     year: int = None,
     quarter: str = None,

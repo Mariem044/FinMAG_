@@ -92,15 +92,6 @@ if _HASH_BYTES < 8:
 
 
 def hash_key(value: Optional[str | int | float]) -> Optional[int]:
-    """
-    Compute a stable surrogate key for a natural key value.
-
-    Uses the first _HASH_BYTES bytes of SHA-256 (big-endian, sign-masked)
-    so the result fits in a SQL Server BIGINT column without overflow.
-    The mask strips the sign bit so all values are positive.
-
-    Returns None for NULL/NaN/empty inputs.
-    """
     if value is None:
         return None
     try:
