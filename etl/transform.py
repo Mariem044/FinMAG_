@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+import sys
+import os
+from pathlib import Path
+
+# Permet d'importer le module 'etl' lorsqu'on exécute le script directement depuis le dossier etl
+project_root = Path(__file__).resolve().parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 from typing import Dict, Any, Optional
 
 import pandas as pd
@@ -17,7 +26,6 @@ __all__ = [
     "add_fact_ecritures_dsi",
     "transform_dim_date",
     "transform_dim_client",
-    "transform_dim_client_rfm",
 ]
 
 
@@ -45,7 +53,7 @@ def resolve_fk(
 
 def add_fact_lignes_vente_calcs(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["DO_Piece_hash"] = df["DO_Piece"].apply(hash_key)
+    df["DO_Piece_hash"] = df["DO_Piece"].apply(hash_key).astype("Int64")
     return df
 
 
@@ -56,12 +64,18 @@ def add_fact_ecritures_calcs(df: pd.DataFrame) -> pd.DataFrame:
         logging.getLogger(__name__).debug(
             "add_fact_ecritures_calcs: received empty DataFrame, returning with null KPI columns"
         )
-        for col in ["qte_disponible", "ratio_tension", "en_rupture", "alerte_tension"]:
+        for col in ["qte_disponible", "ratio_tension", "en_rupture"]:
             if col not in df.columns:
                 df[col] = pd.NA
         return df
 
     df = df.copy()
+    
+    # Transtypage explicite pour supporter les entrées brutes (strings du CSV)
+    for col in ["AS_QteSto", "AS_QteRes", "AS_QteMini"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
     df["qte_disponible"] = df["AS_QteSto"] - df["AS_QteRes"]
     denominator = df["AS_QteSto"] - df["AS_QteRes"]
     df["ratio_tension"] = (df["AS_QteRes"] / denominator).where(
@@ -71,24 +85,17 @@ def add_fact_ecritures_calcs(df: pd.DataFrame) -> pd.DataFrame:
         (df["AS_QteSto"] <= df["AS_QteMini"]) &
         df["AS_QteSto"].notna() &
         df["AS_QteMini"].notna()
-    ).astype("Int8")
-
-    tension_flag = df["ratio_tension"].where(df["ratio_tension"].notna())
-    df["alerte_tension"] = (
-        (tension_flag > 0.8)
-        .where(tension_flag.notna())
-        .astype("Int8")
-    )
+    ).astype("Int16")
     return df
 
 
 def add_fact_reglements_calcs(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["RT_Date"]   = pd.to_datetime(df["RT_Date"],   errors="coerce")
-    df["DO_Date"]   = pd.to_datetime(df["DO_Date"],   errors="coerce")
-    df["RT_NbJour"] = pd.to_numeric(df["RT_NbJour"],  errors="coerce")
-    df["delai_reel_jours"] = (df["RT_Date"] - df["DO_Date"]).dt.days
-    df["ecart_delai"]      = df["delai_reel_jours"] - df["RT_NbJour"]
+    df["RT_Date"]   = pd.to_datetime(df.get("RT_Date"),   errors="coerce")
+    df["DO_Date"]   = pd.to_datetime(df.get("DO_Date"),   errors="coerce")
+    df["RT_NbJour"] = pd.to_numeric(df.get("RT_NbJour"),  errors="coerce")
+    df["delai_reel_jours"] = (df["RT_Date"] - df["DO_Date"]).dt.days.astype("Int32")
+    df["ecart_delai"]      = (df["delai_reel_jours"] - df["RT_NbJour"]).astype("Int32")
     return df
 
 
@@ -98,6 +105,8 @@ def transform_dim_date(df: pd.DataFrame) -> pd.DataFrame:
     df["annee"] = df["date"].dt.year.astype("Int16")
     df["mois"]  = df["date"].dt.month.astype("Int16")
     df["jour"]  = df["date"].dt.day.astype("Int16")
+    df["semaine"] = df["date"].dt.isocalendar().week.astype("Int16")
+    df["trimestre"] = df["date"].dt.quarter.astype("Int16")
     return df
 
 
@@ -115,55 +124,7 @@ def transform_dim_client(
     return df
 
 
-def transform_dim_client_rfm(
-    client_df: pd.DataFrame,
-    rfm_data: pd.DataFrame,
-) -> pd.DataFrame:
-    """Enrich DIM_CLIENT with RFM calculations."""
-    df = client_df.copy()
 
-    if rfm_data.empty:
-        df["rfm_recence_jours"] = None
-        df["rfm_frequence"] = None
-        df["rfm_montant_12m"] = None
-        df["rfm_score"] = None
-        return df
-
-    rfm_data = rfm_data.copy()
-    rfm_data["CT_Num_hash"] = rfm_data["CT_Num"].apply(hash_key)
-    rfm_lookup = dict(zip(
-        rfm_data["CT_Num_hash"],
-        rfm_data[["last_purchase_date", "frequency", "montant_12m"]].values
-    ))
-
-    df["_CT_Num_hash"] = df["CT_Num"].apply(hash_key)
-    df[["last_purchase_date", "rfm_frequence", "rfm_montant_12m"]] = (
-        df["_CT_Num_hash"]
-        .apply(lambda h: pd.Series(rfm_lookup.get(h, (None, None, None))))
-        .set_axis(["last_purchase_date", "rfm_frequence", "rfm_montant_12m"], axis=1)
-    )
-
-    df["last_purchase_date"] = pd.to_datetime(df["last_purchase_date"], errors="coerce")
-    df["rfm_recence_jours"] = (
-        (pd.Timestamp.now().normalize() - df["last_purchase_date"]).dt.days
-    ).astype("Int32")
-
-    def _rfm_score(row) -> Optional[str]:
-        if pd.isna(row["rfm_recence_jours"]) or pd.isna(row["rfm_frequence"]):
-            return None
-        if row["rfm_recence_jours"] <= 30 and row["rfm_frequence"] >= 4:
-            return "Champion"
-        elif row["rfm_recence_jours"] <= 60 and row["rfm_frequence"] >= 3:
-            return "Fidèle"
-        elif row["rfm_recence_jours"] <= 90:
-            return "À risque"
-        else:
-            return "Dormant"
-
-    df["rfm_score"] = df.apply(_rfm_score, axis=1)
-    df = df.drop(columns=["_CT_Num_hash", "last_purchase_date"])
-
-    return df
 
 
 def add_fact_reglements_banking_fees(df: pd.DataFrame) -> pd.DataFrame:
@@ -219,5 +180,75 @@ def add_fact_ecritures_dsi(
         df.loc[valid_mask, "dsi_jours"] = (
             df.loc[valid_mask, "AS_QteSto"] / (df.loc[valid_mask, "qte_vendue_365j"] / 365)
         ).astype("float64")
-
     return df
+
+
+if __name__ == "__main__":
+    import os
+    import sys
+    from pathlib import Path
+
+    # Ajout de la racine du projet au path pour les imports locaux
+    project_root = Path(__file__).resolve().parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
+    input_dir = Path(r"C:\Users\marie\Desktop\myProject\FINMAG\etl\TEMP")
+    output_dir = Path(r"C:\Users\marie\Desktop\myProject\FINMAG\etl\TEMP-TRANSF")
+    
+    # Création du dossier cible s'il n'existe pas
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    print(f"Dossier source : {input_dir}")
+    print(f"Dossier destination : {output_dir}")
+    print("-" * 50)
+    
+    def process_all_files():
+        # Liste de tous les fichiers dans TEMP
+        for file_path in input_dir.glob("*.csv"):
+            filename = file_path.name
+            out_path = output_dir / filename
+            
+            print(f"Traitement de {filename}...")
+            try:
+                # Lecture brute
+                df = pd.read_csv(file_path, sep=";", dtype=str)
+                
+                # Routage des transformations spécifiques
+                if filename == "fait_lignes_vente.csv":
+                    df = add_fact_lignes_vente_calcs(df)
+                    print(f" => Application des calculs de ventes (DO_Piece_hash)")
+                    
+                elif filename in ["fait_artstock.csv", "fait_ecriturec.csv"]:
+                    df = add_fact_ecritures_calcs(df)
+                    print(f" => Application des calculs de stocks (en_rupture, tension)")
+                    
+                elif filename in ["fait_reglements_clients.csv", "fait_reglements_fournisseurs.csv"]:
+                    # Simulation de jointure doc_dates
+                    doc_dates_path = input_dir / "docentete_dates.csv"
+                    if doc_dates_path.exists():
+                        doc_dates = pd.read_csv(doc_dates_path, sep=";", dtype=str)[["DO_Type", "DO_Piece", "DO_Date"]]
+                        doc_dates = doc_dates.drop_duplicates(subset=["DO_Type", "DO_Piece"], keep="last")
+                        df = df.merge(doc_dates, on=["DO_Type", "DO_Piece"], how="left")
+                    else:
+                        df["DO_Date"] = pd.NA
+                    
+                    df = add_fact_reglements_calcs(df)
+                    df = add_fact_reglements_banking_fees(df)
+                    print(f" => Application des calculs de règlements (délais, agios)")
+                    
+                else:
+                    # Pass-through pour les dimensions et autres tables
+                    print(f" => Pass-through (pas de règles de calcul complexes)")
+                
+                # Sauvegarde unifiée
+                df.to_csv(out_path, sep=";", index=False, encoding="utf-8-sig")
+                
+            except Exception as e:
+                print(f" => Erreur sur {filename} : {e}")
+
+    # Lancement du traitement de tous les fichiers
+    process_all_files()
+    
+    print("-" * 50)
+    print("Test unitaire terminé ! Tous les fichiers sont dans TEMP-TRANSF.")

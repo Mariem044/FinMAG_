@@ -1,0 +1,223 @@
+import { createFileRoute } from "@tanstack/react-router";
+import {
+  useChartHeight,
+  ChartCard,
+  KPICardSkeleton,
+} from "@/components/dashboard/ChartCard";
+import { KPICard } from "@/components/dashboard/KPICard";
+import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
+import { DollarSign, ShoppingCart, Users, Percent, TrendingUp } from "lucide-react";
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
+import { CHART_COLORS, formatTND, formatPercent } from "@/lib/dashboardConstants";
+
+const formatCAShort = (v) => {
+  if (!v) return "0 DT";
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)} MDT`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(0)} KDT`;
+  return `${v.toFixed(0)} DT`;
+};
+import { useMemo } from "react";
+import { api } from "@/lib/api";
+import { useApiResource } from "@/hooks/useApiResource";
+import { useFilters } from "@/store/useFilters";
+
+export const Route = createFileRoute("/")({
+  component: OverviewPage,
+});
+
+function OverviewPage() {
+  const { year, segment, depot, source } = useFilters();
+  const kpisFn = useMemo(() => () => api.dashboard.kpis(year), [year]);
+  const caByMonthFn = useMemo(() => () => api.dashboard.caByMonth(year), [year]);
+  const caByRegionFn = useMemo(() => () => api.dashboard.caByRegion(year), [year]);
+  const topFamillesFn = useMemo(
+    () => () => api.dashboard.topFamilles(year, segment, depot, source),
+    [year, segment, depot, source],
+  );
+  const { data: kpis, loading: kpisApiLoading } = useApiResource(kpisFn, {
+    ca_total: 0,
+    nb_commandes: 0,
+    nb_clients_actifs: 0,
+    taux_recouvrement: 0,
+    marge_brute_pct: null,
+  });
+  const { data: caByMonth, loading: caLoading } = useApiResource(caByMonthFn, []);
+  const { data: topFamilles, loading: famillesLoading } = useApiResource(topFamillesFn, []);
+  const { data: caByRegion, loading: regionLoading } = useApiResource(caByRegionFn, []);
+  const totalCA = caByMonth.reduce((s, m) => s + m.ca, 0);
+  const chartH = useChartHeight();
+  const kpiLoading = kpisApiLoading;
+  const chartsLoading = caLoading || famillesLoading || regionLoading;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        {kpiLoading ? (
+          <>
+            <KPICardSkeleton />
+            <KPICardSkeleton />
+            <KPICardSkeleton />
+            <KPICardSkeleton />
+            <KPICardSkeleton />
+          </>
+        ) : (
+          <>
+            <KPICard
+              label="CA Total"
+              value={formatCAShort(kpis.ca_total)}
+              trend={kpis.ca_growth_pct ?? 0}
+              icon={DollarSign}
+            />
+            <KPICard
+              label="Nombre de Commandes"
+              value={kpis.nb_commandes.toLocaleString("fr-TN")}
+              trend={kpis.nb_commandes_growth_pct ?? 0}
+              icon={ShoppingCart}
+            />
+            <KPICard
+              label="Clients Actifs"
+              value={kpis.nb_clients_actifs.toLocaleString("fr-TN")}
+              trend={kpis.nb_clients_actifs_growth_pct ?? 0}
+              icon={Users}
+            />
+            <KPICard
+              label="Taux de Recouvrement"
+              value={formatPercent(kpis.taux_recouvrement)}
+              trend={kpis.taux_recouvrement_growth_pct ?? 0}
+              icon={Percent}
+            />
+            <KPICard
+              label="Marge Brute"
+              value={kpis.marge_brute_pct === null ? "N/A" : `${kpis.marge_brute_pct.toFixed(1)}%`}
+              subtitle={kpis.marge_brute_pct === null ? "Coûts d'achat non saisis" : `${((kpis.ca_avec_cout || 0) / 1000000).toFixed(1)} MDT CA couverts`}
+              trend={kpis.marge_brute_pct !== null ? (kpis.marge_brute_growth_pct ?? 0) : undefined}
+              icon={TrendingUp}
+            />
+          </>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <ChartCard loading={chartsLoading} skeleton="line" title="Évolution mensuelle du CA">
+          <ResponsiveContainer width="100%" height={chartH}>
+            <LineChart data={caByMonth}>
+              <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
+              <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
+              <YAxis
+                tick={{ fill: "#666", fontSize: 11 }}
+                axisLine={false}
+                tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+              />
+              <Tooltip content={<CustomTooltip />} />
+              <Line
+                type="monotone"
+                dataKey="ca"
+                stroke="#3b82f6"
+                strokeWidth={2}
+                dot={false}
+                name="CA"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard loading={chartsLoading} skeleton="bar" title="Top familles par CA">
+          <ResponsiveContainer width="100%" height={chartH}>
+            <BarChart data={topFamilles.slice(0, 5).map(f => ({...f, name: (f.name||'').length > 18 ? (f.name||'').substring(0,18)+'…' : f.name}))} layout="vertical">
+              <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" horizontal={false} />
+              <XAxis
+                type="number"
+                tick={{ fill: "#666", fontSize: 11 }}
+                axisLine={false}
+                tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+              />
+              <YAxis
+                type="category"
+                dataKey="name"
+                tick={{ fill: "#666", fontSize: 11 }}
+                axisLine={false}
+                width={160}
+              />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="ca" fill="#3b82f6" radius={[0, 4, 4, 0]} name="CA" />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard loading={chartsLoading} skeleton="pie" title="Répartition CA par région">
+          <ResponsiveContainer width="100%" height={chartH}>
+            <PieChart>
+              <Pie
+                data={caByRegion.filter(r => {
+                  const total = caByRegion.reduce((s, x) => s + x.ca, 0);
+                  return total > 0 && (r.ca / total) >= 0.005;
+                })}
+                dataKey="ca"
+                nameKey="name"
+                cx="50%"
+                cy="50%"
+                outerRadius={100}
+                label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                labelLine={false}
+                fontSize={11}
+              >
+                {caByRegion.map((_, i) => (
+                  <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip content={<CustomTooltip />} />
+            </PieChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard loading={chartsLoading} skeleton="line" title="Ventes vs Objectifs">
+          <ResponsiveContainer width="100%" height={chartH}>
+            <AreaChart data={caByMonth}>
+              <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
+              <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
+              <YAxis
+                tick={{ fill: "#666", fontSize: 11 }}
+                axisLine={false}
+                tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+              />
+              <Tooltip content={<CustomTooltip />} />
+              <Area
+                type="monotone"
+                dataKey="ca"
+                stroke="#3b82f6"
+                fill="#3b82f6"
+                fillOpacity={0.15}
+                name="CA Réalisé"
+              />
+              <Area
+                type="monotone"
+                dataKey="objectif"
+                stroke="#6366f1"
+                fill="none"
+                strokeDasharray="5 5"
+                name="Objectif"
+              />
+              <Legend wrapperStyle={{ fontSize: 12, color: "#888" }} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
+    </div>
+  );
+}

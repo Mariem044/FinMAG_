@@ -17,6 +17,9 @@ warnings.filterwarnings(
     category=FutureWarning,
 )
 
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from etl.config import (
     DW_ENGINE,
     DIM_DATE_START,
@@ -62,36 +65,6 @@ class PipelineStep:
 def _compute_thresholds() -> dict:
     sql = """
         SELECT
-            (SELECT TOP 1 rfm_recence_jours FROM (
-                SELECT rfm_recence_jours,
-                       NTILE(3) OVER (ORDER BY rfm_recence_jours) AS tile
-                FROM DIM_CLIENT WHERE rfm_recence_jours IS NOT NULL
-            ) t WHERE tile = 1 ORDER BY rfm_recence_jours DESC) AS p33_recence,
-
-            (SELECT TOP 1 rfm_recence_jours FROM (
-                SELECT rfm_recence_jours,
-                       NTILE(3) OVER (ORDER BY rfm_recence_jours) AS tile
-                FROM DIM_CLIENT WHERE rfm_recence_jours IS NOT NULL
-            ) t WHERE tile = 2 ORDER BY rfm_recence_jours DESC) AS p66_recence,
-
-            (SELECT TOP 1 rfm_recence_jours FROM (
-                SELECT rfm_recence_jours,
-                       NTILE(10) OVER (ORDER BY rfm_recence_jours) AS tile
-                FROM DIM_CLIENT WHERE rfm_recence_jours IS NOT NULL
-            ) t WHERE tile = 9 ORDER BY rfm_recence_jours DESC) AS p90_recence,
-
-            (SELECT TOP 1 rfm_frequence FROM (
-                SELECT rfm_frequence,
-                       NTILE(3) OVER (ORDER BY rfm_frequence) AS tile
-                FROM DIM_CLIENT WHERE rfm_frequence IS NOT NULL
-            ) t WHERE tile = 2 ORDER BY rfm_frequence DESC) AS p66_frequence,
-
-            (SELECT TOP 1 rfm_frequence FROM (
-                SELECT rfm_frequence,
-                       NTILE(3) OVER (ORDER BY rfm_frequence) AS tile
-                FROM DIM_CLIENT WHERE rfm_frequence IS NOT NULL
-            ) t WHERE tile = 1 ORDER BY rfm_frequence DESC) AS p33_frequence,
-
             (SELECT AVG(cycle) FROM (
                 SELECT DATEDIFF(DAY, MIN(d.date_val), MAX(d.date_val)) AS cycle
                 FROM FAIT_LIGNES_VENTE v
@@ -125,13 +98,7 @@ def _compute_thresholds() -> dict:
     avg_tension = float(row.avg_tension_ratio) if row.avg_tension_ratio else 0.2
 
     return {
-        "fenetre_rfm":          avg_cycle,
         "fenetre_dsi":          avg_cycle,
-        "champion_recence":     int(row.p33_recence)   if row.p33_recence   else avg_cycle // 9,
-        "champion_frequence":   int(row.p66_frequence) if row.p66_frequence else 30,
-        "fidele_recence":       int(row.p66_recence)   if row.p66_recence   else avg_cycle // 6,
-        "fidele_frequence":     int(row.p33_frequence) if row.p33_frequence else 12,
-        "arisque_recence":      int(row.p90_recence)   if row.p90_recence   else avg_cycle // 3,
         "buckets_impaye":       [0, p50_delay, p50_delay * 6, p50_delay * 18],
         "seuil_tension_stock":  avg_tension * 2.5,
     }
@@ -708,7 +675,7 @@ def _assemble_fait_ecritures(
             id_journal   =lambda d: d["JO_Num"].apply(
                 lambda v: lookups.get("DIM_JOURNAL", {}).get(transform.hash_key(v))
             ),
-            id_banque    =pd.NA,
+            id_banque    =None,
             id_client=lambda d: d["CT_Num"].apply(
                 lambda v: lookups.get("DIM_CLIENT", {}).get(transform.hash_key(v))
             ),
@@ -739,7 +706,7 @@ def _assemble_fait_ecritures(
             id_journal   =lambda d: d["JO_Num"].apply(
                 lambda v: lookups.get("DIM_JOURNAL", {}).get(transform.hash_key(v))
             ),
-            id_banque    =pd.NA,
+            id_banque    =None,
             id_caisse=lambda d: d["CA_No"].apply(
                 lambda v: lookups.get("DIM_CAISSE", {}).get(transform.hash_key(v))
             ),
@@ -785,13 +752,13 @@ def _assemble_fait_ecritures(
             type_ligne   =4,
             id_type_ligne=lambda d: d.apply(lambda _: _lookup_code(lookups, "DIM_TYPE_LIGNE", 4), axis=1),
             id_date      =today_id,
-            id_journal   =pd.NA,
-            id_banque    =pd.NA,
-            id_client    =pd.NA,
-            id_sens_ecriture =pd.NA,
-            id_type_mvt_caisse =pd.NA,
-            id_type_tva  =pd.NA,
-            id_caisse    =pd.NA,
+            id_journal   =None,
+            id_banque    =None,
+            id_client    =None,
+            id_sens_ecriture =None,
+            id_type_mvt_caisse =None,
+            id_type_tva  =None,
+            id_caisse    =None,
             id_article   =lambda d: d["AR_Ref"].apply(
                 lambda v: lookups.get("DIM_ARTICLE", {}).get(transform.hash_key(str(v).strip())) if pd.notna(v) else None
             ),
@@ -814,7 +781,7 @@ def _assemble_fait_ecritures(
     for _sub in (df1, df2, df3, df4):
         for _col in _all_cols:
             if _col not in _sub.columns:
-                _sub[_col] = pd.NA
+                _sub[_col] = None
 
     df = pd.concat([df1, df2, df3, df4], ignore_index=True)
 
@@ -827,6 +794,8 @@ def _assemble_fait_ecritures(
     df = df.drop_duplicates(subset=["source_hash"], keep="last")
     if len(df) != before:
         logger.warning(f"FAIT_ECRITURES: dropped {before - len(df)} duplicate source_hash rows")
+
+    df = df.replace({pd.NA: None})
 
     return df
 
@@ -861,50 +830,13 @@ def _compute_dsi_jours(thresholds: dict) -> None:
         logger.info(f"dsi_jours computed: {rowcount} stock rows updated (window={thresholds['fenetre_dsi']} days).")
 
 
-def _compute_rfm_scores(thresholds: dict) -> None:
-    sql = """
-        UPDATE c
-        SET
-            c.rfm_recence_jours  = rfm.recence_jours,
-            c.rfm_frequence      = rfm.frequence,
-            c.rfm_montant_12m    = rfm.montant_12m,
-            c.rfm_score          = CASE
-                WHEN rfm.recence_jours <= :champion_recence   AND rfm.frequence >= :champion_freq THEN 'Champion'
-                WHEN rfm.recence_jours <= :fidele_recence     AND rfm.frequence >= :fidele_freq   THEN 'Fidèle'
-                WHEN rfm.recence_jours <= :arisque_recence    THEN 'À risque'
-                WHEN rfm.recence_jours IS NULL                THEN 'Dormant'
-                ELSE 'Dormant'
-            END
-        FROM DIM_CLIENT c
-        LEFT JOIN (
-            SELECT
-                v.id_client,
-                DATEDIFF(DAY, MAX(d.date_val), CAST(GETDATE() AS DATE)) AS recence_jours,
-                COUNT(DISTINCT v.DO_Piece_hash)                          AS frequence,
-                SUM(v.DL_MontantHT)                                      AS montant_12m
-            FROM FAIT_LIGNES_VENTE v
-            JOIN DIM_DATE d      ON d.id_date     = v.id_date
-            JOIN DIM_DOMAINE dom ON dom.id_domaine = v.id_domaine
-            WHERE dom.DO_Domaine = 0
-            AND d.date_val >= DATEADD(DAY, -:fenetre, CAST(GETDATE() AS DATE))
-            GROUP BY v.id_client
-        ) rfm ON rfm.id_client = c.id_client
-    """
-    with DW_ENGINE.begin() as conn:
-        conn.execute(text("SET NOCOUNT OFF"))
-        result = conn.execute(text(sql), {
-            "fenetre":          thresholds["fenetre_rfm"],
-            "champion_recence": thresholds["champion_recence"],
-            "champion_freq":    thresholds["champion_frequence"],
-            "fidele_recence":   thresholds["fidele_recence"],
-            "fidele_freq":      thresholds["fidele_frequence"],
-            "arisque_recence":  thresholds["arisque_recence"],
-        })
-        rowcount = result.rowcount if result.rowcount >= 0 else "unknown"
-        logger.info(f"RFM scores computed: {rowcount} clients updated (window={thresholds['fenetre_rfm']} days).")
 
 
 def _load_dim_date(df: pd.DataFrame, table: str, mode: str) -> None:
+    # Force pandas to use DATETIME in SQL instead of VARCHAR(MAX) for python date objects
+    if "date_val" in df.columns:
+        df["date_val"] = pd.to_datetime(df["date_val"])
+        
     if mode == "full":
         load.load_dimension(df, table, "full", key_col="date_val")
     else:
@@ -945,6 +877,7 @@ def _build_lignes_vente_transform(last_run_date):
                 date_extraction=datetime.now(timezone.utc).date(),
         )
     )
+    return _transform
 
 STEPS: List[PipelineStep] = [
     PipelineStep(
@@ -1247,8 +1180,7 @@ def run_pipeline(force_full: bool = False) -> None:
         logger.info("--- Computing dsi_jours (stock coverage indicator) ---")
         _compute_dsi_jours(thresholds)
 
-        logger.info("--- Computing RFM scores (client segmentation) ---")
-        _compute_rfm_scores(thresholds)
+
 
         end_run(run_id, "SUCCESS")
 

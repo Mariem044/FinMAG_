@@ -263,10 +263,6 @@ CREATE TABLE DIM_CLIENT (
     CT_EchusPlusTroisMois   NUMERIC(18,4) NULL,
     CT_MoyenneDelaiPayement NUMERIC(18,4) NULL,
     CT_MoyenneDelaiImpaye   NUMERIC(18,4) NULL,
-    rfm_recence_jours       INT NULL,
-    rfm_frequence           INT NULL,
-    rfm_montant_12m         NUMERIC(18,4) NULL,
-    rfm_score               VARCHAR(20) NULL,
     CT_Intitule             NVARCHAR(100) NULL,
     CT_Ville                NVARCHAR(50) NULL,
     CT_CodeRegion           NVARCHAR(50) NULL,
@@ -442,7 +438,6 @@ CREATE TABLE FAIT_ECRITURES (
                            ON DELETE NO ACTION,
     id_caisse          INT NULL REFERENCES DIM_CAISSE(id_caisse)
                            ON DELETE NO ACTION,
-    DO_Piece_hash      BIGINT NULL,
     EC_Intitule        NVARCHAR(100) NULL,
     EC_Sens            SMALLINT NULL,
     EC_Montant         NUMERIC(18,4) NULL,
@@ -463,7 +458,6 @@ CREATE TABLE FAIT_ECRITURES (
     qte_disponible     NUMERIC(18,4) NULL,
     ratio_tension      NUMERIC(18,4) NULL,
     en_rupture         SMALLINT NULL,
-    alerte_tension     SMALLINT NULL,
     qte_vendue_365j    NUMERIC(18,4) NULL,
     dsi_jours          NUMERIC(18,4) NULL,
     MC_Debit           NUMERIC(18,4) NULL,
@@ -1206,6 +1200,21 @@ JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = fe.id_type_ligne
 WHERE tl.type_ligne = 4;
 """,
     ),
+    (
+        "DIM_CLIENT.drop_rfm_cols",
+        "IF COL_LENGTH('DIM_CLIENT','rfm_score') IS NOT NULL "
+        "ALTER TABLE [DIM_CLIENT] DROP COLUMN rfm_score, rfm_recence_jours, rfm_frequence, rfm_montant_12m",
+    ),
+    (
+        "FAIT_ECRITURES.drop_alerte_tension",
+        "IF COL_LENGTH('FAIT_ECRITURES','alerte_tension') IS NOT NULL "
+        "ALTER TABLE [FAIT_ECRITURES] DROP COLUMN alerte_tension",
+    ),
+    (
+        "FAIT_ECRITURES.drop_do_piece_hash",
+        "IF COL_LENGTH('FAIT_ECRITURES','DO_Piece_hash') IS NOT NULL "
+        "ALTER TABLE [FAIT_ECRITURES] DROP COLUMN DO_Piece_hash",
+    ),
 ]
 
 # ── REF_GOUVERNORAT_MAPPING reference table ───────────────────────────────────
@@ -1415,6 +1424,33 @@ def _apply_schema_migrations(conn) -> None:
         logger.info("  [REF OK]         REF_DICTIONARY_SQL (Segments, Caisse, Config)")
     except Exception as exc:
         logger.warning(f"  [REF WARN]       REF_DICTIONARY_SQL: {exc}")
+
+    # 8. Performance Indexes for Fact Tables
+    indexes = [
+        ("idx_flv_date", "FAIT_LIGNES_VENTE(id_date)"),
+        ("idx_flv_client", "FAIT_LIGNES_VENTE(id_client)"),
+        ("idx_flv_article", "FAIT_LIGNES_VENTE(id_article)"),
+        ("idx_flv_domaine", "FAIT_LIGNES_VENTE(id_domaine)"),
+        ("idx_fr_fournisseur", "FAIT_REGLEMENTS(id_fournisseur)"),
+        ("idx_fr_date_pai", "FAIT_REGLEMENTS(id_date_paiement)"),
+        ("idx_fr_date_ech", "FAIT_REGLEMENTS(id_date_echeance)"),
+    ]
+    for idx_name, columns in indexes:
+        try:
+            tbl = columns.split('(')[0]
+            check_sql = f"""
+                IF NOT EXISTS (
+                    SELECT * FROM sys.indexes 
+                    WHERE name = '{idx_name}' AND object_id = OBJECT_ID('{tbl}')
+                )
+                BEGIN
+                    CREATE INDEX {idx_name} ON {columns};
+                END
+            """
+            conn.execute(text(check_sql))
+            logger.info(f"  [INDEX OK]       {idx_name} sur {columns}")
+        except Exception as exc:
+            logger.warning(f"  [INDEX WARN]     {idx_name}: {exc}")
 
 
 def apply_schema_migrations() -> None:

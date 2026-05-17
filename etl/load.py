@@ -252,6 +252,11 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
         conn.execute(text(drop_sql))
 
     # ── Create schema-only temp table (0 rows) ───────────────────────────────
+    dtype_dict = {}
+    if df[key_col].dtype == object or str(df[key_col].dtype).startswith("string"):
+        from sqlalchemy.types import String
+        dtype_dict[key_col] = String(255)
+
     _one_row.to_sql(
         name=temp_name,
         con=DW_ENGINE,
@@ -259,6 +264,7 @@ def _merge_upsert(df: pd.DataFrame, table: str, key_col: str) -> None:
         index=False,
         chunksize=sql_server_chunk,
         method="multi",
+        dtype=dtype_dict if dtype_dict else None
     )
 
     # ── Fill temp table + index + MERGE — all in one transaction ─────────────
