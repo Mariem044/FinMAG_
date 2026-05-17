@@ -1,1 +1,0 @@
-import{r as a}from"./index-Cl1RmcF1.js";import{a5 as e,a6 as o}from"./CustomTooltip-DqpZPRRT.js";var i=["axis","item"],s=a.forwardRef((r,t)=>a.createElement(e,{chartName:"BarChart",defaultTooltipEventType:"axis",validateTooltipEventTypes:i,tooltipPayloadSearcher:o,categoricalChartProps:r,ref:t}));export{s as B};
