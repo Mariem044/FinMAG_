@@ -372,7 +372,8 @@ def get_ml_forecast_ca():
             SELECT
                 model_name,
                 CONVERT(VARCHAR(10), ds, 23) AS ds,
-                yhat, yhat_lower, yhat_upper, is_historical
+                yhat, yhat_lower, yhat_upper, is_historical,
+                mape, mae
             FROM ML_KPI05_CA_FORECAST WITH (NOLOCK)
             WHERE run_date = (SELECT MAX(run_date) FROM ML_KPI05_CA_FORECAST WITH (NOLOCK))
             ORDER BY model_name, ds
@@ -385,6 +386,8 @@ def get_ml_forecast_ca():
                 "yhat_lower": _num(r.yhat_lower),
                 "yhat_upper": _num(r.yhat_upper),
                 "is_historical": int(r.is_historical),
+                "mape": _num(r.mape) if hasattr(r, 'mape') else 0.0,
+                "mae": _num(r.mae) if hasattr(r, 'mae') else 0.0,
             }
             for r in rows
         ]

@@ -175,7 +175,60 @@ function PredictionsStudioPage() {
     }
   };
 
-  const activeMetrics = modelMetrics[activeTab] || modelMetrics.sarima;
+  const activeMetricsFromData = useMemo(() => {
+    if (!Array.isArray(caData) || caData.length === 0) return null;
+    const modelKey = String(activeTab).toUpperCase();
+    const modelRow = caData.find(d => String(d.model_name).toUpperCase() === modelKey && d.mape > 0);
+    if (modelRow) {
+      return {
+        mape: `${modelRow.mape.toFixed(1)}%`,
+        mae: `${(modelRow.mae / 1000000).toFixed(2)}M TND`,
+        pctMape: Math.max(0, Math.min(1, 1 - (modelRow.mape / 100))),
+        pctMae: Math.max(0, Math.min(1, 1 - (modelRow.mape / 100) * 0.8)),
+      };
+    }
+    return null;
+  }, [caData, activeTab]);
+
+  const activeMetrics = useMemo(() => {
+    const base = modelMetrics[activeTab] || modelMetrics.sarima;
+    if (activeMetricsFromData) {
+      return {
+        ...base,
+        mape: activeMetricsFromData.mape,
+        mae: activeMetricsFromData.mae,
+        pctMape: activeMetricsFromData.pctMape,
+        pctMae: activeMetricsFromData.pctMae,
+      };
+    }
+    return base;
+  }, [activeTab, activeMetricsFromData]);
+
+  const comparisonMetrics = useMemo(() => {
+    const getMetricsForModel = (modelKey) => {
+      const defaultMape = modelKey === "SARIMA" ? "9.4%" : modelKey === "ARIMA" ? "12.8%" : "18.4%";
+      const defaultMae = modelKey === "SARIMA" ? "1.98M TND" : modelKey === "ARIMA" ? "2.45M TND" : "2.66M TND";
+      
+      if (!Array.isArray(caData) || caData.length === 0) {
+        return { mape: defaultMape, mae: defaultMae };
+      }
+      
+      const row = caData.find(d => String(d.model_name).toUpperCase() === modelKey && d.mape > 0);
+      if (row) {
+        return {
+          mape: `${row.mape.toFixed(1)}%`,
+          mae: `${(row.mae / 1000000).toFixed(2)}M TND`
+        };
+      }
+      return { mape: defaultMape, mae: defaultMae };
+    };
+    
+    return {
+      sarima: getMetricsForModel("SARIMA"),
+      arima: getMetricsForModel("ARIMA"),
+      prophet: getMetricsForModel("PROPHET")
+    };
+  }, [caData]);
 
   // Filter caData by selected model
   const filteredCaData = useMemo(() => {
@@ -461,8 +514,8 @@ function PredictionsStudioPage() {
                 <tr className="hover:bg-surface/10 transition-colors">
                   <td className="py-3 font-bold text-emerald-400">SARIMA</td>
                   <td className="py-3 text-text-dim font-mono">Saisonnier Multiplicatif</td>
-                  <td className="py-3 text-center font-bold text-emerald-400">9.4%</td>
-                  <td className="py-3 text-center text-text-dim">1.98M TND</td>
+                  <td className="py-3 text-center font-bold text-emerald-400">{comparisonMetrics.sarima.mape}</td>
+                  <td className="py-3 text-center text-text-dim">{comparisonMetrics.sarima.mae}</td>
                   <td className="py-3 text-center">
                     <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-extrabold px-2 py-0.5 rounded text-[8.5px]">
                       RECOMMANDÉ
@@ -473,8 +526,8 @@ function PredictionsStudioPage() {
                 <tr className="hover:bg-surface/10 transition-colors">
                   <td className="py-3 font-bold text-blue-400">ARIMA</td>
                   <td className="py-3 text-text-dim font-mono">Linéaire Intégré (AR-MA)</td>
-                  <td className="py-3 text-center font-bold text-blue-400">12.8%</td>
-                  <td className="py-3 text-center text-text-dim">2.45M TND</td>
+                  <td className="py-3 text-center font-bold text-blue-400">{comparisonMetrics.arima.mape}</td>
+                  <td className="py-3 text-center text-text-dim">{comparisonMetrics.arima.mae}</td>
                   <td className="py-3 text-center">
                     <span className="bg-blue-500/10 border border-blue-500/20 text-blue-400 font-bold px-2 py-0.5 rounded text-[8.5px]">
                       ACTIF
@@ -485,8 +538,8 @@ function PredictionsStudioPage() {
                 <tr className="hover:bg-surface/10 transition-colors">
                   <td className="py-3 font-bold text-purple-400">PROPHET</td>
                   <td className="py-3 text-text-dim font-mono">Régression Courbe Additive</td>
-                  <td className="py-3 text-center font-bold text-purple-400">18.4%</td>
-                  <td className="py-3 text-center text-text-dim">2.66M TND</td>
+                  <td className="py-3 text-center font-bold text-purple-400">{comparisonMetrics.prophet.mape}</td>
+                  <td className="py-3 text-center text-text-dim">{comparisonMetrics.prophet.mae}</td>
                   <td className="py-3 text-center">
                     <span className="bg-purple-500/10 border border-purple-500/20 text-purple-400 font-bold px-2 py-0.5 rounded text-[8.5px]">
                       ACTIF

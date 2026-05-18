@@ -16,6 +16,7 @@ _DDL = """
 IF OBJECT_ID('ML_KPI05_CA_FORECAST', 'U') IS NOT NULL 
     AND (
         COL_LENGTH('ML_KPI05_CA_FORECAST', 'model_name') IS NULL
+        OR COL_LENGTH('ML_KPI05_CA_FORECAST', 'mape') IS NULL
         OR EXISTS (
             SELECT 1 FROM sys.columns c
             JOIN sys.types t ON c.user_type_id = t.user_type_id
@@ -35,7 +36,9 @@ CREATE TABLE ML_KPI05_CA_FORECAST (
     yhat            NUMERIC(18,4) NOT NULL,
     yhat_lower      NUMERIC(18,4) NOT NULL,
     yhat_upper      NUMERIC(18,4) NOT NULL,
-    is_historical   SMALLINT NOT NULL DEFAULT 0
+    is_historical   SMALLINT NOT NULL DEFAULT 0,
+    mape            NUMERIC(10,4) NULL,
+    mae             NUMERIC(18,4) NULL
 )
 """
 
@@ -298,13 +301,15 @@ def _save_forecast(forecast: pd.DataFrame) -> None:
             float(row.yhat_lower),
             float(row.yhat_upper),
             int(row.is_historical),
+            float(row.mape) if hasattr(row, 'mape') and pd.notna(row.mape) else None,
+            float(row.mae) if hasattr(row, 'mae') and pd.notna(row.mae) else None,
         )
         for row in forecast.itertuples(index=False)
     ]
     sql = """
         INSERT INTO ML_KPI05_CA_FORECAST
-            (run_date, model_name, ds, yhat, yhat_lower, yhat_upper, is_historical)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+            (run_date, model_name, ds, yhat, yhat_lower, yhat_upper, is_historical, mape, mae)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     with DW_ENGINE.begin() as conn:
         cursor = conn.connection.cursor()
@@ -314,16 +319,17 @@ def _save_forecast(forecast: pd.DataFrame) -> None:
 
     logger.info(f"[KPI-05] {len(rows)} rows saved to ML_KPI05_CA_FORECAST")
 
-def _evaluate(df_hist: pd.DataFrame, forecast: pd.DataFrame) -> None:
+def _evaluate(df_hist: pd.DataFrame, forecast: pd.DataFrame) -> tuple[float, float]:
     hist_fc = forecast[forecast["is_historical"] == 1].copy()
     merged = df_hist.merge(hist_fc[["ds", "yhat"]], on="ds", how="inner")
     if merged.empty:
-        return
+        return 0.0, 0.0
     merged = merged.tail(3)
-    mae  = (merged["y"] - merged["yhat"]).abs().mean()
-    mape = ((merged["y"] - merged["yhat"]).abs() / merged["y"]).mean() * 100
+    mae  = float((merged["y"] - merged["yhat"]).abs().mean())
+    mape = float(((merged["y"] - merged["yhat"]).abs() / merged["y"]).mean() * 100)
     model_name = forecast["model_name"].iloc[0] if "model_name" in forecast.columns else "UNKNOWN"
     logger.info(f"[KPI-05] {model_name} Back-test (last 3 months) - MAE: {mae:,.0f} | MAPE: {mape:.1f}%")
+    return mae, mape
 
 def run(horizon: int = 12) -> pd.DataFrame:
     _ensure_table()
@@ -334,13 +340,19 @@ def run(horizon: int = 12) -> pd.DataFrame:
 
     # Train all 3 models!
     arima_fc = _forecast_arima(df, horizon)
-    _evaluate(df, arima_fc)
+    arima_mae, arima_mape = _evaluate(df, arima_fc)
+    arima_fc["mae"] = arima_mae
+    arima_fc["mape"] = arima_mape
     
     sarima_fc = _forecast_sarima(df, horizon)
-    _evaluate(df, sarima_fc)
+    sarima_mae, sarima_mape = _evaluate(df, sarima_fc)
+    sarima_fc["mae"] = sarima_mae
+    sarima_fc["mape"] = sarima_mape
     
     prophet_fc = _forecast_prophet(df, horizon)
-    _evaluate(df, prophet_fc)
+    prophet_mae, prophet_mape = _evaluate(df, prophet_fc)
+    prophet_fc["mae"] = prophet_mae
+    prophet_fc["mape"] = prophet_mape
     
     # Combine forecasts
     combined_forecast = pd.concat([arima_fc, sarima_fc, prophet_fc], ignore_index=True)

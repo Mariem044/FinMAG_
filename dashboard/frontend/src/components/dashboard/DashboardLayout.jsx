@@ -6,12 +6,12 @@ import { DataSourceStatus } from "./DataSourceStatus";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useSyncFiltersWithUrl } from "@/store/useFilters";
 
-const NO_FILTER_PAGES = ["/parametres", "/aide", "/profil", "/assistant"];
+const NO_FILTER_PAGES = ["/parametres", "/aide", "/profil", "/assistant", "/predictions"];
 
 export function DashboardLayout() {
   const location = useLocation();
   const showFilters = !NO_FILTER_PAGES.includes(location.pathname);
-  const statusDisabled = ["/parametres", "/aide", "/profil", "/assistant"].includes(
+  const statusDisabled = ["/parametres", "/aide", "/profil", "/assistant", "/predictions"].includes(
     location.pathname,
   );
   useSyncFiltersWithUrl();
