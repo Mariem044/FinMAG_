@@ -25,6 +25,8 @@ from etl.config import (
     DIM_DATE_START,
     DIM_DATE_END,
     AUDIT_TABLE_NAME,
+    JO_TYPE_TO_TVA_MAPPING,
+    RT_ETAT_SOLDE,
 )
 from etl.utils.logger import get_logger
 from etl.utils.audit import (
@@ -650,7 +652,7 @@ def _assemble_fait_ecritures(
             id_type_tva=lambda d: d["JO_Type"].apply(
                 lambda v: _lookup_code(
                     lookups, "DIM_TYPE_TVA",
-                    1 if v == 1 else 2 if v == 0 else None,
+                    JO_TYPE_TO_TVA_MAPPING.get(v),
                 )
             ),
             source_hash=lambda d: d.apply(
@@ -682,7 +684,7 @@ def _assemble_fait_ecritures(
             id_type_tva=lambda d: d["JO_Type"].apply(
                 lambda v: _lookup_code(
                     lookups, "DIM_TYPE_TVA",
-                    1 if v == 1 else 2 if v == 0 else None,
+                    JO_TYPE_TO_TVA_MAPPING.get(v),
                 )
             ),
             source_hash=lambda d: d.apply(
@@ -772,7 +774,7 @@ def _assemble_fait_ecritures(
             date_extraction=today,
         )
     )
-    df4 = transform.add_fact_ecritures_calcs(df4)
+    # df4 = transform.add_fact_ecritures_calcs(df4) # Moved to SQL post-load
 
     _all_cols = list(dict.fromkeys(
         list(df1.columns) + list(df2.columns) +
@@ -838,6 +840,38 @@ def _compute_dsi_jours(thresholds: dict) -> None:
         result = conn.execute(text(sql), {"fenetre": thresholds["fenetre_dsi"]})
         rowcount = result.rowcount if result.rowcount >= 0 else "unknown"
         logger.info(f"dsi_jours computed: {rowcount} stock rows updated (window={thresholds['fenetre_dsi']} days).")
+
+
+def _compute_stock_kpis() -> None:
+    sql = """
+        UPDATE fe
+        SET
+            fe.qte_disponible = fe.AS_QteSto - fe.AS_QteRes,
+            fe.ratio_tension = CASE 
+                WHEN (fe.AS_QteSto - fe.AS_QteRes) > 0 AND fe.AS_QteRes >= 0 
+                THEN CASE 
+                    WHEN CAST(fe.AS_QteRes AS FLOAT) / (fe.AS_QteSto - fe.AS_QteRes) > 1 THEN 1.0
+                    WHEN CAST(fe.AS_QteRes AS FLOAT) / (fe.AS_QteSto - fe.AS_QteRes) < 0 THEN 0.0
+                    ELSE CAST(fe.AS_QteRes AS FLOAT) / (fe.AS_QteSto - fe.AS_QteRes)
+                END
+                ELSE NULL 
+            END,
+            fe.en_rupture = CASE 
+                WHEN fe.AS_QteSto <= fe.AS_QteMini 
+                     AND fe.AS_QteSto IS NOT NULL 
+                     AND fe.AS_QteMini IS NOT NULL 
+                THEN 1 
+                ELSE 0 
+            END
+        FROM FAIT_ECRITURES fe
+        INNER JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = fe.id_type_ligne
+        WHERE tl.type_ligne = 4
+    """
+    with DW_ENGINE.begin() as conn:
+        conn.execute(text("SET NOCOUNT OFF"))
+        result = conn.execute(text(sql))
+        rowcount = result.rowcount if result.rowcount >= 0 else "unknown"
+        logger.info(f"Stock KPIs computed: {rowcount} rows updated.")
 
 
 
@@ -1189,6 +1223,9 @@ def run_pipeline(force_full: bool = False) -> None:
 
         logger.info("--- Computing dsi_jours (stock coverage indicator) ---")
         _compute_dsi_jours(thresholds)
+
+        logger.info("--- Computing Stock KPIs (Python to SQL) ---")
+        _compute_stock_kpis()
 
 
 

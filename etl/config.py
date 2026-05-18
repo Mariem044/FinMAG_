@@ -106,6 +106,15 @@ def hash_key(value: Optional[str | int | float]) -> Optional[int]:
     return int.from_bytes(digest[:_HASH_BYTES], "big") & ((1 << (_HASH_BYTES * 8 - 1)) - 1)
 
 
+# ── business mappings ────────────────────────────────────────────────────────
+JO_TYPE_TO_TVA_MAPPING = {
+    1: 1,  # e.g., Vente -> Collectée
+    0: 2,  # e.g., Achat -> Déductible
+}
+
+RT_ETAT_SOLDE = 2
+
+
 DW_TABLES_ORDER: list[str] = [
     "DIM_DATE",
     "DIM_DOMAINE",
