@@ -160,10 +160,6 @@ function ParametresPage() {
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
                 {[
                   { label: "Ventes (KPI-05)", key: "kpi05" },
-                  { label: "Trésor (KPI-11)", key: "kpi11" },
-                  { label: "Réappro (KPI-17)", key: "kpi17" },
-                  { label: "Ruptures (KPI-18)", key: "kpi18" },
-                  { label: "Segments (KPI-22)", key: "kpi22" },
                 ].map((item) => (
                   <div key={item.key}>
                     <p className="text-text-dim uppercase text-[10px]">{item.label}</p>
