@@ -1,3 +1,0 @@
-2026-05-17 12:32:48 | INFO     | __main__                       | Force full load requested via --full flag.
-2026-05-17 12:32:48 | INFO     | __main__                       | Mode: FULL
-2026-05-17 12:32:48 | INFO     | etl.ddl                        | === DDL : début création schéma DW ===
