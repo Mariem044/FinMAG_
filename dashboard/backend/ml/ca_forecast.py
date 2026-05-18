@@ -14,13 +14,22 @@ logger = get_logger(__name__)
 
 _DDL = """
 IF OBJECT_ID('ML_KPI05_CA_FORECAST', 'U') IS NOT NULL 
-    AND COL_LENGTH('ML_KPI05_CA_FORECAST', 'model_name') IS NULL
+    AND (
+        COL_LENGTH('ML_KPI05_CA_FORECAST', 'model_name') IS NULL
+        OR EXISTS (
+            SELECT 1 FROM sys.columns c
+            JOIN sys.types t ON c.user_type_id = t.user_type_id
+            WHERE c.object_id = OBJECT_ID('ML_KPI05_CA_FORECAST')
+              AND c.name = 'run_date'
+              AND t.name = 'date'
+        )
+    )
     DROP TABLE ML_KPI05_CA_FORECAST;
 
 IF OBJECT_ID('ML_KPI05_CA_FORECAST', 'U') IS NULL
 CREATE TABLE ML_KPI05_CA_FORECAST (
     id              INT IDENTITY(1,1) PRIMARY KEY,
-    run_date        DATE NOT NULL,
+    run_date        DATETIME NOT NULL,
     model_name      VARCHAR(20) NOT NULL DEFAULT 'PROPHET',
     ds              DATE NOT NULL,
     yhat            NUMERIC(18,4) NOT NULL,
@@ -276,13 +285,13 @@ def _forecast_prophet(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
         return _forecast_seasonal_fallback(df, horizon, "PROPHET")
 
 def _save_forecast(forecast: pd.DataFrame) -> None:
-    today = datetime.now(timezone.utc).date()
+    now_ts = datetime.now()
     with DW_ENGINE.begin() as conn:
-        conn.execute(text("DELETE FROM ML_KPI05_CA_FORECAST WHERE run_date = :d"), {"d": today})
+        conn.execute(text("DELETE FROM ML_KPI05_CA_FORECAST"))
 
     rows = [
         (
-            today,
+            now_ts,
             str(row.model_name),
             row.ds.date(),
             float(row.yhat),
