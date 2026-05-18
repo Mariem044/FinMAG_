@@ -195,7 +195,7 @@ def _run_etl_background():
         _ETL_LAST_ERROR = None
 
         try:
-            from ml.runner import run_all as run_ml
+            from ml.runner import run_all as run_ml  # type: ignore
             run_ml()
         except Exception as ml_exc:
             logger = logging.getLogger("api.etl")
@@ -319,7 +319,7 @@ def run_etl(background_tasks: BackgroundTasks):
 
 @app.get("/api/ml/status")
 def get_ml_status():
-    from ml.runner import is_running, get_last_error
+    from ml.runner import is_running, get_last_error  # type: ignore
     try:
         counts = {}
         tables = {
@@ -362,7 +362,7 @@ def get_ml_status():
 
 @app.post("/api/ml/run")
 def run_ml_endpoint():
-    from ml.runner import run_all_background
+    from ml.runner import run_all_background  # type: ignore
     started = run_all_background()
     return {"started": started, "running": True}
 
