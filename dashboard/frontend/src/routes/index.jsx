@@ -96,14 +96,14 @@ function OverviewPage() {
               label="Clients Actifs"
               value={kpis.nb_clients_actifs.toLocaleString("fr-TN")}
               trend={kpis.nb_clients_actifs_growth_pct ?? 0}
-              sparkline={[85, 87, 86, 89, 91, 90, 93, 95, 94, 96, 95, 96]}
+              sparkline={caByMonth.map(m => m.nb_clients_actifs)}
               icon={Users}
             />
             <KPICard
               label="Taux de Recouvrement"
               value={formatPercent(kpis.taux_recouvrement)}
               trend={kpis.taux_recouvrement_growth_pct ?? 0}
-              sparkline={[68, 71, 72, 70, 74, 75, 76, 75, 78, 79, 81, 80]}
+              sparkline={caByMonth.map(m => m.taux_recouvrement)}
               icon={Percent}
             />
             <KPICard
@@ -111,7 +111,7 @@ function OverviewPage() {
               value={kpis.marge_brute_pct === null ? "N/A" : `${kpis.marge_brute_pct.toFixed(1)}%`}
               subtitle={kpis.marge_brute_pct === null ? "Coûts d'achat non saisis" : `${((kpis.ca_avec_cout || 0) / 1000000).toFixed(1)} MDT CA couverts`}
               trend={kpis.marge_brute_pct !== null ? (kpis.marge_brute_growth_pct ?? 0) : undefined}
-              sparkline={[22, 23, 22.5, 23.1, 23.4, 23.5, 24, 23.8, 24.1, 24.5, 24.2, 24.5]}
+              sparkline={caByMonth.map(m => m.marge_brute)}
               icon={TrendingUp}
             />
           </>

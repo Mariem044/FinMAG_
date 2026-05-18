@@ -676,6 +676,8 @@ def get_ca_by_month(
                 d.annee,
                 d.mois,
                 SUM(f.DL_MontantHT) AS ca,
+                COUNT(DISTINCT f.id_client) AS nb_clients_actifs,
+                SUM(CASE WHEN f.DL_CMUP IS NOT NULL AND f.DL_CMUP > 0 AND f.DL_Qte IS NOT NULL AND f.DL_MontantHT > (f.DL_Qte * f.DL_CMUP) THEN f.DL_MontantHT - (f.DL_Qte * f.DL_CMUP) ELSE NULL END) AS marge_brute,
                 COUNT(*) AS row_cnt
             FROM FAIT_LIGNES_VENTE f
             JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
@@ -702,6 +704,8 @@ def get_ca_by_month(
                 m.annee,
                 m.mois,
                 m.ca,
+                m.nb_clients_actifs,
+                m.marge_brute,
                 m.row_cnt
             FROM monthly m
             CROSS JOIN monthly_stats ms
@@ -716,6 +720,8 @@ def get_ca_by_month(
             r.annee,
             r.mois AS month_num,
             r.ca,
+            r.nb_clients_actifs,
+            r.marge_brute,
             COALESCE(prev.ca, 0) AS caN1
         FROM rolling r
         CROSS JOIN monthly_stats ms
@@ -728,11 +734,47 @@ def get_ca_by_month(
         ORDER BY r.annee, r.mois
     """
     rows = _rows(sql, filt_params)
+    
+    # Calculate recovery rate by month
+    rec_by_month = {}
+    if rows:
+        latest_year = rows[0].annee
+        rec_sql = """
+            WITH deduped AS (
+                SELECT
+                    r.RT_Num,
+                    MAX(r.RT_Montant)         AS RT_Montant,
+                    MAX(r.DR_Regle)           AS DR_Regle,
+                    MAX(r.id_date_paiement)   AS id_date_paiement
+                FROM FAIT_REGLEMENTS r WITH (NOLOCK)
+                WHERE r.RT_Num IS NOT NULL AND r.id_client IS NOT NULL
+                GROUP BY r.RT_Num
+            )
+            SELECT
+                dt.mois,
+                SUM(CASE WHEN DR_Regle = 1 THEN RT_Montant ELSE 0 END) AS encaissements,
+                SUM(CASE WHEN DR_Regle = 0 THEN RT_Montant ELSE 0 END) AS impayes
+            FROM deduped d
+            JOIN DIM_DATE dt WITH (NOLOCK) ON dt.id_date = d.id_date_paiement
+            WHERE dt.annee = :year
+            GROUP BY dt.mois
+        """
+        rec_rows = _rows(rec_sql, {"year": latest_year})
+        for r in rec_rows:
+            enc = _num(r.encaissements)
+            imp = _num(r.impayes)
+            tot = enc + imp
+            rate = (enc / tot * 100) if tot else 0.0
+            rec_by_month[r.mois] = rate
+
     return [
         {
             "month": f"{MONTHS[r.month_num - 1]} {str(r.annee)[2:]}",
             "ca": _num(r.ca),
             "caN1": _num(r.caN1),
+            "nb_clients_actifs": _int(r.nb_clients_actifs),
+            "marge_brute": _num(r.marge_brute),
+            "taux_recouvrement": rec_by_month.get(r.month_num, 0.0),
             "objectif": round(_num(r.caN1) * 1.10, 2) if _num(r.caN1) > 0 else round(_num(r.ca) * 1.05, 2),
         }
         for r in rows
