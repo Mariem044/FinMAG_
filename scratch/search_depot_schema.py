@@ -1,6 +1,0 @@
-with open("etl/api/queries.py", "r", encoding="utf-8") as f:
-    lines = f.readlines()
-
-for i, line in enumerate(lines):
-    if "DIM_DEPOT" in line or "id_depot" in line:
-        print(f"Line {i+1}: {line.strip()}")
