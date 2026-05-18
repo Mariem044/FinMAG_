@@ -3,8 +3,9 @@ import { Filter, Calendar, Building2, Users, Database, ChevronDown, X } from "lu
 import { useFilters } from "@/store/useFilters";
 import { useParametres } from "@/store/useParametres";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { FILTER_DEFAULTS } from "@/store/useFilters";
+import { api } from "@/lib/api";
 
 const PERIODS_FR = [
   {
@@ -160,6 +161,44 @@ export function FiltersBar() {
   const showSource = path === "/ventes" || path === "/tresorerie";
   const [expanded, setExpanded] = useState(false);
 
+  const [dynamicOptions, setDynamicOptions] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    api.filters()
+      .then((data) => {
+        if (active) setDynamicOptions(data);
+      })
+      .catch((err) => console.warn("Failed to load dynamic filters:", err));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const depots = dynamicOptions?.depots || DEPOTS;
+  const segments = dynamicOptions?.segments || SEGMENTS;
+  const families = dynamicOptions?.familles || [
+    "Toutes",
+    "Biscuits",
+    "Boissons",
+    "Conserves",
+    "Produits Laitiers",
+    "Confiserie",
+    "Épicerie",
+    "Huiles",
+    "Pâtes",
+  ];
+
+  const processedExtraDefs = extraDefs.map((def) => {
+    if (def.storeKey === "famille") {
+      return { ...def, options: families };
+    }
+    if (def.storeKey === "modePaiement") {
+      return { ...def, options: dynamicOptions?.modes_paiement || def.options };
+    }
+    return def;
+  });
+
   const activeFilters = [
     filters.quarter !== FILTER_DEFAULTS.quarter && {
       key: "quarter",
@@ -224,18 +263,37 @@ export function FiltersBar() {
     },
   ].filter(Boolean);
 
+  const yearsList = dynamicOptions?.years || [2026, 2025, 2024, 2023, 2022, 2021, 2020];
+
+  const dynamicPeriods = yearsList.flatMap((y) => [
+    {
+      label: `Jan ${y} – Déc ${y}`,
+      label_en: `Jan ${y} – Dec ${y}`,
+      label_ar: `يناير ${y} – ديسمبر ${y}`,
+      quarter: "Tous",
+      year: y,
+    },
+    { label: `Q1 ${y}`, label_en: `Q1 ${y}`, label_ar: `الربع الأول ${y}`, quarter: "Q1", year: y },
+    { label: `Q2 ${y}`, label_en: `Q2 ${y}`, label_ar: `الربع الثاني ${y}`, quarter: "Q2", year: y },
+    { label: `Q3 ${y}`, label_en: `Q3 ${y}`, label_ar: `الربع الثالث ${y}`, quarter: "Q3", year: y },
+    { label: `Q4 ${y}`, label_en: `Q4 ${y}`, label_ar: `الربع الرابع ${y}`, quarter: "Q4", year: y },
+  ]);
+
   const langKey = langue === "English" ? "label_en" : langue === "العربية" ? "label_ar" : "label";
-  const periodLabels = PERIODS_FR.map((p) => p[langKey]);
+  const periodLabels = dynamicPeriods.map((p) => p[langKey]);
 
   const currentPeriodLabel = (() => {
-    const found = PERIODS_FR.find((p) => p.quarter === filters.quarter);
-    return found ? found[langKey] : periodLabels[0];
+    const found = dynamicPeriods.find((p) => p.quarter === filters.quarter && p.year === filters.year);
+    return found ? found[langKey] : periodLabels.find((l) => l.includes(String(filters.year))) || periodLabels[0];
   })();
 
   const handlePeriodChange = (label) => {
     const idx = periodLabels.indexOf(label);
-    filters.setQuarter(idx >= 0 ? PERIODS_FR[idx].quarter : "Tous");
-    filters.setYear(2024);
+    if (idx >= 0) {
+      const p = dynamicPeriods[idx];
+      filters.setQuarter(p.quarter);
+      filters.setYear(p.year);
+    }
   };
 
   const allFilters = (
@@ -253,16 +311,16 @@ export function FiltersBar() {
         label={t("filters.depot")}
         value={filters.depot}
         onChange={filters.setDepot}
-        options={DEPOTS}
+        options={depots}
         icon={Building2}
       />
-      {!extraDefs.some((d) => d.storeKey === "segment") && (
+      {!processedExtraDefs.some((d) => d.storeKey === "segment") && (
         <SelectFilter
           id="filter-segment"
           label={t("filters.segment")}
           value={filters.segment}
           onChange={filters.setSegment}
-          options={SEGMENTS}
+          options={segments}
           icon={Users}
         />
       )}
@@ -276,7 +334,7 @@ export function FiltersBar() {
           icon={Database}
         />
       )}
-      {extraDefs.map((def) => (
+      {processedExtraDefs.map((def) => (
         <SelectFilter
           key={def.storeKey}
           id={`filter-${def.storeKey}`}

@@ -86,25 +86,5 @@ export const useFilters = create((set, get) => ({
 }));
 
 export function useSyncFiltersWithUrl() {
-  const search = useSearch({ strict: false });
-  const navigate = useNavigate();
-  const [hydrated, setHydrated] = useState(false);
-  const filters = useFilters();
-
-  useEffect(() => {
-    if (hydrated) return;
-    useFilters.setState(filtersFromSearch(search));
-    setHydrated(true);
-  }, [hydrated, search]);
-
-  const filterValues = [
-    filters.year, filters.quarter, filters.month, filters.region,
-    filters.famille, filters.segment, filters.depot, filters.banque,
-    filters.modeBanque, filters.modePaiement, filters.source,
-    filters.horizonPrev, filters.statutArticle,
-  ];
-
-  useEffect(() => {
-    // Disabled URL writing logic to keep browser address bar clean
-  }, [hydrated, navigate, search, ...filterValues]);
+  // Disabled URL synchronization to prevent state resets and keep state 100% stable
 }

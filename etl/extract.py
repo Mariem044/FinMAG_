@@ -167,7 +167,7 @@ def extract_dim_famille() -> pd.DataFrame:
 def extract_dim_fournisseur(last_run: Optional[datetime] = None) -> pd.DataFrame:
     delta_clause, params = _delta_filter("cbModification", last_run)
     sql = f"""
-        SELECT CT_Num, CT_Sommeil, CT_Encours, CT_SvCA
+        SELECT CT_Num, CT_Sommeil, CT_Encours, CT_SvCA, CT_Intitule
         FROM F_COMPTET
         WHERE CT_Type = 1 {delta_clause}
     """
@@ -179,6 +179,7 @@ def extract_dim_article(last_run: Optional[datetime] = None) -> pd.DataFrame:
     sql = f"""
         SELECT
             a.AR_Ref,
+            a.AR_Design,
             a.FA_CodeFamille,
             af.CT_Num AS CT_Num_fourn,
             a.AR_Sommeil,

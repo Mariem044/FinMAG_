@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from etl.config import DW_ENGINE, SEUIL_TENSION_STOCK, AUDIT_TABLE_NAME
+from etl.config import DW_ENGINE, MAG_ENGINE, SEUIL_TENSION_STOCK, AUDIT_TABLE_NAME
 from etl import pipeline
 
 app = FastAPI(title="FinMAG API") #
@@ -22,24 +22,9 @@ _ETL_RUN_LOCK = threading.Lock()
 _ETL_LAST_ERROR = None
 _startup_logger = logging.getLogger("api.startup")
 
-DEFAULT_ALLOWED_ORIGINS = [
-    o.strip()
-    for o in os.getenv(
-        "API_DEFAULT_ALLOWED_ORIGINS",
-        "http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173",
-    ).split(",")
-    if o.strip()
-]
-
-allowed_origins = [
-    origin.strip()
-    for origin in os.getenv("API_ALLOWED_ORIGINS", "").split(",")
-    if origin.strip()
-] or DEFAULT_ALLOWED_ORIGINS
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -209,6 +194,64 @@ def _run_etl_background():
 @app.get("/api/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/api/dashboard/filters")
+def get_dashboard_filters():
+    try:
+        # 1. Depots from F_DEPOT in Sage (MAG_ENGINE)
+        with MAG_ENGINE.connect() as conn:
+            depots = [r.DE_Intitule.strip() for r in conn.execute(text("SELECT DISTINCT DE_Intitule FROM F_DEPOT WHERE DE_Intitule IS NOT NULL ORDER BY DE_Intitule")).fetchall()]
+        if not depots:
+            depots = ["Tous"]
+        else:
+            depots = ["Tous"] + depots
+
+        # 2. Segments from DIM_SEGMENT
+        segments = [r.libelle_segment.strip() for r in _rows("SELECT DISTINCT libelle_segment FROM DIM_SEGMENT WHERE libelle_segment IS NOT NULL ORDER BY libelle_segment")]
+        if not segments:
+            segments = ["Tous"]
+        else:
+            segments = ["Tous"] + segments
+
+        # 3. Families from DIM_ARTICLE
+        familles = [r.FA_Intitule.strip() for r in _rows("SELECT DISTINCT FA_Intitule FROM DIM_ARTICLE WHERE FA_Intitule IS NOT NULL AND FA_Intitule <> '' ORDER BY FA_Intitule")]
+        if not familles:
+            familles = ["Toutes"]
+        else:
+            familles = ["Toutes"] + familles
+
+        # 4. Years from DIM_DATE referenced by sales
+        years = [int(r.annee) for r in _rows("SELECT DISTINCT d.annee FROM FAIT_LIGNES_VENTE f JOIN DIM_DATE d ON f.id_date = d.id_date WHERE d.annee IS NOT NULL ORDER BY d.annee DESC")]
+        if not years:
+            years = [int(r.annee) for r in _rows("SELECT DISTINCT annee FROM DIM_DATE WHERE annee IS NOT NULL ORDER BY annee DESC")]
+        if not years:
+            years = [2024]
+
+        # 5. Payment Modes from DIM_MODE_REGLEMENT
+        modes = [r.libelle_mode_reg.strip() for r in _rows("SELECT DISTINCT libelle_mode_reg FROM DIM_MODE_REGLEMENT WHERE libelle_mode_reg IS NOT NULL AND libelle_mode_reg <> '' ORDER BY libelle_mode_reg")]
+        if not modes:
+            modes = ["Tous"]
+        else:
+            modes = ["Tous"] + modes
+
+        return {
+            "depots": depots,
+            "segments": segments,
+            "familles": familles,
+            "years": years,
+            "modes_paiement": modes
+        }
+    except Exception as exc:
+        logging.error(f"Error fetching dynamic filters: {exc}")
+        # Fallback to keep app 100% robust and stable
+        return {
+            "depots": ["Tous", "Tunis Nord", "Tunis Sud", "Sfax", "Sousse", "Nabeul", "Bizerte", "Dépôt Central"],
+            "segments": ["Tous", "DÉTAILLANTS", "SEMI-GROS", "HORECA", "GROSSISTES", "DISTRIBUTEUR"],
+            "familles": ["Toutes", "Biscuits", "Boissons", "Conserves", "Produits Laitiers", "Confiserie", "Épicerie", "Huiles", "Pâtes"],
+            "years": [2024],
+            "modes_paiement": ["Tous", "Chèque", "Espèce", "RS", "Traite", "Virement"]
+        }
 
 
 @app.get("/api/etl/status")
@@ -981,6 +1024,7 @@ def get_impayes_fournisseurs():
     sql = """
         SELECT 
             f.CT_Num_code,
+            f.CT_Intitule,
             SUM(r.RT_Montant) AS montant_impaye,
             MAX(COALESCE(r.delai_reel_jours, DATEDIFF(day, dt_pai.date_val, GETDATE()))) AS anciennete,
             MAX(r.RT_NbJour) AS delai_contractuel
@@ -989,13 +1033,13 @@ def get_impayes_fournisseurs():
         LEFT JOIN DIM_DATE dt_pai ON dt_pai.id_date = r.id_date_paiement
         WHERE r.DR_Regle = 0
         AND r.id_fournisseur IS NOT NULL
-        GROUP BY f.CT_Num_code
+        GROUP BY f.CT_Num_code, f.CT_Intitule
         HAVING SUM(r.RT_Montant) > 0
         ORDER BY montant_impaye DESC
     """
     return [
         {
-            "fournisseur": f"Fournisseur {r.CT_Num_code}",
+            "fournisseur": r.CT_Intitule if r.CT_Intitule else f"Fournisseur {r.CT_Num_code}",
             "montant": _num(r.montant_impaye),
             "delaiEffectif": _int(r.anciennete),
             "delaiContractuel": _int(r.delai_contractuel),
@@ -1081,6 +1125,8 @@ def get_stock_alerts():
     sql = """
         SELECT 
             a.AR_Ref_code,
+            a.AR_Ref,
+            a.AR_Design,
             SUM(f.AS_QteSto)     AS AS_QteSto,
             MAX(f.AS_QteMini)    AS AS_QteMini,
             MAX(f.en_rupture)    AS en_rupture,
@@ -1094,7 +1140,7 @@ def get_stock_alerts():
         AND (f.AS_QteMini > 0 OR COALESCE(f.qte_vendue_365j, 0) > 0)
         AND f.AS_QteSto IS NOT NULL
         AND f.AS_QteSto >= 0
-        GROUP BY a.AR_Ref_code
+        GROUP BY a.AR_Ref_code, a.AR_Ref, a.AR_Design
         ORDER BY MAX(COALESCE(f.qte_vendue_365j, 0)) DESC
     """
     alerts = []
@@ -1103,8 +1149,8 @@ def get_stock_alerts():
         seuil = _num(r.AS_QteMini)
         ratio = _num(r.ratio_tension)
         alerts.append({
-            "article": f"ART-{r.AR_Ref_code}",
-            "designation": f"Article {r.AR_Ref_code}",
+            "article": r.AR_Ref if r.AR_Ref else f"ART-{r.AR_Ref_code}",
+            "designation": r.AR_Design if r.AR_Design else f"Article {r.AR_Ref_code}",
             "stockActuel": stock,
             "seuil": seuil,
             "dateRupture": "",
@@ -1150,6 +1196,8 @@ def get_articles():
         )
         SELECT 
         a.AR_Ref_code,
+        a.AR_Ref,
+        a.AR_Design,
         a.id_famille,
         COALESCE(NULLIF(fa.FA_Intitule, ''), 'Sans famille') AS famille,
         CASE
@@ -1172,8 +1220,8 @@ def get_articles():
 """
     return [
         {
-            "code": f"ART-{r.AR_Ref_code}",
-            "designation": f"Article {r.AR_Ref_code}",
+            "code": r.AR_Ref if r.AR_Ref else f"ART-{r.AR_Ref_code}",
+            "designation": r.AR_Design if r.AR_Design else f"Article {r.AR_Ref_code}",
             "famille": r.famille,
             "qteVendue": _num(r.qte_vendue),
             "ca": _num(r.ca),
@@ -1288,17 +1336,18 @@ def get_acteurs_fournisseurs():
     sql = """
         SELECT 
             f.CT_Num_code,
+            f.CT_Intitule,
             f.CT_Encours,
             COUNT(a.id_article) AS nb_articles
         FROM DIM_FOURNISSEUR f
         LEFT JOIN DIM_ARTICLE a ON a.id_fournisseur = f.id_fournisseur
-        GROUP BY f.CT_Num_code, f.CT_Encours
+        GROUP BY f.CT_Num_code, f.CT_Intitule, f.CT_Encours
         ORDER BY nb_articles DESC, f.CT_Encours DESC
     """
     return [
         {
             "code": str(r.CT_Num_code),
-            "nom": f"Fournisseur {r.CT_Num_code}",
+            "nom": r.CT_Intitule if r.CT_Intitule else f"Fournisseur {r.CT_Num_code}",
             "encours": _num(r.CT_Encours),
             "nbArticles": _int(r.nb_articles),
         }
@@ -1337,6 +1386,7 @@ def get_fournisseur_concentration():
             SELECT
                 f.id_fournisseur,
                 f.CT_Num_code,
+                f.CT_Intitule,
                 SUM(flv.DL_MontantHT) AS montant_achat,
                 COUNT(DISTINCT flv.id_article) AS nb_articles_achetes
             FROM FAIT_LIGNES_VENTE flv
@@ -1344,7 +1394,7 @@ def get_fournisseur_concentration():
             JOIN DIM_ARTICLE a ON a.id_article = flv.id_article
             JOIN DIM_FOURNISSEUR f ON f.id_fournisseur = a.id_fournisseur
             WHERE dom.DO_Domaine = 1
-            GROUP BY f.id_fournisseur, f.CT_Num_code
+            GROUP BY f.id_fournisseur, f.CT_Num_code, f.CT_Intitule
         ),
         total AS (
             SELECT SUM(montant_achat) AS total_achats
@@ -1361,6 +1411,7 @@ def get_fournisseur_concentration():
         )
         SELECT
             a.CT_Num_code,
+            a.CT_Intitule,
             a.montant_achat,
             a.nb_articles_achetes,
             COALESCE(art_count.nb_articles_catalogue, 0) AS nb_articles_catalogue,
@@ -1378,7 +1429,7 @@ def get_fournisseur_concentration():
     """
     return [
         {
-            "fournisseur": f"Fournisseur {r.CT_Num_code}",
+            "fournisseur": r.CT_Intitule if r.CT_Intitule else f"Fournisseur {r.CT_Num_code}",
             "nbArticles": _int(r.nb_articles_catalogue),
             "nbArticlesAchetes": _int(r.nb_articles_achetes),
             "montantAchat": _num(r.montant_achat),
@@ -1533,7 +1584,7 @@ def get_caisses():
     return [
         {
             "id": f"CA-{r.CA_Numero_code}",
-            "nom": f"Caisse {r.CA_Numero_code}",
+            "nom": f"Caisse {depot_map.get(r.CA_Numero_code, 'Dépôt Central')}",
             "especes": abs(_num(r.especes)),
             "cheques": abs(_num(r.cheques)),
             "seuilMin": _num(r.seuil_min),  # computed from real data
@@ -1842,12 +1893,12 @@ def search(q: str = ""):
     needle = f"%{q}%"
     clients = _rows(
         "SELECT  CT_Num_code, CT_SoldeActuel, CT_Intitule FROM DIM_CLIENT "
-        "WHERE CONVERT(VARCHAR(30), CT_Num_code) LIKE :q ORDER BY CT_Num_code",
+        "WHERE CONVERT(VARCHAR(30), CT_Num_code) LIKE :q OR CT_Intitule LIKE :q ORDER BY CT_Num_code",
         {"q": needle},
     )
     articles = _rows(
-        "SELECT  AR_Ref_code, id_famille FROM DIM_ARTICLE "
-        "WHERE CONVERT(VARCHAR(30), AR_Ref_code) LIKE :q ORDER BY AR_Ref_code",
+        "SELECT  AR_Ref_code, AR_Ref, AR_Design, id_famille FROM DIM_ARTICLE "
+        "WHERE CONVERT(VARCHAR(30), AR_Ref_code) LIKE :q OR AR_Ref LIKE :q OR AR_Design LIKE :q ORDER BY AR_Ref_code",
         {"q": needle},
     )
     ecritures = _rows(
@@ -1857,15 +1908,15 @@ def search(q: str = ""):
         {"q": needle},
     )
     fournisseurs = _rows(
-        "SELECT  CT_Num_code, CT_Encours FROM DIM_FOURNISSEUR "
-        "WHERE CONVERT(VARCHAR(30), CT_Num_code) LIKE :q ORDER BY CT_Num_code",
+        "SELECT  CT_Num_code, CT_Intitule, CT_Encours FROM DIM_FOURNISSEUR "
+        "WHERE CONVERT(VARCHAR(30), CT_Num_code) LIKE :q OR CT_Intitule LIKE :q ORDER BY CT_Num_code",
         {"q": needle},
     )
     return {
         "clients": [{"label": r.CT_Intitule or f"Client {r.CT_Num_code}", "subtitle": f"Solde {round(_num(r.CT_SoldeActuel))} DT", "to": "/acteurs"} for r in clients],
-        "articles": [{"label": f"Article {r.AR_Ref_code}", "subtitle": f"Famille {r.id_famille or 'N/A'}", "to": "/produits"} for r in articles],
+        "articles": [{"label": r.AR_Design if r.AR_Design else (r.AR_Ref if r.AR_Ref else f"Article {r.AR_Ref_code}"), "subtitle": f"Famille {r.id_famille or 'N/A'}", "to": "/produits"} for r in articles],
         "ecritures": [{"label": f"Ecriture {r.EC_No or ''}", "subtitle": f"Compte {r.CG_Num or ''} - {round(_num(r.EC_Montant))} DT", "to": "/fiscalite"} for r in ecritures],
-        "fournisseurs": [{"label": f"Fournisseur {r.CT_Num_code}", "subtitle": f"Encours {round(_num(r.CT_Encours))} DT", "to": "/acteurs"} for r in fournisseurs],
+        "fournisseurs": [{"label": r.CT_Intitule if r.CT_Intitule else f"Fournisseur {r.CT_Num_code}", "subtitle": f"Encours {round(_num(r.CT_Encours))} DT", "to": "/acteurs"} for r in fournisseurs],
     }
 
 

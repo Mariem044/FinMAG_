@@ -83,6 +83,7 @@ function post(path) {
 }
 
 const _health = () => get("/api/health");
+const _filters = () => get("/api/dashboard/filters");
 
 const _etlStatus = () => get("/api/etl/status");
 const _etlRun = () => post("/api/etl/run");
@@ -142,6 +143,7 @@ const _search = (query) => get(`/api/search?q=${encodeURIComponent(query)}`);
 
 export const api = {
   health: _health,
+  filters: _filters,
 
   etl: {
     status: _etlStatus,

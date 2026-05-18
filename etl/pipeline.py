@@ -1087,6 +1087,7 @@ STEPS: List[PipelineStep] = [
                 id_fournisseur=lambda d: d["CT_Num_fourn"].apply(
                     lambda v: lookups.get("DIM_FOURNISSEUR", {}).get(transform.hash_key(v))
                 ),
+                AR_Design=lambda d: d["AR_Design"].str.strip().str[:100] if "AR_Design" in d.columns else None,
             )
         ),
         load_fn=lambda df, tbl, mode: load.load_dimension(df, tbl, mode, key_col="AR_Ref_code"),
