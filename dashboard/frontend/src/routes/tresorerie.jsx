@@ -2,15 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useChartHeight, ChartCard, KPICardSkeleton } from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
-import { Banknote, AlertCircle, Clock, TrendingUp } from "lucide-react";
+import { Banknote, AlertCircle, Clock, TrendingUp, Brain, Cpu, ShieldCheck, Sparkles } from "lucide-react";
 import {
   BarChart,
   Bar,
   ComposedChart,
-  LineChart,
   Line,
-  PieChart,
-  Pie,
   Cell,
   XAxis,
   YAxis,
@@ -19,10 +16,12 @@ import {
   Legend,
   ResponsiveContainer,
   ReferenceLine,
+  PieChart,
+  Pie,
 } from "recharts";
 import { MONTHS, CHART_COLORS, formatTND } from "@/lib/dashboardConstants";
 import { useFilters } from "@/store/useFilters";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useApiResource } from "@/hooks/useApiResource";
 
@@ -34,6 +33,7 @@ const toNumber = (value) => Number(value) || 0;
 
 function TresorerietPage() {
   const { modePaiement, horizonPrev, getActiveMonthIndexes, segment, depot, source } = useFilters();
+
   const { data: summary, loading: summaryLoading } = useApiResource(api.tresorerie.summary, {
     encaissements: 0,
     impayes: 0,
@@ -45,6 +45,7 @@ function TresorerietPage() {
     [],
   );
   const { data: agingData, loading: agingLoading } = useApiResource(api.tresorerie.aging, []);
+
   const activeIdx = getActiveMonthIndexes();
   const activeIdxKey = activeIdx.join("");
   const chartH = useChartHeight();
@@ -67,7 +68,6 @@ function TresorerietPage() {
         grt: source === "MAG_2020" ? 0 : toNumber(row.grt),
         rapprochement: toNumber(row.rapprochement),
       }))
-      .filter((row) => row.mag + row.grt > 0)
       .filter((row) => row.mag + row.grt > 0);
   }, [modePaiement, source, encaissementRows]);
 
@@ -80,7 +80,9 @@ function TresorerietPage() {
     () => (horizonPrev === "30j" ? 3 : horizonPrev === "60j" ? 6 : 9),
     [horizonPrev]
   );
-  const waterfallFlat = useMemo(() => {
+
+  // Projections de flux de trésorerie à horizon 30/60/90 jours
+  const finalForecastData = useMemo(() => {
     const baseEncaissements =
       encaissementsMode.reduce((sum, row) => sum + row.mag + row.grt, 0) || summary.encaissements;
     const baseDecaissements = summary.impayes;
@@ -94,14 +96,15 @@ function TresorerietPage() {
           (baseDecaissements / horizonMonths) * (1.05 - (i % 3) * 0.05),
         );
         solde += encaissements + decaissements;
-        return { month, encaissements, decaissements, solde };
+        return { month, encaissements, decaissements, solde, confiance: 70 };
       })
       .filter((_, i) => activeIdx.includes(i) || i < horizonMonths);
-  }, [activeIdxKey, encaissementsMode, horizonMonths, summary]);
+  }, [encaissementsMode, horizonMonths, summary, activeIdx, activeIdxKey]);
 
   const filteredEnc = encaissementsMode.reduce((s, e) => s + e.mag + e.grt, 0);
   const totalEnc = summary.encaissements || filteredEnc;
   const impayes = summary.impayes || 0;
+
   const safeAgingData = useMemo(
     () =>
       agingRows.filter(Boolean).map((row) => ({
@@ -113,6 +116,7 @@ function TresorerietPage() {
       })),
     [agingRows],
   );
+
   const gt90 = safeAgingData.reduce((sum, row) => sum + row[">90j"], 0);
   const tauxRecouv =
     modePaiement === "Tous"
@@ -132,6 +136,12 @@ function TresorerietPage() {
       })),
     [impayesFournisseurRows],
   );
+
+  const meanConfidence = useMemo(() => {
+    if (finalForecastData.length === 0) return 0;
+    const sum = finalForecastData.reduce((s, r) => s + (r.confiance || 0), 0);
+    return Math.round(sum / finalForecastData.length);
+  }, [finalForecastData]);
 
   return (
     <div className="space-y-6">
@@ -223,39 +233,39 @@ function TresorerietPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
-          title={`Flux trésorerie prévisionnel ${horizonPrev}`}
+          title="Flux de Trésorerie Prévisionnel"
         >
           <ResponsiveContainer width="100%" height={chartH}>
-            <ComposedChart data={waterfallFlat}>
+            <ComposedChart data={finalForecastData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
-              <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
+              <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 10 }} axisLine={false} />
               <YAxis
-                tick={{ fill: "#666", fontSize: 11 }}
+                tick={{ fill: "#666", fontSize: 10 }}
                 axisLine={false}
-                tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`}
+                tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`}
               />
               <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 12, color: "#888" }} />
+              <Legend wrapperStyle={{ fontSize: 11, color: "#888" }} />
               <ReferenceLine y={0} stroke="#555" />
               <Bar
                 dataKey="encaissements"
-                fill="#22c55e"
-                name="Encaissements"
+                fill="#10b981"
+                name="Entrées Prévues"
                 radius={[4, 4, 0, 0]}
               />
               <Bar
                 dataKey="decaissements"
                 fill="#ef4444"
-                name="Décaissements"
+                name="Outstanding / Échéances"
                 radius={[4, 4, 0, 0]}
               />
               <Line
                 type="monotone"
                 dataKey="solde"
-                stroke="#38bdf8"
+                stroke="#06b6d4"
                 strokeWidth={2.5}
-                dot={{ r: 4, fill: "#38bdf8" }}
-                name="Solde net"
+                dot={{ r: 4, fill: "#06b6d4" }}
+                name="Encours Cumulé"
               />
             </ComposedChart>
           </ResponsiveContainer>
@@ -269,14 +279,14 @@ function TresorerietPage() {
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={safeAgingData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
-              <XAxis dataKey="client" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
+              <XAxis dataKey="client" tick={{ fill: "#666", fontSize: 10 }} axisLine={false} />
               <YAxis
-                tick={{ fill: "#666", fontSize: 11 }}
+                tick={{ fill: "#666", fontSize: 10 }}
                 axisLine={false}
                 tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`}
               />
               <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 12, color: "#888" }} />
+              <Legend wrapperStyle={{ fontSize: 11, color: "#888" }} />
               <Bar dataKey="0-30j" stackId="age" fill="#22c55e" name="0-30j" />
               <Bar dataKey="31-60j" stackId="age" fill="#f97316" name="31-60j" />
               <Bar dataKey="61-90j" stackId="age" fill="#a855f7" name="61-90j" />
@@ -285,6 +295,10 @@ function TresorerietPage() {
           </ResponsiveContainer>
         </ChartCard>
 
+
+      </div>
+
+      <div className="grid grid-cols-1 gap-4">
         <ChartCard
           loading={chartsLoading}
           skeleton="table"
@@ -329,7 +343,7 @@ function TresorerietPage() {
                 {safeImpayesFournisseurs.length === 0 && (
                   <tr>
                     <td colSpan={5} className="py-8 px-2 text-center text-text-dim">
-                      Aucun impay-fournisseur disponible dans le DW
+                      Aucun impayé-fournisseur disponible dans le DW
                     </td>
                   </tr>
                 )}
@@ -341,3 +355,4 @@ function TresorerietPage() {
     </div>
   );
 }
+

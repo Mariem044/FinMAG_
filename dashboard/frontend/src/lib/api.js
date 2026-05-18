@@ -89,31 +89,20 @@ const _etlRun = () => post("/api/etl/run");
 
 const _mlStatus = () => get("/api/ml/status");
 const _mlRun = () => post("/api/ml/run");
+const _mlForecastCa = () => get("/api/ml/forecast-ca");
+const _mlForecastTresorerie = () => get("/api/ml/forecast-tresorerie");
+const _mlProduitsAlerts = () => get("/api/ml/produits-alerts");
+const _mlRfmSegments = () => get("/api/ml/rfm-segments");
+const _mlLogs = () => get("/api/ml/logs");
 
 const _dashboardKpis = (year) => get(`/api/dashboard/kpis${year ? `?year=${year}` : ""}`);
 const _dashboardCaByMonth = (year) => get(`/api/ventes/ca-by-month${year ? `?year=${year}` : ""}`);
-const _dashboardTopFamilles = (year, segment, depot, source) => {
-  const p = new URLSearchParams();
-  if (year) p.set("year", year);
-  if (segment && segment !== "Tous") p.set("segment", segment);
-  if (depot && depot !== "Tous") p.set("depot", depot);
-  if (source) p.set("source", source);
-  const qs = p.toString();
-  return get(`/api/ventes/top-familles${qs ? `?${qs}` : ""}`);
-};
+const _dashboardTopFamilles = () => get("/api/ventes/top-familles");
 const _dashboardCaByRegion = (year) =>
   get(`/api/ventes/ca-by-region${year ? `?year=${year}` : ""}`);
 
 const _ventesCaByMonth = (year) => get(`/api/ventes/ca-by-month${year ? `?year=${year}` : ""}`);
-const _ventesTopFamilles = (year, segment, depot, source) => {
-  const p = new URLSearchParams();
-  if (year) p.set("year", year);
-  if (segment && segment !== "Tous") p.set("segment", segment);
-  if (depot && depot !== "Tous") p.set("depot", depot);
-  if (source) p.set("source", source);
-  const qs = p.toString();
-  return get(`/api/ventes/top-familles${qs ? `?${qs}` : ""}`);
-};
+const _ventesTopFamilles = () => get("/api/ventes/top-familles");
 const _ventesCaByRegion = (year) => get(`/api/ventes/ca-by-region${year ? `?year=${year}` : ""}`);
 const _tresorerieSummary = () => get("/api/tresorerie/summary");
 const _tresorerieImpayes = () => get("/api/tresorerie/impayes");
@@ -129,6 +118,7 @@ const _acteursRfm = () => get("/api/acteurs/rfm");
 const _acteursAging = () => get("/api/acteurs/aging");
 const _acteursFournisseurs = () => get("/api/acteurs/fournisseurs");
 const _acteursFournisseurConcentration = () => get("/api/acteurs/fournisseur-concentration");
+const _acteursLivreurs = () => get("/api/acteurs/livreurs");
 
 const _banqueRapprochement = () => get("/api/banque/rapprochement");
 const _banqueRapprochementBreakdown = () => get("/api/banque/rapprochement-breakdown");
@@ -161,6 +151,11 @@ export const api = {
   ml: {
     status: _mlStatus,
     run: _mlRun,
+    forecastCa: _mlForecastCa,
+    forecastTresorerie: _mlForecastTresorerie,
+    produitsAlerts: _mlProduitsAlerts,
+    rfmSegments: _mlRfmSegments,
+    logs: _mlLogs,
   },
 
   dashboard: {
@@ -195,6 +190,7 @@ export const api = {
     aging: _acteursAging,
     fournisseurs: _acteursFournisseurs,
     fournisseurConcentration: _acteursFournisseurConcentration,
+    livreurs: _acteursLivreurs,
   },
 
   banque: {

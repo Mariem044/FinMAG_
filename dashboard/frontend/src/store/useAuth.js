@@ -119,6 +119,7 @@ export const ROLE_PERMISSIONS =
       "/tresorerie",
       "/produits",
       "/acteurs",
+      "/predictions",
       "/caisse",
       "/banque",
       "/assistant",
@@ -138,6 +139,7 @@ export const ROLE_PERMISSIONS =
       "/tresorerie",
       "/produits",
       "/acteurs",
+      "/predictions",
       "/fiscalite",
       "/assistant",
       "/profil",
@@ -150,14 +152,14 @@ export const ROLE_PERMISSIONS =
     canEditUsers: false,
     canExport: false,
     canChangeSettings: false,
-    routes: ["/", "/ventes", "/acteurs", "/profil", "/aide", "/parametres"],
+    routes: ["/", "/ventes", "/acteurs", "/predictions", "/profil", "/aide", "/parametres"],
   },
   Auditeur: {
     canViewAll: false,
     canEditUsers: false,
     canExport: true,
     canChangeSettings: false,
-    routes: ["/", "/fiscalite", "/banque", "/profil", "/aide", "/parametres"],
+    routes: ["/", "/fiscalite", "/banque", "/predictions", "/profil", "/aide", "/parametres"],
   },
 };
 

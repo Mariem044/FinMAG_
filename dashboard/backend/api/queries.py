@@ -1,11 +1,19 @@
+import functools
 import json
 import logging
 import os
 import re
+import sys
 import threading
 import unicodedata
+from datetime import datetime
 from typing import List
 from pathlib import Path
+
+# Add backend directory to sys.path to allow resolving the ml module
+backend_dir = Path(__file__).resolve().parent.parent
+if backend_dir.exists() and str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 from google import genai
 from fastapi import BackgroundTasks, FastAPI
@@ -14,8 +22,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from etl.config import DW_ENGINE, SEUIL_TENSION_STOCK, AUDIT_TABLE_NAME
+from etl.config import DW_ENGINE, MAG_ENGINE
 from etl import pipeline
+
+from ml.runner import run_all as run_ml, is_running, get_last_error, run_all_background  # type: ignore
+
+SEUIL_TENSION_STOCK = 0.4
+AUDIT_TABLE_NAME = os.environ.get("ETL_AUDIT_TABLE", "ETL_AUDIT")
 
 app = FastAPI(title="FinMAG API") #
 _ETL_RUN_LOCK = threading.Lock()
@@ -64,6 +77,31 @@ MONTHS = ["Jan", "Fev", "Mar", "Avr", "Mai", "Jun", "Jul", "Aou", "Sep", "Oct", 
 
 _PROMPT_PATH = Path(__file__).parent / "system_prompt.txt"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
+
+class InMemoryCache:
+    def __init__(self):
+        self._cache = {}
+        self._lock = threading.Lock()
+
+    def get(self, key):
+        with self._lock:
+            return self._cache.get(key)
+
+    def set(self, key, value):
+        with self._lock:
+            self._cache[key] = value
+
+    def clear(self):
+        with self._lock:
+            self._cache.clear()
+
+GLOBAL_CACHE = InMemoryCache()
+
+def cache_analytic(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    return wrapper
 
 def _rows(sql, params=None):
     with DW_ENGINE.connect() as conn:
@@ -170,9 +208,10 @@ def _build_dynamic_filters(
         params["p_segment"] = c_segment
 
     c_depot = _clean_filter(depot)
-    if c_depot and aliases.get("depot"):
+    if c_depot:
         if "central" in c_depot.lower():
-            clauses.append(f"AND {aliases['depot']}.DE_Principal = 1")
+            if aliases.get("depot"):
+                clauses.append(f"AND {aliases['depot']}.DE_Principal = 1")
         else:
             depot_region = c_depot.replace("Depot ", "").replace("Dépôt ", "").split(" ")[0]
             if aliases.get("client") and depot_region != "Tous":
@@ -193,9 +232,10 @@ def _run_etl_background():
     try:
         pipeline.run_pipeline()
         _ETL_LAST_ERROR = None
+        # Clear the global cache to refresh all analytics metrics
+        GLOBAL_CACHE.clear()
         # Auto-retrain ML models after successful ETL run
         try:
-            from ml.runner import run_all as run_ml
             run_ml()
         except Exception as ml_exc:
             logger = logging.getLogger("api.etl")
@@ -260,9 +300,46 @@ def run_etl(background_tasks: BackgroundTasks):
     return {"started": True, "running": True}
 
 
+_ML_LOGS = []
+
+class MemoryLogHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            now_str = datetime.now().strftime("%H:%M:%S")
+            log_type = "info"
+            if record.levelno >= logging.ERROR:
+                log_type = "error"
+            elif "OK" in record.getMessage() or "SUCCESS" in record.getMessage() or "complete" in record.getMessage().lower():
+                log_type = "success"
+            
+            _ML_LOGS.append({
+                "t": now_str,
+                "m": record.getMessage(),
+                "type": log_type
+            })
+        except Exception:
+            pass
+
+ml_logger = logging.getLogger("ml.runner")
+# Clean old handlers if any, to avoid duplicate logs on reload
+for h in list(ml_logger.handlers):
+    if type(h).__name__ == "MemoryLogHandler":
+        ml_logger.removeHandler(h)
+ml_logger.addHandler(MemoryLogHandler())
+ml_logger.setLevel(logging.INFO)
+
+
+@app.get("/api/ml/logs")
+def get_ml_logs(clear: bool = False):
+    global _ML_LOGS
+    logs = list(_ML_LOGS)
+    if clear:
+        _ML_LOGS.clear()
+    return logs
+
+
 @app.get("/api/ml/status")
 def get_ml_status():
-    from ml.runner import is_running, get_last_error
     try:
         counts = {}
         tables = {
@@ -305,12 +382,207 @@ def get_ml_status():
 
 @app.post("/api/ml/run")
 def run_ml_endpoint():
-    from ml.runner import run_all_background
+    global _ML_LOGS
+    _ML_LOGS.clear()
+    _ML_LOGS.append({
+        "t": datetime.now().strftime("%H:%M:%S"),
+        "m": "Initializing FinMAG ML Pipelines in background thread...",
+        "type": "info"
+    })
     started = run_all_background()
     return {"started": started, "running": True}
 
 
+@app.get("/api/ml/forecast-ca")
+def get_ml_forecast_ca():
+    try:
+        latest_run = _row("SELECT MAX(run_date) AS d FROM ML_KPI05_CA_FORECAST WITH (NOLOCK)")
+        if not latest_run or not latest_run.d:
+            return []
+        
+        sql = """
+            SELECT ds, yhat, yhat_lower, yhat_upper, is_historical
+            FROM ML_KPI05_CA_FORECAST WITH (NOLOCK)
+            WHERE run_date = :run_date
+            ORDER BY ds
+        """
+        rows = _rows(sql, {"run_date": latest_run.d})
+        return [
+            {
+                "ds": _date_str(r.ds),
+                "yhat": _num(r.yhat),
+                "yhat_lower": _num(r.yhat_lower),
+                "yhat_upper": _num(r.yhat_upper),
+                "is_historical": _int(r.is_historical) == 1
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        logging.error(f"Error in /api/ml/forecast-ca: {exc}")
+        return []
+
+
+@app.get("/api/ml/forecast-tresorerie")
+def get_ml_forecast_tresorerie():
+    try:
+        latest_run = _row("SELECT MAX(run_date) AS d FROM ML_KPI11_TRESORERIE_FORECAST WITH (NOLOCK)")
+        if not latest_run or not latest_run.d:
+            return []
+        
+        sql = """
+            SELECT forecast_date, horizon_bucket, layer, encaissements_prevu, impayes_prevu, flux_net, cumul, confiance
+            FROM ML_KPI11_TRESORERIE_FORECAST WITH (NOLOCK)
+            WHERE run_date = :run_date
+            ORDER BY forecast_date, layer
+        """
+        rows = _rows(sql, {"run_date": latest_run.d})
+        return [
+            {
+                "forecast_date": _date_str(r.forecast_date),
+                "horizon_bucket": r.horizon_bucket,
+                "layer": r.layer,
+                "encaissements": _num(r.encaissements_prevu),
+                "impayes": _num(r.impayes_prevu),
+                "flux_net": _num(r.flux_net),
+                "cumul": _num(r.cumul),
+                "confiance": _num(r.confiance)
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        logging.error(f"Error in /api/ml/forecast-tresorerie: {exc}")
+        return []
+
+
+@app.get("/api/ml/produits-alerts")
+def get_ml_produits_alerts():
+    try:
+        latest_run = _row("SELECT MAX(run_date) AS d FROM ML_KPI17_REAPPRO_ALERT WITH (NOLOCK)")
+        if not latest_run or not latest_run.d:
+            return []
+        
+        sql = """
+            SELECT 
+                a.AR_Ref,
+                a.AR_Design,
+                k17.id_article,
+                k17.AR_Ref_code,
+                k17.famille,
+                k17.stock_actuel,
+                k17.stock_mini_statique,
+                k17.stock_securite_dyn,
+                k17.conso_jour_moy,
+                k17.cv_conso,
+                k17.score_urgence,
+                k17.priorite AS priorite_17,
+                k17.qte_a_commander,
+                k17.lead_time_jours,
+                k18.conso_jour_pred,
+                k18.date_rupture_regle,
+                k18.date_rupture_ml,
+                k18.jours_avant_rupture,
+                k18.priorite AS priorite_18,
+                k18.confiance AS r2_score,
+                k18.en_rupture_actuel
+            FROM ML_KPI17_REAPPRO_ALERT k17 WITH (NOLOCK)
+            LEFT JOIN ML_KPI18_RUPTURE_FORECAST k18 WITH (NOLOCK)
+                ON k18.id_article = k17.id_article AND k18.run_date = k17.run_date
+            JOIN DIM_ARTICLE a WITH (NOLOCK) ON a.id_article = k17.id_article
+            WHERE k17.run_date = :run_date
+            ORDER BY k17.score_urgence DESC, k17.stock_actuel ASC
+        """
+        rows = _rows(sql, {"run_date": latest_run.d})
+        return [
+            {
+                "article": r.AR_Ref if r.AR_Ref else f"ART-{r.AR_Ref_code}",
+                "designation": r.AR_Design if r.AR_Design else f"Article {r.AR_Ref_code}",
+                "id_article": r.id_article,
+                "code": f"ART-{r.AR_Ref_code}",
+                "famille": r.famille,
+                "stockActuel": _num(r.stock_actuel),
+                "seuilStatique": _num(r.stock_mini_statique),
+                "seuilDynamique": _num(r.stock_securite_dyn),
+                "consoJourMoy": _num(r.conso_jour_moy),
+                "cvConso": _num(r.cv_conso),
+                "scoreUrgence": _num(r.score_urgence),
+                "priorite": r.priorite_17 or r.priorite_18 or "OK",
+                "qteACommander": _num(r.qte_a_commander),
+                "leadTimeJours": _int(r.lead_time_jours),
+                "consoJourPred": _num(r.conso_jour_pred),
+                "dateRuptureRegle": _date_str(r.date_rupture_regle) if r.date_rupture_regle else "",
+                "dateRupture": _date_str(r.date_rupture_ml) if r.date_rupture_ml else (_date_str(r.date_rupture_regle) if r.date_rupture_regle else "Jamais"),
+                "joursAvantRupture": _int(r.jours_avant_rupture, 999),
+                "r2Score": _num(r.r2_score),
+                "enRuptureActuel": _int(r.en_rupture_actuel) == 1
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        logging.error(f"Error in /api/ml/produits-alerts: {exc}")
+        return []
+
+
+@app.get("/api/ml/rfm-segments")
+def get_ml_rfm_segments():
+    try:
+        latest_run = _row("SELECT MAX(run_date) AS d FROM ML_KPI22_RFM_SEGMENTS WITH (NOLOCK)")
+        if not latest_run or not latest_run.d:
+            return {"silhouette": 0.0, "inertia": 0.0, "segments": []}
+        
+        metrics = _row(
+            "SELECT MAX(silhouette_score) AS sil, MAX(inertia) AS ine FROM ML_KPI22_RFM_SEGMENTS WITH (NOLOCK) WHERE run_date = :d",
+            {"d": latest_run.d}
+        )
+        
+        sql = """
+            SELECT 
+                c.CT_Num,
+                c.CT_Intitule,
+                k22.CT_Num_code,
+                k22.rfm_recence_jours,
+                k22.rfm_frequence,
+                k22.rfm_montant_12m,
+                k22.r_score,
+                k22.f_score,
+                k22.m_score,
+                k22.rfm_composite,
+                k22.cluster_id,
+                k22.rfm_segment
+            FROM ML_KPI22_RFM_SEGMENTS k22 WITH (NOLOCK)
+            JOIN DIM_CLIENT c WITH (NOLOCK) ON c.id_client = k22.id_client
+            WHERE k22.run_date = :run_date
+            ORDER BY k22.rfm_montant_12m DESC
+        """
+        rows = _rows(sql, {"run_date": latest_run.d})
+        segments = [
+            {
+                "code": r.CT_Num if r.CT_Num else str(r.CT_Num_code),
+                "name": r.CT_Intitule if r.CT_Intitule else f"Client {r.CT_Num}",
+                "recence": _int(r.rfm_recence_jours),
+                "frequence": _int(r.rfm_frequence),
+                "montant": _num(r.rfm_montant_12m),
+                "r_score": _int(r.r_score),
+                "f_score": _int(r.f_score),
+                "m_score": _int(r.m_score),
+                "composite": _num(r.rfm_composite),
+                "cluster_id": _int(r.cluster_id),
+                "segment": r.rfm_segment
+            }
+            for r in rows
+        ]
+        
+        return {
+            "silhouette": _num(metrics.sil) if metrics else 0.0,
+            "inertia": _num(metrics.ine) if metrics else 0.0,
+            "segments": segments
+        }
+    except Exception as exc:
+        logging.error(f"Error in /api/ml/rfm-segments: {exc}")
+        return {"silhouette": 0.0, "inertia": 0.0, "segments": []}
+
+
 @app.get("/api/dashboard/kpis")
+@cache_analytic
 def get_dashboard_kpis(
     year: int = None,
     quarter: str = None,
@@ -337,33 +609,13 @@ def get_dashboard_kpis(
         )
     """
     sql = f"""
-        WITH monthly_stats AS (
-            SELECT AVG(CAST(row_cnt AS FLOAT)) AS avg_rows
-            FROM (
-                SELECT d2.annee, d2.mois, COUNT(*) AS row_cnt
-                FROM FAIT_LIGNES_VENTE f2
-                JOIN DIM_DOMAINE dom2 ON dom2.id_domaine = f2.id_domaine
-                JOIN DIM_DATE d2 ON d2.id_date = f2.id_date
-                WHERE dom2.DO_Domaine = 0
-                GROUP BY d2.annee, d2.mois
-            ) counts
-        ),
-        latest AS (
+        WITH latest AS (
             SELECT
                 MAX(d.annee) AS latest_year,
-                MAX(CASE WHEN cnt.row_cnt >= ms.avg_rows * 0.5 THEN d.mois ELSE 0 END) AS latest_month
+                MAX(d.mois) AS latest_month
             FROM FAIT_LIGNES_VENTE f
             JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
             JOIN DIM_DATE d ON d.id_date = f.id_date
-            CROSS JOIN monthly_stats ms
-            JOIN (
-                SELECT d2.annee, d2.mois, COUNT(*) AS row_cnt
-                FROM FAIT_LIGNES_VENTE f2
-                JOIN DIM_DOMAINE dom2 ON dom2.id_domaine = f2.id_domaine
-                JOIN DIM_DATE d2 ON d2.id_date = f2.id_date
-                WHERE dom2.DO_Domaine = 0
-                GROUP BY d2.annee, d2.mois
-            ) cnt ON cnt.annee = d.annee AND cnt.mois = d.mois
             WHERE dom.DO_Domaine = 0
             AND d.annee = {target_year_sql}
         )
@@ -423,7 +675,7 @@ def get_dashboard_kpis(
                             AND f.DL_CMUP > 0
                             AND f.DL_Qte IS NOT NULL
                             AND f.DL_MontantHT > (f.DL_Qte * f.DL_CMUP) THEN 1 END) AS nb_lignes_avec_cout_n1,
-            latest.latest_year AS computed_year
+            MAX(latest.latest_year) AS computed_year
         FROM FAIT_LIGNES_VENTE f
         JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
         LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
@@ -524,6 +776,7 @@ def get_dashboard_kpis(
 
 
 @app.get("/api/ventes/ca-by-month")
+@cache_analytic
 def get_ca_by_month(
     year: int = None,
     quarter: str = None,
@@ -535,29 +788,27 @@ def get_ca_by_month(
     source: str = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
-        year=None, # handled by year_filter
+        year=None, # year handled by target_year_sql
         quarter=quarter, month=month, region=region, famille=famille,
         segment=segment, depot=depot, source=source,
         aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
     )
-    year_filter = f"AND d.annee IN ({year}, {year - 1})" if year else ""
+    target_year_sql = f"{year}" if year else """
+        (
+            SELECT MAX(d2.annee)
+            FROM FAIT_LIGNES_VENTE f2
+            JOIN DIM_DOMAINE dom2 ON dom2.id_domaine = f2.id_domaine
+            JOIN DIM_DATE d2 ON d2.id_date = f2.id_date
+            WHERE dom2.DO_Domaine = 0
+        )
+    """
+    year_filter = f"AND d.annee IN ({target_year_sql}, {target_year_sql} - 1)"
     sql = f"""
-        WITH monthly_stats AS (
-            -- Average monthly row count computed from real data
-            SELECT AVG(CAST(row_cnt AS FLOAT)) AS avg_rows
-            FROM (
-                SELECT d.annee, d.mois, COUNT(*) AS row_cnt
-                FROM FAIT_LIGNES_VENTE f
-                JOIN DIM_DATE d ON d.id_date = f.id_date
-                GROUP BY d.annee, d.mois
-            ) counts
-        ),
-        monthly AS (
+        WITH monthly AS (
             SELECT
                 d.annee,
                 d.mois,
-                SUM(f.DL_MontantHT) AS ca,
-                COUNT(*) AS row_cnt
+                SUM(f.DL_MontantHT) AS ca
             FROM FAIT_LIGNES_VENTE f
             JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
             JOIN DIM_DATE d ON d.id_date = f.id_date
@@ -569,43 +820,17 @@ def get_ca_by_month(
             {year_filter}
             {filt_sql}
             GROUP BY d.annee, d.mois
-        ),
-        latest AS (
-            SELECT 
-                MAX(m.annee) AS latest_year,
-                MAX(CASE WHEN m.row_cnt >= ms.avg_rows * 0.5 THEN m.mois ELSE 0 END) AS latest_full_month
-            FROM monthly m
-            CROSS JOIN monthly_stats ms
-            WHERE m.annee = (SELECT MAX(annee) FROM monthly)
-        ),
-        rolling AS (
-            SELECT 
-                m.annee,
-                m.mois,
-                m.ca,
-                m.row_cnt
-            FROM monthly m
-            CROSS JOIN monthly_stats ms
-            CROSS JOIN latest
-            WHERE m.row_cnt >= ms.avg_rows * 0.5
-            AND (
-                m.annee < latest.latest_year
-                OR (m.annee = latest.latest_year AND m.mois <= latest.latest_full_month)
-            )
         )
         SELECT
             r.annee,
             r.mois AS month_num,
             r.ca,
             COALESCE(prev.ca, 0) AS caN1
-        FROM rolling r
-        CROSS JOIN monthly_stats ms
-        CROSS JOIN latest
+        FROM monthly r
         LEFT JOIN monthly prev
             ON prev.annee = r.annee - 1
             AND prev.mois = r.mois
-            AND prev.row_cnt >= ms.avg_rows * 0.1
-        WHERE r.annee = latest.latest_year
+        WHERE r.annee = {target_year_sql}
         ORDER BY r.annee, r.mois
     """
     rows = _rows(sql, filt_params)
@@ -622,6 +847,7 @@ def get_ca_by_month(
 
 
 @app.get("/api/ventes/top-familles")
+@cache_analytic
 def get_top_familles(
     year: int = None,
     quarter: str = None,
@@ -662,7 +888,7 @@ def get_top_familles(
 
 
 @app.get("/api/ventes/ca-by-region")
-@app.get("/api/ventes/ca-by-region")
+@cache_analytic
 def get_ca_by_region(
     year: int = None,
     quarter: str = None,
@@ -721,28 +947,58 @@ def get_ca_by_region(
 
 
 @app.get("/api/tresorerie/summary")
-def get_tresorerie_summary():
-    # Deduplicate by RT_Num (one payment may appear multiple times due to
-    # the LEFT JOIN with F_LigneBordereauRemise in the ETL extract).
-    # Restrict to client receipts only (id_client IS NOT NULL).
-    sql = """
+@cache_analytic
+def get_tresorerie_summary(
+    year: int = None,
+    quarter: str = None,
+    month: str = None,
+    region: str = None,
+    famille: str = None,
+    segment: str = None,
+    depot: str = None,
+    source: str = None,
+):
+    filt_sql, filt_params = _build_dynamic_filters(
+        year=None, # handled by target_year_sql
+        quarter=quarter, month=month, region=region, famille=None,
+        segment=segment, depot=depot, source=source,
+        aliases={"date": "dt", "client": "c", "segment": "s"}
+    )
+    
+    target_year_sql = f"{year}" if year else """
+        (
+            SELECT MAX(dt2.annee)
+            FROM FAIT_REGLEMENTS r2
+            JOIN DIM_DATE dt2 ON dt2.id_date = r2.id_date_paiement
+            WHERE r2.RT_Num IS NOT NULL AND r2.id_client IS NOT NULL
+        )
+    """
+    
+    sql = f"""
         WITH deduped AS (
             SELECT
-                RT_Num,
-                MAX(RT_Montant)         AS RT_Montant,
-                MAX(DR_Regle)           AS DR_Regle,
-                MAX(delai_reel_jours)   AS delai_reel_jours
-            FROM FAIT_REGLEMENTS
-            WHERE RT_Num IS NOT NULL AND id_client IS NOT NULL
-            GROUP BY RT_Num
+                r.RT_Num,
+                MAX(r.RT_Montant)         AS RT_Montant,
+                MAX(r.DR_Regle)           AS DR_Regle,
+                MAX(r.delai_reel_jours)   AS delai_reel_jours,
+                MAX(r.id_date_paiement)   AS id_date_paiement,
+                MAX(r.id_client)          AS id_client
+            FROM FAIT_REGLEMENTS r
+            WHERE r.RT_Num IS NOT NULL AND r.id_client IS NOT NULL
+            GROUP BY r.RT_Num
         )
         SELECT
-            SUM(CASE WHEN DR_Regle = 1 THEN RT_Montant ELSE 0 END) AS encaissements,
-            SUM(CASE WHEN DR_Regle = 0 THEN RT_Montant ELSE 0 END) AS impayes,
-            AVG(CAST(delai_reel_jours AS FLOAT)) AS delai_moyen
-        FROM deduped
+            SUM(CASE WHEN d.DR_Regle = 1 THEN d.RT_Montant ELSE 0 END) AS encaissements,
+            SUM(CASE WHEN d.DR_Regle = 0 THEN d.RT_Montant ELSE 0 END) AS impayes,
+            AVG(CAST(d.delai_reel_jours AS FLOAT)) AS delai_moyen
+        FROM deduped d
+        JOIN DIM_DATE dt ON dt.id_date = d.id_date_paiement
+        LEFT JOIN DIM_CLIENT c ON c.id_client = d.id_client
+        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+        WHERE dt.annee = {target_year_sql}
+        {filt_sql}
     """
-    row = _row(sql)
+    row = _row(sql, filt_params)
     encaissements = _num(row.encaissements)
     impayes = _num(row.impayes)
     total = encaissements + impayes
@@ -755,8 +1011,34 @@ def get_tresorerie_summary():
 
 
 @app.get("/api/tresorerie/impayes")
-def get_impayes():
-    sql = """
+@cache_analytic
+def get_impayes(
+    year: int = None,
+    quarter: str = None,
+    month: str = None,
+    region: str = None,
+    famille: str = None,
+    segment: str = None,
+    depot: str = None,
+    source: str = None,
+):
+    filt_sql, filt_params = _build_dynamic_filters(
+        year=None, # handled by target_year_sql
+        quarter=quarter, month=month, region=region, famille=None,
+        segment=segment, depot=depot, source=source,
+        aliases={"date": "dt", "client": "c", "segment": "s"}
+    )
+    
+    target_year_sql = f"{year}" if year else """
+        (
+            SELECT MAX(dt2.annee)
+            FROM FAIT_REGLEMENTS r2
+            JOIN DIM_DATE dt2 ON dt2.id_date = r2.id_date_paiement
+            WHERE r2.RT_Num IS NOT NULL AND r2.id_client IS NOT NULL
+        )
+    """
+    
+    sql = f"""
         WITH buckets AS (
             SELECT DISTINCT
                 PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delai_reel_jours) OVER ()
@@ -765,21 +1047,26 @@ def get_impayes():
                     AS p50x6,
                 PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delai_reel_jours) OVER () * 18
                     AS p50x18
-            FROM FAIT_REGLEMENTS
-            WHERE delai_reel_jours > 0 AND DR_Regle = 0
+            FROM FAIT_REGLEMENTS r2
+            JOIN DIM_DATE dt2 ON dt2.id_date = r2.id_date_paiement
+            WHERE r2.delai_reel_jours > 0 AND r2.DR_Regle = 0
+            AND dt2.annee = {target_year_sql}
         ),
         deduped AS (
             SELECT
-                id_client,
-                RT_Num,
-                MAX(RT_Montant) AS RT_Montant,
-                MAX(delai_reel_jours) AS delai_reel_jours,
-                MAX(DR_Regle) AS DR_Regle
-            FROM FAIT_REGLEMENTS
-            WHERE id_client IS NOT NULL
-            GROUP BY id_client, RT_Num
+                r.id_client,
+                r.RT_Num,
+                MAX(r.RT_Montant) AS RT_Montant,
+                MAX(r.delai_reel_jours) AS delai_reel_jours,
+                MAX(r.DR_Regle) AS DR_Regle,
+                MAX(r.id_date_paiement) AS id_date_paiement
+            FROM FAIT_REGLEMENTS r
+            WHERE r.id_client IS NOT NULL
+            GROUP BY r.id_client, r.RT_Num
         )
         SELECT
+            c.CT_Num,
+            c.CT_Intitule,
             c.CT_Num_code,
             SUM(r.RT_Montant) AS montant_impaye,
             MAX(r.delai_reel_jours) AS anciennete,
@@ -788,16 +1075,20 @@ def get_impayes():
             MAX(b.p50x18) AS seuil_critique
         FROM deduped r
         JOIN DIM_CLIENT c ON c.id_client = r.id_client
+        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+        JOIN DIM_DATE dt ON dt.id_date = r.id_date_paiement
         CROSS JOIN buckets b
         WHERE r.DR_Regle = 0
-        GROUP BY c.CT_Num_code
+        AND dt.annee = {target_year_sql}
+        {filt_sql}
+        GROUP BY c.CT_Num, c.CT_Intitule, c.CT_Num_code
         HAVING SUM(r.RT_Montant) > 0
         ORDER BY montant_impaye DESC
     """
     return [
         {
-            "client": f"Client {r.CT_Num_code}",
-            "code": str(r.CT_Num_code),
+            "client": r.CT_Intitule if r.CT_Intitule else f"Client {r.CT_Num}",
+            "code": r.CT_Num if r.CT_Num else str(r.CT_Num_code),
             "montant": _num(r.montant_impaye),
             "montantImpaye": _num(r.montant_impaye),
             "anciennete": _int(r.anciennete),
@@ -811,14 +1102,42 @@ def get_impayes():
                 else "Normal"
             ),
         }
-        for r in _rows(sql)
+        for r in _rows(sql, filt_params)
     ]
 
 
 @app.get("/api/tresorerie/impayes-fournisseurs")
-def get_impayes_fournisseurs():
-    sql = """
+@cache_analytic
+def get_impayes_fournisseurs(
+    year: int = None,
+    quarter: str = None,
+    month: str = None,
+    region: str = None,
+    famille: str = None,
+    segment: str = None,
+    depot: str = None,
+    source: str = None,
+):
+    filt_sql, filt_params = _build_dynamic_filters(
+        year=None, # handled by target_year_sql
+        quarter=quarter, month=month, region=region, famille=None,
+        segment=None, depot=depot, source=source,
+        aliases={"date": "dt", "fournisseur": "f"}
+    )
+    
+    target_year_sql = f"{year}" if year else """
+        (
+            SELECT MAX(dt2.annee)
+            FROM FAIT_REGLEMENTS r2
+            JOIN DIM_DATE dt2 ON dt2.id_date = r2.id_date_paiement
+            WHERE r2.id_fournisseur IS NOT NULL
+        )
+    """
+    
+    sql = f"""
         SELECT 
+            f.CT_Num,
+            f.CT_Intitule,
             f.CT_Num_code,
             SUM(r.RT_Montant) AS montant_impaye,
             MAX(COALESCE(r.delai_reel_jours, DATEDIFF(day, dt_pai.date_val, GETDATE()))) AS anciennete,
@@ -826,15 +1145,18 @@ def get_impayes_fournisseurs():
         FROM FAIT_REGLEMENTS r
         JOIN DIM_FOURNISSEUR f ON f.id_fournisseur = r.id_fournisseur
         LEFT JOIN DIM_DATE dt_pai ON dt_pai.id_date = r.id_date_paiement
+        JOIN DIM_DATE dt ON dt.id_date = r.id_date_paiement
         WHERE r.DR_Regle = 0
         AND r.id_fournisseur IS NOT NULL
-        GROUP BY f.CT_Num_code
+        AND dt.annee = {target_year_sql}
+        {filt_sql}
+        GROUP BY f.CT_Num, f.CT_Intitule, f.CT_Num_code
         HAVING SUM(r.RT_Montant) > 0
         ORDER BY montant_impaye DESC
     """
     return [
         {
-            "fournisseur": f"Fournisseur {r.CT_Num_code}",
+            "fournisseur": r.CT_Intitule if r.CT_Intitule else f"Fournisseur {r.CT_Num}",
             "montant": _num(r.montant_impaye),
             "delaiEffectif": _int(r.anciennete),
             "delaiContractuel": _int(r.delai_contractuel),
@@ -844,22 +1166,49 @@ def get_impayes_fournisseurs():
                 else "En cours"
             ),
         }
-        for r in _rows(sql)
+        for r in _rows(sql, filt_params)
     ]
 
+
 @app.get("/api/tresorerie/encaissements-by-mode")
-def get_encaissements_by_mode():
-    sql = """
+@cache_analytic
+def get_encaissements_by_mode(
+    year: int = None,
+    quarter: str = None,
+    month: str = None,
+    region: str = None,
+    famille: str = None,
+    segment: str = None,
+    depot: str = None,
+    source: str = None,
+):
+    filt_sql, filt_params = _build_dynamic_filters(
+        year=None, # handled by target_year_sql
+        quarter=quarter, month=month, region=region, famille=None,
+        segment=segment, depot=depot, source=source,
+        aliases={"date": "dt", "client": "c", "segment": "s"}
+    )
+    
+    target_year_sql = f"{year}" if year else """
+        (
+            SELECT MAX(dt2.annee)
+            FROM FAIT_REGLEMENTS r2
+            JOIN DIM_DATE dt2 ON dt2.id_date = r2.id_date_paiement
+        )
+    """
+    
+    sql = f"""
         WITH deduped AS (
             SELECT
-                id_client,
-                id_fournisseur,
-                id_mode_reg,
-                DR_ModeReg,
-                DR_Regle,
-                RT_Rapproche,
-                RT_Montant
-            FROM FAIT_REGLEMENTS
+                r.id_client,
+                r.id_fournisseur,
+                r.id_mode_reg,
+                r.DR_ModeReg,
+                r.DR_Regle,
+                r.RT_Rapproche,
+                r.RT_Montant,
+                r.id_date_paiement
+            FROM FAIT_REGLEMENTS r
         )
         SELECT
             COALESCE(m.libelle_mode_reg, CONCAT('Mode ', r.DR_ModeReg)) AS mode,
@@ -868,7 +1217,12 @@ def get_encaissements_by_mode():
             AVG(CASE WHEN r.RT_Rapproche = 1 THEN 100.0 ELSE 0.0 END) AS rapprochement
         FROM deduped r
         LEFT JOIN DIM_MODE_REGLEMENT m ON m.id_mode_reg = r.id_mode_reg
+        JOIN DIM_DATE dt ON dt.id_date = r.id_date_paiement
+        LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
+        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
         WHERE r.DR_Regle = 1
+        AND dt.annee = {target_year_sql}
+        {filt_sql}
         GROUP BY m.libelle_mode_reg, r.DR_ModeReg
         ORDER BY
             SUM(CASE WHEN r.id_client IS NOT NULL THEN r.RT_Montant ELSE 0 END)
@@ -882,44 +1236,78 @@ def get_encaissements_by_mode():
             "grt": _num(r.grt),
             "rapprochement": round(_num(r.rapprochement)),
         }
-        for r in _rows(sql)
+        for r in _rows(sql, filt_params)
     ]
 
 
 @app.get("/api/tresorerie/aging")
-def get_aging():
-
-    sql = """
+@cache_analytic
+def get_aging(
+    year: int = None,
+    quarter: str = None,
+    month: str = None,
+    region: str = None,
+    famille: str = None,
+    segment: str = None,
+    depot: str = None,
+    source: str = None,
+):
+    filt_sql, filt_params = _build_dynamic_filters(
+        year=None, # handled by target_year_sql
+        quarter=quarter, month=month, region=region, famille=None,
+        segment=segment, depot=depot, source=source,
+        aliases={"date": "dt", "client": "c", "segment": "s"}
+    )
+    
+    target_year_sql = f"{year}" if year else """
+        (
+            SELECT MAX(dt2.annee)
+            FROM FAIT_REGLEMENTS r2
+            JOIN DIM_DATE dt2 ON dt2.id_date = r2.id_date_paiement
+            WHERE r2.RT_Num IS NOT NULL AND r2.id_client IS NOT NULL
+        )
+    """
+    
+    sql = f"""
         SELECT 
-            COALESCE(CONVERT(VARCHAR(30), c.CT_Num_code), 'Client') AS client,
+            c.CT_Num,
+            c.CT_Intitule,
+            c.CT_Num_code,
             SUM(CASE WHEN r.bucket_impaye = 0 THEN r.RT_Montant ELSE 0 END) AS b0,
             SUM(CASE WHEN r.bucket_impaye = 1 THEN r.RT_Montant ELSE 0 END) AS b1,
             SUM(CASE WHEN r.bucket_impaye = 2 THEN r.RT_Montant ELSE 0 END) AS b2,
             SUM(CASE WHEN r.bucket_impaye = 3 THEN r.RT_Montant ELSE 0 END) AS b3
         FROM FAIT_REGLEMENTS r
+        JOIN DIM_DATE dt ON dt.id_date = r.id_date_paiement
         LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
+        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
         WHERE r.id_client IS NOT NULL
         AND r.DR_Regle = 0
-        GROUP BY c.CT_Num_code
+        AND dt.annee = {target_year_sql}
+        {filt_sql}
+        GROUP BY c.CT_Num, c.CT_Intitule, c.CT_Num_code
         ORDER BY b3 DESC
     """
     return [
         {
-            "client": f"Client {r.client}",
+            "client": r.CT_Intitule if r.CT_Intitule else f"Client {r.CT_Num}",
             "0-30j": _num(r.b0),
             "31-60j": _num(r.b1),
             "61-90j": _num(r.b2),
             ">90j": _num(r.b3),
         }
-        for r in _rows(sql)
+        for r in _rows(sql, filt_params)
     ]
 
 
 @app.get("/api/produits/stock-alerts")
+@cache_analytic
 def get_stock_alerts():
     sql = """
         SELECT 
             a.AR_Ref_code,
+            a.AR_Ref,
+            a.AR_Design,
             SUM(f.AS_QteSto)     AS AS_QteSto,
             MAX(f.AS_QteMini)    AS AS_QteMini,
             MAX(f.en_rupture)    AS en_rupture,
@@ -933,7 +1321,7 @@ def get_stock_alerts():
         AND (f.AS_QteMini > 0 OR COALESCE(f.qte_vendue_365j, 0) > 0)
         AND f.AS_QteSto IS NOT NULL
         AND f.AS_QteSto >= 0
-        GROUP BY a.AR_Ref_code
+        GROUP BY a.AR_Ref_code, a.AR_Ref, a.AR_Design
         ORDER BY MAX(COALESCE(f.qte_vendue_365j, 0)) DESC
     """
     alerts = []
@@ -942,16 +1330,16 @@ def get_stock_alerts():
         seuil = _num(r.AS_QteMini)
         ratio = _num(r.ratio_tension)
         alerts.append({
-            "article": f"ART-{r.AR_Ref_code}",
-            "designation": f"Article {r.AR_Ref_code}",
+            "article": r.AR_Ref if r.AR_Ref else f"ART-{r.AR_Ref_code}",
+            "designation": r.AR_Design if r.AR_Design else f"Article {r.AR_Ref_code}",
             "stockActuel": stock,
             "seuil": seuil,
             "dateRupture": "",
             "famille": "",
             "fournisseur": "",
             "priorite": (
-                "CRITIQUE" if stock <= seuil
-                else "URGENT" if ratio >= SEUIL_TENSION_STOCK
+                "CRITIQUE" if (stock < seuil or (stock == 0 and seuil > 0))
+                else "URGENT" if (stock <= seuil and stock > 0) or ratio >= SEUIL_TENSION_STOCK
                 else "ATTENTION"
             ),
             "ratioTension": ratio,
@@ -960,6 +1348,7 @@ def get_stock_alerts():
 
 
 @app.get("/api/produits/articles")
+@cache_analytic
 def get_articles():
     sql = """
         WITH sales AS (
@@ -1027,9 +1416,12 @@ def get_articles():
     ]
 
 @app.get("/api/acteurs/clients")
+@cache_analytic
 def get_clients():
     sql = """
         SELECT 
+            c.CT_Num,
+            c.CT_Intitule,
             c.CT_Num_code,
             COALESCE(s.libelle_segment, 'Sans segment') AS segment,
             SUM(v.DL_MontantHT) AS ca_total,
@@ -1043,13 +1435,13 @@ def get_clients():
         LEFT JOIN DIM_DOMAINE dom ON dom.id_domaine = v.id_domaine
         LEFT JOIN DIM_DATE d ON d.id_date = v.id_date
         WHERE (dom.DO_Domaine = 0 OR dom.DO_Domaine IS NULL)
-        GROUP BY c.CT_Num_code, s.libelle_segment, c.CT_SoldeActuel, c.CT_Sommeil
+        GROUP BY c.CT_Num, c.CT_Intitule, c.CT_Num_code, s.libelle_segment, c.CT_SoldeActuel, c.CT_Sommeil
         ORDER BY ca_total DESC
     """
     return [
         {
-            "code": str(r.CT_Num_code),
-            "nom": f"Client {r.CT_Num_code}",
+            "code": r.CT_Num if r.CT_Num else str(r.CT_Num_code),
+            "nom": r.CT_Intitule if r.CT_Intitule else f"Client {r.CT_Num}",
             "region": "",
             "caTotal": _num(r.ca_total),
             "nbCommandes": _int(r.nb_commandes),
@@ -1064,24 +1456,45 @@ def get_clients():
 
 
 @app.get("/api/acteurs/rfm")
+@cache_analytic
 def get_acteurs_rfm():
     sql = """
+        WITH latest_date AS (
+            SELECT MAX(d.date_val) AS max_dt
+            FROM FAIT_LIGNES_VENTE f
+            JOIN DIM_DATE d ON d.id_date = f.id_date
+            JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
+            WHERE dom.DO_Domaine = 0
+        ),
+        client_stats AS (
+            SELECT
+                f.id_client,
+                COUNT(DISTINCT CONCAT(f.DO_Piece_hash, '-', COALESCE(f.id_type_doc, 0))) AS freq,
+                SUM(f.DL_MontantHT) AS mont,
+                MAX(d.date_val) AS last_purchase_dt
+            FROM FAIT_LIGNES_VENTE f
+            JOIN DIM_DATE d ON d.id_date = f.id_date
+            JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
+            WHERE dom.DO_Domaine = 0
+            GROUP BY f.id_client
+        )
         SELECT 
+            c.CT_Num,
+            c.CT_Intitule,
             c.CT_Num_code,
             COALESCE(s.libelle_segment, 'Sans segment') AS segment,
-            c.rfm_recence_jours,
-            c.rfm_frequence,
-            c.rfm_montant_12m
+            DATEDIFF(day, cs.last_purchase_dt, ld.max_dt) AS rfm_recence_jours,
+            cs.freq AS rfm_frequence,
+            cs.mont AS rfm_montant_12m
         FROM DIM_CLIENT c
-        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-        WHERE c.rfm_montant_12m IS NOT NULL
-        OR c.rfm_frequence IS NOT NULL
-        ORDER BY COALESCE(c.rfm_montant_12m, 0) DESC
+        JOIN client_stats cs ON cs.id_client = c.id_client
+        CROSS JOIN latest_date ld
+        ORDER BY cs.mont DESC
     """
     return [
         {
-            "code": str(r.CT_Num_code),
-            "name": f"Client {r.CT_Num_code}",
+            "code": r.CT_Num if r.CT_Num else str(r.CT_Num_code),
+            "name": r.CT_Intitule if r.CT_Intitule else f"Client {r.CT_Num}",
             "segment": r.segment,
             "frequence": _int(r.rfm_frequence),
             "recence": _int(r.rfm_recence_jours, 999),
@@ -1091,11 +1504,43 @@ def get_acteurs_rfm():
     ]
 
 
+@app.get("/api/acteurs/livreurs")
+@cache_analytic
+def get_acteurs_livreurs():
+    sql = """
+        SELECT 
+            LIVREUR AS name, 
+            COUNT(*) AS deliveries,
+            SUM(DO_NetAPayer) AS volume
+        FROM O2S_VW_PREPARATION_LIVRAISON
+        WHERE LIVREUR IS NOT NULL AND LIVREUR <> ''
+        GROUP BY LIVREUR
+        ORDER BY volume DESC
+    """
+    try:
+        with MAG_ENGINE.connect() as conn:
+            rows = conn.execute(text(sql)).fetchall()
+        return [
+            {
+                "name": r.name.strip(),
+                "deliveries": int(r.deliveries),
+                "volume": float(r.volume or 0)
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        logging.error(f"Error fetching live delivery driver performance: {exc}")
+        return []
+
+
 @app.get("/api/acteurs/aging")
+@cache_analytic
 def get_acteurs_aging():
     sql = """
         SELECT 
-            COALESCE(CONVERT(VARCHAR(30), c.CT_Num_code), 'Client') AS client,
+            c.CT_Num AS client_code,
+            c.CT_Intitule AS client_name,
+            c.CT_Num_code AS client_surr,
             SUM(CASE WHEN r.bucket_impaye = 0 THEN r.RT_Montant ELSE 0 END) AS b0,
             SUM(CASE WHEN r.bucket_impaye = 1 THEN r.RT_Montant ELSE 0 END) AS b1,
             SUM(CASE WHEN r.bucket_impaye = 2 THEN r.RT_Montant ELSE 0 END) AS b2,
@@ -1104,13 +1549,13 @@ def get_acteurs_aging():
         LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
         WHERE r.id_client IS NOT NULL
         AND r.DR_Regle = 0
-        GROUP BY c.CT_Num_code
+        GROUP BY c.CT_Num, c.CT_Intitule, c.CT_Num_code
         ORDER BY b3 DESC
     """
     return [
         {
-            "clientCode": str(r.client),
-            "client": f"C{r.client}",
+            "clientCode": r.client_code if r.client_code else str(r.client_surr),
+            "client": r.client_name if r.client_name else f"Client {r.client_code}",
             "0-30j": _num(r.b0),
             "31-60j": _num(r.b1),
             "61-90j": _num(r.b2),
@@ -1124,18 +1569,20 @@ def get_acteurs_aging():
 def get_acteurs_fournisseurs():
     sql = """
         SELECT 
+            f.CT_Num,
+            f.CT_Intitule,
             f.CT_Num_code,
             f.CT_Encours,
             COUNT(a.id_article) AS nb_articles
         FROM DIM_FOURNISSEUR f
         LEFT JOIN DIM_ARTICLE a ON a.id_fournisseur = f.id_fournisseur
-        GROUP BY f.CT_Num_code, f.CT_Encours
+        GROUP BY f.CT_Num, f.CT_Intitule, f.CT_Num_code, f.CT_Encours
         ORDER BY nb_articles DESC, f.CT_Encours DESC
     """
     return [
         {
-            "code": str(r.CT_Num_code),
-            "nom": f"Fournisseur {r.CT_Num_code}",
+            "code": r.CT_Num if r.CT_Num else str(r.CT_Num_code),
+            "nom": r.CT_Intitule if r.CT_Intitule else f"Fournisseur {r.CT_Num}",
             "encours": _num(r.CT_Encours),
             "nbArticles": _int(r.nb_articles),
         }
@@ -1149,6 +1596,8 @@ def get_fournisseur_concentration():
         WITH achats AS (
             SELECT
                 f.id_fournisseur,
+                f.CT_Num,
+                f.CT_Intitule,
                 f.CT_Num_code,
                 SUM(flv.DL_MontantHT) AS montant_achat,
                 COUNT(DISTINCT flv.id_article) AS nb_articles_achetes
@@ -1157,7 +1606,7 @@ def get_fournisseur_concentration():
             JOIN DIM_ARTICLE a ON a.id_article = flv.id_article
             JOIN DIM_FOURNISSEUR f ON f.id_fournisseur = a.id_fournisseur
             WHERE dom.DO_Domaine = 1
-            GROUP BY f.id_fournisseur, f.CT_Num_code
+            GROUP BY f.id_fournisseur, f.CT_Num, f.CT_Intitule, f.CT_Num_code
         ),
         total AS (
             SELECT SUM(montant_achat) AS total_achats
@@ -1173,6 +1622,8 @@ def get_fournisseur_concentration():
             CROSS JOIN total
         )
         SELECT
+            a.CT_Num,
+            a.CT_Intitule,
             a.CT_Num_code,
             a.montant_achat,
             a.nb_articles_achetes,
@@ -1191,7 +1642,7 @@ def get_fournisseur_concentration():
     """
     return [
         {
-            "fournisseur": f"Fournisseur {r.CT_Num_code}",
+            "fournisseur": r.CT_Intitule if r.CT_Intitule else f"Fournisseur {r.CT_Num}",
             "nbArticles": _int(r.nb_articles_catalogue),
             "nbArticlesAchetes": _int(r.nb_articles_achetes),
             "montantAchat": _num(r.montant_achat),
@@ -1419,22 +1870,20 @@ def get_caisse_mouvements_by_type():
 def get_fiscalite_kpis():
     row = _row(
         """
+        WITH threshold AS (
+            SELECT AVG(ABS(EC_Montant)) + STDEV(ABS(EC_Montant)) AS val
+            FROM FAIT_ECRITURES
+            WHERE EC_Montant IS NOT NULL
+        )
         SELECT
             SUM(CASE WHEN tl.type_ligne IN (1, 2) THEN 1 ELSE 0 END) AS nb_ecritures,
             SUM(CASE WHEN tl.type_ligne = 2 AND t.type_tva = 1 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS tva_collectee,
             SUM(CASE WHEN tl.type_ligne = 2 AND t.type_tva = 2 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS tva_deductible,
-            SUM(CASE
-                WHEN tl.type_ligne = 1
-                AND ABS(COALESCE(e.EC_Montant, 0)) >= (
-    SELECT AVG(ABS(EC_Montant)) + STDEV(ABS(EC_Montant))
-    FROM FAIT_ECRITURES
-    WHERE EC_Montant IS NOT NULL
-)
-                THEN 1 ELSE 0
-            END) AS anomalies
+            SUM(CASE WHEN tl.type_ligne = 1 AND ABS(COALESCE(e.EC_Montant, 0)) >= th.val THEN 1 ELSE 0 END) AS anomalies
         FROM FAIT_ECRITURES e
         JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
         LEFT JOIN DIM_TYPE_TVA t ON t.id_type_tva = e.id_type_tva
+        CROSS JOIN threshold th
         """
     )
     debit_credit = _row(
@@ -1654,8 +2103,8 @@ def search(q: str = ""):
         return {"clients": [], "articles": [], "ecritures": [], "fournisseurs": []}
     needle = f"%{q}%"
     clients = _rows(
-        "SELECT  CT_Num_code, CT_SoldeActuel FROM DIM_CLIENT "
-        "WHERE CONVERT(VARCHAR(30), CT_Num_code) LIKE :q ORDER BY CT_Num_code",
+        "SELECT CT_Num, CT_Num_code, CT_Intitule, CT_SoldeActuel FROM DIM_CLIENT "
+        "WHERE CT_Num LIKE :q OR CT_Intitule LIKE :q ORDER BY CT_Num",
         {"q": needle},
     )
     articles = _rows(
@@ -1670,15 +2119,15 @@ def search(q: str = ""):
         {"q": needle},
     )
     fournisseurs = _rows(
-        "SELECT  CT_Num_code, CT_Encours FROM DIM_FOURNISSEUR "
-        "WHERE CONVERT(VARCHAR(30), CT_Num_code) LIKE :q ORDER BY CT_Num_code",
+        "SELECT CT_Num, CT_Num_code, CT_Intitule, CT_Encours FROM DIM_FOURNISSEUR "
+        "WHERE CT_Num LIKE :q OR CT_Intitule LIKE :q ORDER BY CT_Num",
         {"q": needle},
     )
     return {
-        "clients": [{"label": f"Client {r.CT_Num_code}", "subtitle": f"Solde {round(_num(r.CT_SoldeActuel))} DT", "to": "/acteurs"} for r in clients],
+        "clients": [{"label": r.CT_Intitule if r.CT_Intitule else f"Client {r.CT_Num}", "subtitle": f"Solde {round(_num(r.CT_SoldeActuel))} DT", "to": "/acteurs"} for r in clients],
         "articles": [{"label": f"Article {r.AR_Ref_code}", "subtitle": f"Famille {r.id_famille or 'N/A'}", "to": "/produits"} for r in articles],
         "ecritures": [{"label": f"Ecriture {r.EC_No or ''}", "subtitle": f"Compte {r.CG_Num or ''} - {round(_num(r.EC_Montant))} DT", "to": "/fiscalite"} for r in ecritures],
-        "fournisseurs": [{"label": f"Fournisseur {r.CT_Num_code}", "subtitle": f"Encours {round(_num(r.CT_Encours))} DT", "to": "/acteurs"} for r in fournisseurs],
+        "fournisseurs": [{"label": r.CT_Intitule if r.CT_Intitule else f"Fournisseur {r.CT_Num}", "subtitle": f"Encours {round(_num(r.CT_Encours))} DT", "to": "/acteurs"} for r in fournisseurs],
     }
 
 
@@ -1792,11 +2241,11 @@ def get_assistant_summary():
 
         try:
             result["clients"] = [
-                {"code": str(r.CT_Num_code), "rfm_recence": _int(r.rfm_recence_jours, 999),
+                {"code": r.CT_Num if r.CT_Num else str(r.CT_Num_code), "nom": r.CT_Intitule or "", "rfm_recence": _int(r.rfm_recence_jours, 999),
                 "rfm_frequence": _int(r.rfm_frequence), "rfm_montant": _num(r.rfm_montant_12m),
                 "soldeImpaye": _num(r.solde_impaye)}
                 for r in _q("""
-                    SELECT  c.CT_Num_code, c.rfm_recence_jours, c.rfm_frequence,
+                    SELECT c.CT_Num, c.CT_Intitule, c.CT_Num_code, c.rfm_recence_jours, c.rfm_frequence,
                         c.rfm_montant_12m, c.CT_SoldeActuel AS solde_impaye
                     FROM DIM_CLIENT c
                     ORDER BY c.rfm_montant_12m DESC
@@ -1807,14 +2256,14 @@ def get_assistant_summary():
 
         try:
             result["impayes"] = [
-                {"client": f"Client {r.CT_Num_code}", "montant": _num(r.montant_impaye),
+                {"client": r.CT_Intitule if r.CT_Intitule else f"Client {r.CT_Num}", "montant": _num(r.montant_impaye),
                 "anciennete": _int(r.anciennete)}
                 for r in _q("""
-                    SELECT  c.CT_Num_code, SUM(r.RT_Montant) AS montant_impaye,
+                    SELECT c.CT_Num, c.CT_Intitule, c.CT_Num_code, SUM(r.RT_Montant) AS montant_impaye,
                         MAX(r.delai_reel_jours) AS anciennete
                     FROM FAIT_REGLEMENTS r JOIN DIM_CLIENT c ON c.id_client=r.id_client
                     WHERE r.DR_Regle=0 AND r.id_client IS NOT NULL
-                    GROUP BY c.CT_Num_code
+                    GROUP BY c.CT_Num, c.CT_Intitule, c.CT_Num_code
                     HAVING SUM(r.RT_Montant)>0 ORDER BY montant_impaye DESC
                 """)
             ]

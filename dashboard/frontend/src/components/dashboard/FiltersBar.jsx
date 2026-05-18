@@ -235,6 +235,7 @@ export function FiltersBar() {
   const handlePeriodChange = (label) => {
     const idx = periodLabels.indexOf(label);
     filters.setQuarter(idx >= 0 ? PERIODS_FR[idx].quarter : "Tous");
+    filters.setYear(2024);
   };
 
   const allFilters = (

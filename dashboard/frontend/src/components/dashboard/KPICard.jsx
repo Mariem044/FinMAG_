@@ -1,10 +1,23 @@
 import { memo } from "react";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
-export const KPICard = memo(function KPICard({ label, value, trend, subtitle, icon: Icon }) {
+function generateSparklinePath(data, width, height) {
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  return data
+    .map((val, i) => {
+      const x = (i / (data.length - 1)) * width;
+      const y = height - ((val - min) / range) * (height - 4) - 2;
+      return `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(" ");
+}
+
+export const KPICard = memo(function KPICard({ label, value, trend, subtitle, icon: Icon, sparkline }) {
   const hasTrend = Number.isFinite(trend);
   const safeTrend = hasTrend ? trend : 0;
-  const isPositive = safeTrend >= 0;
+  const isPositive = hasTrend ? safeTrend >= 0 : (sparkline && sparkline[sparkline.length - 1] >= sparkline[0]);
   const trendDirection = isPositive ? "up" : "down";
   const trendAbs = Math.abs(safeTrend).toFixed(1);
 
@@ -12,6 +25,8 @@ export const KPICard = memo(function KPICard({ label, value, trend, subtitle, ic
     hasTrend
       ? `${isPositive ? "Up" : "Down"} ${trendAbs}% compared to prior year`
       : undefined;
+
+  const sparklineId = label ? label.replace(/[^a-zA-Z0-9]/g, '-') : Math.random().toString(36).substring(7);
 
   return (
     <article
@@ -56,7 +71,7 @@ export const KPICard = memo(function KPICard({ label, value, trend, subtitle, ic
                 isPositive
                   ? "text-trend-up bg-trend-up/10 border border-trend-up/20"
                   : "text-trend-down bg-trend-down/10 border border-trend-down/20"
-              } transition-all duration-300 hover:scale-105`}
+              } transition-all duration-300 hover:scale-105 w-max`}
               aria-label={trendAriaLabel}
               role="status"
             >
@@ -95,6 +110,31 @@ export const KPICard = memo(function KPICard({ label, value, trend, subtitle, ic
           />
         </div>
       </div>
+
+      {sparkline && sparkline.length > 1 && (
+        <div className="w-full h-8 mt-2 relative overflow-hidden rounded opacity-80 group-hover:opacity-100 transition-opacity duration-300 z-10">
+          <svg className="w-full h-full" viewBox="0 0 100 30" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id={`gradient-${sparklineId}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={isPositive ? '#10b981' : '#ef4444'} stopOpacity="0.25" />
+                <stop offset="100%" stopColor={isPositive ? '#10b981' : '#ef4444'} stopOpacity="0.0" />
+              </linearGradient>
+            </defs>
+            <path
+              d={generateSparklinePath(sparkline, 100, 30)}
+              fill="none"
+              stroke={isPositive ? '#10b981' : '#ef4444'}
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d={`${generateSparklinePath(sparkline, 100, 30)} L 100 30 L 0 30 Z`}
+              fill={`url(#gradient-${sparklineId})`}
+            />
+          </svg>
+        </div>
+      )}
     </article>
   );
 });

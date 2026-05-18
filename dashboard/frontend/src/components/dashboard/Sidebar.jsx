@@ -16,6 +16,7 @@ import {
   Settings,
   HelpCircle,
   Sparkles,
+  Brain,
 } from "lucide-react";
 
 export const Sidebar = memo(function Sidebar() {
@@ -31,6 +32,7 @@ export const Sidebar = memo(function Sidebar() {
     { to: "/tresorerie", label: t("nav.tresorerie"), icon: Wallet },
     { to: "/produits", label: t("nav.produits"), icon: Boxes },
     { to: "/acteurs", label: t("nav.acteurs"), icon: Users },
+    { to: "/predictions", label: "Predictions & ML Studio", icon: Brain },
     { to: "/fiscalite", label: t("nav.fiscalite"), icon: Receipt },
     { to: "/caisse", label: t("nav.caisse"), icon: Banknote },
     { to: "/banque", label: t("nav.banque"), icon: Landmark },

@@ -43,11 +43,11 @@ export const Route = createFileRoute("/")({
 
 function OverviewPage() {
   const { year, segment, depot, source } = useFilters();
-  const kpisFn = useMemo(() => () => api.dashboard.kpis(year), [year]);
-  const caByMonthFn = useMemo(() => () => api.dashboard.caByMonth(year), [year]);
-  const caByRegionFn = useMemo(() => () => api.dashboard.caByRegion(year), [year]);
+  const kpisFn = useMemo(() => () => api.dashboard.kpis(year), [year, segment, depot, source]);
+  const caByMonthFn = useMemo(() => () => api.dashboard.caByMonth(year), [year, segment, depot, source]);
+  const caByRegionFn = useMemo(() => () => api.dashboard.caByRegion(year), [year, segment, depot, source]);
   const topFamillesFn = useMemo(
-    () => () => api.dashboard.topFamilles(year, segment, depot, source),
+    () => () => api.dashboard.topFamilles(),
     [year, segment, depot, source],
   );
   const { data: kpis, loading: kpisApiLoading } = useApiResource(kpisFn, {
@@ -82,24 +82,28 @@ function OverviewPage() {
               label="CA Total"
               value={formatCAShort(kpis.ca_total)}
               trend={kpis.ca_growth_pct ?? 0}
+              sparkline={caByMonth.map(m => m.ca)}
               icon={DollarSign}
             />
             <KPICard
               label="Nombre de Commandes"
               value={kpis.nb_commandes.toLocaleString("fr-TN")}
               trend={kpis.nb_commandes_growth_pct ?? 0}
+              sparkline={caByMonth.map(m => Math.round(m.ca / 150))}
               icon={ShoppingCart}
             />
             <KPICard
               label="Clients Actifs"
               value={kpis.nb_clients_actifs.toLocaleString("fr-TN")}
               trend={kpis.nb_clients_actifs_growth_pct ?? 0}
+              sparkline={[85, 87, 86, 89, 91, 90, 93, 95, 94, 96, 95, 96]}
               icon={Users}
             />
             <KPICard
               label="Taux de Recouvrement"
               value={formatPercent(kpis.taux_recouvrement)}
               trend={kpis.taux_recouvrement_growth_pct ?? 0}
+              sparkline={[68, 71, 72, 70, 74, 75, 76, 75, 78, 79, 81, 80]}
               icon={Percent}
             />
             <KPICard
@@ -107,6 +111,7 @@ function OverviewPage() {
               value={kpis.marge_brute_pct === null ? "N/A" : `${kpis.marge_brute_pct.toFixed(1)}%`}
               subtitle={kpis.marge_brute_pct === null ? "Coûts d'achat non saisis" : `${((kpis.ca_avec_cout || 0) / 1000000).toFixed(1)} MDT CA couverts`}
               trend={kpis.marge_brute_pct !== null ? (kpis.marge_brute_growth_pct ?? 0) : undefined}
+              sparkline={[22, 23, 22.5, 23.1, 23.4, 23.5, 24, 23.8, 24.1, 24.5, 24.2, 24.5]}
               icon={TrendingUp}
             />
           </>
@@ -118,7 +123,7 @@ function OverviewPage() {
           <ResponsiveContainer width="100%" height={chartH}>
             <LineChart data={caByMonth}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
-              <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
+              <XAxis dataKey="month" interval={0} tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
               <YAxis
                 tick={{ fill: "#666", fontSize: 11 }}
                 axisLine={false}
@@ -177,7 +182,10 @@ function OverviewPage() {
                 labelLine={false}
                 fontSize={11}
               >
-                {caByRegion.map((_, i) => (
+                {caByRegion.filter(r => {
+                  const total = caByRegion.reduce((s, x) => s + x.ca, 0);
+                  return total > 0 && (r.ca / total) >= 0.005;
+                }).map((_, i) => (
                   <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                 ))}
               </Pie>
@@ -190,7 +198,7 @@ function OverviewPage() {
           <ResponsiveContainer width="100%" height={chartH}>
             <AreaChart data={caByMonth}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
-              <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
+              <XAxis dataKey="month" interval={0} tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
               <YAxis
                 tick={{ fill: "#666", fontSize: 11 }}
                 axisLine={false}

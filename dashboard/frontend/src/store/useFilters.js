@@ -3,7 +3,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { create } from "zustand";
 
 export const FILTER_DEFAULTS = {
-  year: Number(import.meta.env?.VITE_DEFAULT_YEAR) || new Date().getFullYear(),
+  year: Number(import.meta.env?.VITE_DEFAULT_YEAR) || 2024,
   quarter: import.meta.env?.VITE_DEFAULT_QUARTER || "Tous",
   month: "Tous",
   region: "Toutes",

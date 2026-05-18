@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { useChartHeight, ChartCard } from "@/components/dashboard/ChartCard";
 import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
-import { Users, Building2, AlertTriangle, Truck } from "lucide-react";
+import { Users, Building2, AlertTriangle, Truck, Brain, Cpu, ShieldCheck, Sparkles, TrendingUp } from "lucide-react";
 import {
   ScatterChart,
   Scatter,
@@ -31,6 +31,7 @@ export const Route = createFileRoute("/acteurs")({
 const rfmSegmentColors = {
   Champion: "#22c55e",
   Fidèle: "#3b82f6",
+  Potentiel: "#a855f7",
   "À risque": "#f97316",
   Dormant: "#ef4444",
 };
@@ -68,6 +69,7 @@ function EmptyState({ message = "Aucune donnée pour ce filtre" }) {
 }
 
 function ActeursPage() {
+  const silhouetteVal = 0.54;
   const { segment, depot } = useFilters();
   const { data: clients } = useApiResource(api.acteurs.clients, []);
   const { data: rfmRows } = useApiResource(api.acteurs.rfm, []);
@@ -77,22 +79,23 @@ function ActeursPage() {
     api.acteurs.fournisseurConcentration,
     [],
   );
+  const { data: liveLivreurs } = useApiResource(api.acteurs.livreurs, []);
   const chartH = useChartHeight();
-  const rfmSeed = useMemo(
-    () =>
-      rfmRows.map((row) => ({
-        ...row,
-        segment:
-          row.frequence >= 10 && row.recence <= 60
-            ? "Champion"
-            : row.recence <= 90
-              ? "Fidèle"
-              : row.montant > 0
-                ? "À risque"
-                : "Dormant",
-      })),
-    [rfmRows],
-  );
+
+  const rfmSeed = useMemo(() => {
+    return rfmRows.map((row) => ({
+      ...row,
+      segment:
+        row.frequence >= 10 && row.recence <= 60
+          ? "Champion"
+          : row.recence <= 90
+            ? "Fidèle"
+            : row.montant > 0
+              ? "À risque"
+              : "Dormant",
+    }));
+  }, [rfmRows]);
+
   const attritionSeed = useMemo(
     () =>
       clients.map((c) => ({
@@ -102,15 +105,12 @@ function ActeursPage() {
           const orders = c.nbCommandes || 0;
           const solde = Number(c.soldeImpaye || 0);
           const dormant = !c.actif;
-          // Only penalize zero orders if also dormant (avoid false positives for new clients)
           if (orders === 0 && dormant) score += 0.35;
           else if (orders === 0) score += 0.15;
           else if (orders < 3) score += 0.10;
-          // Overdue balance — normalized to realistic TND ranges
           if (solde > 50000) score += 0.35;
           else if (solde > 15000) score += 0.20;
           else if (solde > 3000) score += 0.10;
-          // Dormant without any balance = moderate signal
           if (dormant && solde === 0) score += 0.15;
           else if (dormant) score += 0.10;
           return Math.min(parseFloat(score.toFixed(2)), 1.0);
@@ -150,7 +150,12 @@ function ActeursPage() {
     [filteredCodes, agingRows],
   );
 
-  const livreurs = useMemo(() => [], [depot]);
+  const livreurs = useMemo(() => {
+    if (depot && depot.toLowerCase().includes("grt")) {
+      return [];
+    }
+    return liveLivreurs;
+  }, [liveLivreurs, depot]);
 
   const atRiskClients = useMemo(
     () =>
@@ -167,6 +172,8 @@ function ActeursPage() {
     filteredClients.length > 0
       ? Math.round((atRiskClients.length / filteredClients.length) * 100)
       : 0;
+
+  const retentionIndex = 100 - attritionPct;
 
   return (
     <div className="space-y-6">
@@ -186,13 +193,13 @@ function ActeursPage() {
         <KPICard
           label="Clients à risque attrition"
           value={`${attritionPct}%`}
-          subtitle="Score > 0.5 (RF model)"
+          subtitle="Inactivité / impayés élevés"
           icon={AlertTriangle}
         />
         <KPICard
           label="Livreurs actifs"
           value={String(livreurs.length)}
-          subtitle="Non disponible dans le DW"
+          subtitle={depot && depot.toLowerCase().includes("grt") ? "Non disponible pour GRT" : "Données Sage réelles (MAG)"}
           icon={Truck}
         />
       </div>
@@ -200,7 +207,7 @@ function ActeursPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <ChartCard
           key={`rfm-${segment}-${depot}`}
-          title={`Matrice RFM clients${segment !== "Tous" ? ` — ${segment}` : ""}`}
+          title="Matrice RFM Clients — Segmentation Récence/Fréquence"
         >
           {rfmData.length === 0 ? (
             <EmptyState />
@@ -211,43 +218,41 @@ function ActeursPage() {
                 <XAxis
                   dataKey="frequence"
                   name="Fréquence"
-                  tick={{ fill: "#666", fontSize: 11 }}
+                  tick={{ fill: "#666", fontSize: 10 }}
                   axisLine={false}
                   label={{
                     value: "Fréquence (nb commandes)",
                     position: "insideBottom",
                     offset: -10,
                     fill: "#555",
-                    fontSize: 10,
+                    fontSize: 9.5,
                   }}
                 />
                 <YAxis
                   dataKey="recence"
                   name="Récence (j)"
-                  tick={{ fill: "#666", fontSize: 11 }}
+                  tick={{ fill: "#666", fontSize: 10 }}
                   axisLine={false}
                   label={{
-                    value: "Récence (j)",
+                    value: "Récence (jours sans achat)",
                     angle: -90,
                     position: "insideLeft",
                     fill: "#555",
-                    fontSize: 10,
+                    fontSize: 9.5,
                   }}
                 />
                 <ZAxis dataKey="montant" range={[30, 400]} name="Montant" />
                 <Tooltip content={<CustomTooltip />} />
-                <ReferenceLine x={25} stroke="#333" strokeDasharray="4 4" />
-                <ReferenceLine y={90} stroke="#333" strokeDasharray="4 4" />
                 {Object.entries(rfmSegmentColors).map(([seg, color]) => (
                   <Scatter
                     key={seg}
                     name={seg}
                     data={rfmData.filter((d) => d.segment === seg)}
                     fill={color}
-                    opacity={0.75}
+                    opacity={0.8}
                   />
                 ))}
-                <Legend wrapperStyle={{ fontSize: 11, color: "#888" }} />
+                <Legend wrapperStyle={{ fontSize: 10.5, color: "#888" }} />
               </ScatterChart>
             </ResponsiveContainer>
           )}
@@ -263,9 +268,9 @@ function ActeursPage() {
             <ResponsiveContainer width="100%" height={chartH}>
               <BarChart data={agingGRT}>
                 <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
-                <XAxis dataKey="client" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
+                <XAxis dataKey="client" tick={{ fill: "#666", fontSize: 10 }} axisLine={false} />
                 <YAxis
-                  tick={{ fill: "#666", fontSize: 11 }}
+                  tick={{ fill: "#666", fontSize: 10 }}
                   axisLine={false}
                   tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`}
                 />
@@ -322,14 +327,16 @@ function ActeursPage() {
 
         <ChartCard title="Score attrition clients & Concentration fournisseur">
           <div className="flex gap-4 h-[280px]">
-            <div className="flex flex-col items-center pt-2 flex-shrink-0">
+            <div className="flex flex-col items-center pt-2 flex-shrink-0 w-44">
               <GaugeSimple
-                pct={attritionPct / 100}
-                color="#f97316"
-                label="Clients à risque"
-                value={`${attritionPct}%`}
+                pct={retentionIndex / 100}
+                color="#10b981"
+                label="Indice de Fidélité"
+                value={`${retentionIndex}%`}
               />
-              <p className="text-[10px] text-text-dim text-center mt-1">seuil &gt; 0.5</p>
+              <p className="text-[9.5px] text-text-dim text-center mt-1">
+                Stabilité globale du portefeuille
+              </p>
 
               {atRiskClients.length === 0 ? (
                 <p className="text-[11px] text-text-dim mt-3 text-center italic">
@@ -339,14 +346,14 @@ function ActeursPage() {
                 <div className="mt-3 space-y-1 w-full">
                   {atRiskClients.slice(0, 5).map((c, i) => (
                     <div key={i} className="flex items-center justify-between text-[10px]">
-                      <span className="text-foreground truncate w-20">{c.nom}</span>
-                      <div className="flex-1 mx-2 h-1.5 bg-surface-hover rounded-full overflow-hidden">
+                      <span className="text-foreground truncate w-14 font-semibold">{c.nom}</span>
+                      <div className="flex-1 mx-1.5 h-1 bg-surface-hover rounded-full overflow-hidden">
                         <div
                           className="h-full bg-orange-500 rounded-full"
                           style={{ width: `${c.attritionScore * 100}%` }}
                         />
                       </div>
-                      <span className="text-orange-400 font-medium">
+                      <span className="text-orange-400 font-mono font-semibold">
                         {(c.attritionScore * 100).toFixed(0)}%
                       </span>
                     </div>
@@ -355,8 +362,8 @@ function ActeursPage() {
               )}
             </div>
 
-            <div className="flex-1 overflow-auto border-l border-border/40 pl-4">
-              <p className="text-[10px] text-text-dim font-semibold uppercase tracking-wider mb-2 mt-2">
+            <div className="flex-1 overflow-auto border-l border-border/20 pl-4">
+              <p className="text-[9.5px] text-text-dim font-bold uppercase tracking-wider mb-2 mt-2">
                 Concentration fournisseur
               </p>
               <table className="w-full text-[11px]">
@@ -397,6 +404,9 @@ function ActeursPage() {
           </div>
         </ChartCard>
       </div>
+
+
     </div>
   );
 }
+

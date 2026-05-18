@@ -795,6 +795,16 @@ def _assemble_fait_ecritures(
     if len(df) != before:
         logger.warning(f"FAIT_ECRITURES: dropped {before - len(df)} duplicate source_hash rows")
 
+    numeric_cols = [
+        "EC_Montant", "TA_Taux01", "RT_Base01", "RT_Montant01", 
+        "AS_MontSto", "AS_QteSto", "AS_QteMini", "AS_QteRes", 
+        "qte_disponible", "ratio_tension", "MC_Debit", "MC_Credit", 
+        "MC_Cloture", "CA_Solde", "CA_SoldeEspece", "CA_SoldeCheque"
+    ]
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
     df = df.replace({pd.NA: None})
 
     return df

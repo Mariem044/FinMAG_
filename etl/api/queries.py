@@ -310,6 +310,118 @@ def run_ml_endpoint():
     return {"started": started, "running": True}
 
 
+@app.get("/api/ml/forecast-ca")
+def get_ml_forecast_ca():
+    try:
+        rows = _rows("""
+            SELECT TOP 50
+                CONVERT(VARCHAR(10), ds, 23) AS ds,
+                yhat, yhat_lower, yhat_upper, is_historical
+            FROM ML_KPI05_CA_FORECAST WITH (NOLOCK)
+            WHERE run_date = (SELECT MAX(run_date) FROM ML_KPI05_CA_FORECAST WITH (NOLOCK))
+            ORDER BY ds
+        """)
+        return [
+            {
+                "ds": r.ds,
+                "yhat": _num(r.yhat),
+                "yhat_lower": _num(r.yhat_lower),
+                "yhat_upper": _num(r.yhat_upper),
+                "is_historical": int(r.is_historical),
+            }
+            for r in rows
+        ]
+    except Exception:
+        return []
+
+
+@app.get("/api/ml/forecast-tresorerie")
+def get_ml_forecast_tresorerie():
+    try:
+        rows = _rows("""
+            SELECT TOP 100
+                layer, horizon_bucket, encaissements, nb_reglements
+            FROM ML_KPI11_TRESORERIE_FORECAST WITH (NOLOCK)
+            WHERE run_date = (SELECT MAX(run_date) FROM ML_KPI11_TRESORERIE_FORECAST WITH (NOLOCK))
+            ORDER BY layer, horizon_bucket
+        """)
+        return [
+            {
+                "layer": r.layer,
+                "horizon_bucket": r.horizon_bucket,
+                "encaissements": _num(r.encaissements),
+                "nb_reglements": _int(r.nb_reglements),
+            }
+            for r in rows
+        ]
+    except Exception:
+        return []
+
+
+@app.get("/api/ml/produits-alerts")
+def get_ml_produits_alerts():
+    try:
+        rows = _rows("""
+            SELECT TOP 100
+                article, famille, priorite,
+                consoJourMoy, consoJourPred, cvConso,
+                stockActuel, stockSecurite, r2Score
+            FROM ML_KPI18_RUPTURE_FORECAST WITH (NOLOCK)
+            WHERE run_date = (SELECT MAX(run_date) FROM ML_KPI18_RUPTURE_FORECAST WITH (NOLOCK))
+            ORDER BY priorite DESC, cvConso DESC
+        """)
+        return [
+            {
+                "article": r.article,
+                "famille": r.famille,
+                "priorite": r.priorite,
+                "consoJourMoy": _num(r.consoJourMoy),
+                "consoJourPred": _num(r.consoJourPred),
+                "cvConso": _num(r.cvConso),
+                "stockActuel": _num(r.stockActuel),
+                "stockSecurite": _num(r.stockSecurite),
+                "r2Score": _num(r.r2Score),
+            }
+            for r in rows
+        ]
+    except Exception:
+        return []
+
+
+@app.get("/api/ml/rfm-segments")
+def get_ml_rfm_segments():
+    try:
+        meta = _row("""
+            SELECT TOP 1 silhouette_score, inertia, nb_clusters
+            FROM ML_KPI22_RFM_SEGMENTS WITH (NOLOCK)
+            WHERE run_date = (SELECT MAX(run_date) FROM ML_KPI22_RFM_SEGMENTS WITH (NOLOCK))
+        """)
+        rows = _rows("""
+            SELECT TOP 500
+                recence_jours AS recence,
+                frequence_commandes AS frequence,
+                montant_total AS montant,
+                segment_label AS segment
+            FROM ML_KPI22_RFM_SEGMENTS WITH (NOLOCK)
+            WHERE run_date = (SELECT MAX(run_date) FROM ML_KPI22_RFM_SEGMENTS WITH (NOLOCK))
+        """)
+        return {
+            "silhouette": _num(meta.silhouette_score) if meta else 0,
+            "inertia": _num(meta.inertia) if meta else 0,
+            "segments": [
+                {
+                    "recence": _num(r.recence),
+                    "frequence": _num(r.frequence),
+                    "montant": _num(r.montant),
+                    "segment": r.segment,
+                }
+                for r in rows
+            ],
+        }
+    except Exception:
+        return {"silhouette": 0, "inertia": 0, "segments": []}
+
+
 @app.get("/api/dashboard/kpis")
 def get_dashboard_kpis(
     year: int = None,
@@ -322,21 +434,25 @@ def get_dashboard_kpis(
     source: str = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
-        year=None, # year handled by target_year_sql
+        year=None, # year handled by Python
         quarter=quarter, month=month, region=region, famille=famille,
         segment=segment, depot=depot, source=source,
         aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
     )
-    target_year_sql = ":year" if year else """
-        (
-            SELECT MAX(d3.annee)
-            FROM FAIT_LIGNES_VENTE f3
-            JOIN DIM_DOMAINE dom3 ON dom3.id_domaine = f3.id_domaine
-            JOIN DIM_DATE d3 ON d3.id_date = f3.id_date
-            WHERE dom3.DO_Domaine = 0
-        )
-    """
-    sql = f"""
+    
+    if not year:
+        # Get the latest year with data
+        year_res = _row("""
+            SELECT MAX(d.annee) AS annee
+            FROM FAIT_LIGNES_VENTE f
+            JOIN DIM_DATE d ON d.id_date = f.id_date
+            JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
+            WHERE dom.DO_Domaine = 0
+        """)
+        year = year_res.annee if year_res else datetime.now().year
+
+    # Get the latest active month for that year
+    meta = _row("""
         WITH monthly_stats AS (
             SELECT AVG(CAST(row_cnt AS FLOAT)) AS avg_rows
             FROM (
@@ -347,40 +463,44 @@ def get_dashboard_kpis(
                 WHERE dom2.DO_Domaine = 0
                 GROUP BY d2.annee, d2.mois
             ) counts
-        ),
-        latest AS (
-            SELECT
-                MAX(d.annee) AS latest_year,
-                MAX(CASE WHEN cnt.row_cnt >= ms.avg_rows * 0.5 THEN d.mois ELSE 0 END) AS latest_month
-            FROM FAIT_LIGNES_VENTE f
-            JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
-            JOIN DIM_DATE d ON d.id_date = f.id_date
-            CROSS JOIN monthly_stats ms
-            JOIN (
-                SELECT d2.annee, d2.mois, COUNT(*) AS row_cnt
-                FROM FAIT_LIGNES_VENTE f2
-                JOIN DIM_DOMAINE dom2 ON dom2.id_domaine = f2.id_domaine
-                JOIN DIM_DATE d2 ON d2.id_date = f2.id_date
-                WHERE dom2.DO_Domaine = 0
-                GROUP BY d2.annee, d2.mois
-            ) cnt ON cnt.annee = d.annee AND cnt.mois = d.mois
-            WHERE dom.DO_Domaine = 0
-            AND d.annee = {target_year_sql}
         )
         SELECT
-            SUM(CASE WHEN d.annee = latest.latest_year THEN f.DL_MontantHT ELSE 0 END) AS ca_total,
-            SUM(CASE WHEN d.annee = latest.latest_year - 1
-                AND d.mois <= latest.latest_month
+            MAX(CASE WHEN cnt.row_cnt >= ms.avg_rows * 0.5 THEN d.mois ELSE 0 END) AS latest_month
+        FROM FAIT_LIGNES_VENTE f
+        JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
+        JOIN DIM_DATE d ON d.id_date = f.id_date
+        CROSS JOIN monthly_stats ms
+        JOIN (
+            SELECT d2.annee, d2.mois, COUNT(*) AS row_cnt
+            FROM FAIT_LIGNES_VENTE f2
+            JOIN DIM_DOMAINE dom2 ON dom2.id_domaine = f2.id_domaine
+            JOIN DIM_DATE d2 ON d2.id_date = f2.id_date
+            WHERE dom2.DO_Domaine = 0
+            GROUP BY d2.annee, d2.mois
+        ) cnt ON cnt.annee = d.annee AND cnt.mois = d.mois
+        WHERE dom.DO_Domaine = 0
+        AND d.annee = :year
+    """, {"year": year})
+    
+    latest_month = meta.latest_month if meta and meta.latest_month else 12
+    latest_year = year
+
+    # Now the main query is much simpler!
+    sql = f"""
+        SELECT
+            SUM(CASE WHEN d.annee = :latest_year THEN f.DL_MontantHT ELSE 0 END) AS ca_total,
+            SUM(CASE WHEN d.annee = :latest_year - 1
+                AND d.mois <= :latest_month
                 THEN f.DL_MontantHT ELSE 0 END) AS ca_total_n1,
-            COUNT(DISTINCT CASE WHEN d.annee = latest.latest_year AND f.DO_Piece_hash IS NOT NULL THEN
+            COUNT(DISTINCT CASE WHEN d.annee = :latest_year AND f.DO_Piece_hash IS NOT NULL THEN
                 CONCAT(f.DO_Piece_hash, '-', COALESCE(f.id_type_doc, 0))
             END) AS nb_commandes,
-            COUNT(DISTINCT CASE WHEN d.annee = latest.latest_year - 1 AND d.mois <= latest.latest_month AND f.DO_Piece_hash IS NOT NULL THEN
+            COUNT(DISTINCT CASE WHEN d.annee = :latest_year - 1 AND d.mois <= :latest_month AND f.DO_Piece_hash IS NOT NULL THEN
                 CONCAT(f.DO_Piece_hash, '-', COALESCE(f.id_type_doc, 0))
             END) AS nb_commandes_n1,
-            COUNT(DISTINCT CASE WHEN d.annee = latest.latest_year THEN f.id_client END) AS nb_clients_actifs,
-            COUNT(DISTINCT CASE WHEN d.annee = latest.latest_year - 1 AND d.mois <= latest.latest_month THEN f.id_client END) AS nb_clients_actifs_n1,
-            SUM(CASE WHEN d.annee = latest.latest_year
+            COUNT(DISTINCT CASE WHEN d.annee = :latest_year THEN f.id_client END) AS nb_clients_actifs,
+            COUNT(DISTINCT CASE WHEN d.annee = :latest_year - 1 AND d.mois <= :latest_month THEN f.id_client END) AS nb_clients_actifs_n1,
+            SUM(CASE WHEN d.annee = :latest_year
                         AND f.DL_CMUP IS NOT NULL
                         AND f.DL_CMUP > 0
                         AND f.DL_Qte IS NOT NULL
@@ -388,20 +508,20 @@ def get_dashboard_kpis(
                 THEN f.DL_MontantHT - (f.DL_Qte * f.DL_CMUP)
                 ELSE NULL
             END) AS marge_brute,
-            SUM(CASE WHEN d.annee = latest.latest_year
+            SUM(CASE WHEN d.annee = :latest_year
                         AND f.DL_CMUP IS NOT NULL
                         AND f.DL_CMUP > 0
                         AND f.DL_Qte IS NOT NULL
                 THEN f.DL_MontantHT
                 ELSE 0
             END) AS ca_avec_cout,
-            COUNT(CASE WHEN d.annee = latest.latest_year
+            COUNT(CASE WHEN d.annee = :latest_year
                             AND f.DL_CMUP IS NOT NULL
                             AND f.DL_CMUP > 0
                             AND f.DL_Qte IS NOT NULL
                             AND f.DL_MontantHT > (f.DL_Qte * f.DL_CMUP) THEN 1 END) AS nb_lignes_avec_cout,
-            SUM(CASE WHEN d.annee = latest.latest_year - 1
-                        AND d.mois <= latest.latest_month
+            SUM(CASE WHEN d.annee = :latest_year - 1
+                        AND d.mois <= :latest_month
                         AND f.DL_CMUP IS NOT NULL
                         AND f.DL_CMUP > 0
                         AND f.DL_Qte IS NOT NULL
@@ -409,21 +529,21 @@ def get_dashboard_kpis(
                 THEN f.DL_MontantHT - (f.DL_Qte * f.DL_CMUP)
                 ELSE NULL
             END) AS marge_brute_n1,
-            SUM(CASE WHEN d.annee = latest.latest_year - 1
-                        AND d.mois <= latest.latest_month
+            SUM(CASE WHEN d.annee = :latest_year - 1
+                        AND d.mois <= :latest_month
                         AND f.DL_CMUP IS NOT NULL
                         AND f.DL_CMUP > 0
                         AND f.DL_Qte IS NOT NULL
                 THEN f.DL_MontantHT
                 ELSE 0
             END) AS ca_avec_cout_n1,
-            COUNT(CASE WHEN d.annee = latest.latest_year - 1
-                            AND d.mois <= latest.latest_month
+            COUNT(CASE WHEN d.annee = :latest_year - 1
+                            AND d.mois <= :latest_month
                             AND f.DL_CMUP IS NOT NULL
                             AND f.DL_CMUP > 0
                             AND f.DL_Qte IS NOT NULL
                             AND f.DL_MontantHT > (f.DL_Qte * f.DL_CMUP) THEN 1 END) AS nb_lignes_avec_cout_n1,
-            latest.latest_year AS computed_year
+            :latest_year AS computed_year
         FROM FAIT_LIGNES_VENTE f
         JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
         LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
@@ -431,12 +551,11 @@ def get_dashboard_kpis(
         LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
         LEFT JOIN DIM_CLIENT c ON c.id_client = f.id_client
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-        CROSS JOIN latest
         WHERE dom.DO_Domaine = 0
-        AND d.annee IN (latest.latest_year, latest.latest_year - 1)
+        AND d.annee IN (:latest_year, :latest_year - 1)
         {filt_sql}
     """
-    params = {"year": year} if year else {}
+    params = {"latest_year": latest_year, "latest_month": latest_month}
     params.update(filt_params)
     row = _row(sql, params)
     ca_total = _num(row.ca_total)
@@ -780,6 +899,7 @@ def get_impayes():
         )
         SELECT
             c.CT_Num_code,
+            c.CT_Intitule,
             SUM(r.RT_Montant) AS montant_impaye,
             MAX(r.delai_reel_jours) AS anciennete,
             MAX(b.p50) AS seuil_attention,
@@ -789,13 +909,13 @@ def get_impayes():
         JOIN DIM_CLIENT c ON c.id_client = r.id_client
         CROSS JOIN buckets b
         WHERE r.DR_Regle = 0
-        GROUP BY c.CT_Num_code
+        GROUP BY c.CT_Num_code, c.CT_Intitule
         HAVING SUM(r.RT_Montant) > 0
         ORDER BY montant_impaye DESC
     """
     return [
         {
-            "client": f"Client {r.CT_Num_code}",
+            "client": r.CT_Intitule or f"Client {r.CT_Num_code}",
             "code": str(r.CT_Num_code),
             "montant": _num(r.montant_impaye),
             "montantImpaye": _num(r.montant_impaye),
@@ -890,7 +1010,7 @@ def get_aging():
 
     sql = """
         SELECT 
-            COALESCE(CONVERT(VARCHAR(30), c.CT_Num_code), 'Client') AS client,
+            COALESCE(MAX(c.CT_Intitule), CONVERT(VARCHAR(30), c.CT_Num_code)) AS client,
             SUM(CASE WHEN r.bucket_impaye = 0 THEN r.RT_Montant ELSE 0 END) AS b0,
             SUM(CASE WHEN r.bucket_impaye = 1 THEN r.RT_Montant ELSE 0 END) AS b1,
             SUM(CASE WHEN r.bucket_impaye = 2 THEN r.RT_Montant ELSE 0 END) AS b2,
@@ -904,7 +1024,7 @@ def get_aging():
     """
     return [
         {
-            "client": f"Client {r.client}",
+            "client": r.client,
             "0-30j": _num(r.b0),
             "31-60j": _num(r.b1),
             "61-90j": _num(r.b2),
@@ -1030,6 +1150,7 @@ def get_clients():
     sql = """
         SELECT 
             c.CT_Num_code,
+            COALESCE(c.CT_Intitule, CONVERT(VARCHAR(30), c.CT_Num_code)) AS nom,
             COALESCE(s.libelle_segment, 'Sans segment') AS segment,
             SUM(v.DL_MontantHT) AS ca_total,
             COUNT(DISTINCT v.DO_Piece_hash) AS nb_commandes,
@@ -1042,13 +1163,13 @@ def get_clients():
         LEFT JOIN DIM_DOMAINE dom ON dom.id_domaine = v.id_domaine
         LEFT JOIN DIM_DATE d ON d.id_date = v.id_date
         WHERE (dom.DO_Domaine = 0 OR dom.DO_Domaine IS NULL)
-        GROUP BY c.CT_Num_code, s.libelle_segment, c.CT_SoldeActuel, c.CT_Sommeil
+        GROUP BY c.CT_Num_code, s.libelle_segment, c.CT_SoldeActuel, c.CT_Sommeil, c.CT_Intitule
         ORDER BY ca_total DESC
     """
     return [
         {
             "code": str(r.CT_Num_code),
-            "nom": f"Client {r.CT_Num_code}",
+            "nom": r.nom,
             "region": "",
             "caTotal": _num(r.ca_total),
             "nbCommandes": _int(r.nb_commandes),
@@ -1067,6 +1188,7 @@ def get_acteurs_rfm():
     sql = """
         SELECT 
             c.CT_Num_code,
+            c.CT_Intitule,
             COALESCE(s.libelle_segment, 'Sans segment') AS segment,
             c.rfm_recence_jours,
             c.rfm_frequence,
@@ -1080,7 +1202,7 @@ def get_acteurs_rfm():
     return [
         {
             "code": str(r.CT_Num_code),
-            "name": f"Client {r.CT_Num_code}",
+            "name": r.CT_Intitule or f"Client {r.CT_Num_code}",
             "segment": r.segment,
             "frequence": _int(r.rfm_frequence),
             "recence": _int(r.rfm_recence_jours, 999),
@@ -1137,6 +1259,30 @@ def get_acteurs_fournisseurs():
             "nom": f"Fournisseur {r.CT_Num_code}",
             "encours": _num(r.CT_Encours),
             "nbArticles": _int(r.nb_articles),
+        }
+        for r in _rows(sql)
+    ]
+
+
+@app.get("/api/acteurs/livreurs")
+def get_acteurs_livreurs():
+    sql = """
+        SELECT 
+            cl.id_collab,
+            SUM(f.DL_MontantHT) AS montant_total,
+            COUNT(DISTINCT f.DO_Piece_hash) AS nb_commandes
+        FROM FAIT_LIGNES_VENTE f
+        JOIN DIM_CLIENT cl ON cl.id_client = f.id_client
+        WHERE cl.id_collab IS NOT NULL
+        GROUP BY cl.id_collab
+        ORDER BY montant_total DESC
+    """
+    return [
+        {
+            "code": str(r.id_collab),
+            "nom": f"Livreur {r.id_collab}",
+            "montantTotal": _num(r.montant_total),
+            "nbCommandes": _int(r.nb_commandes),
         }
         for r in _rows(sql)
     ]
@@ -1653,7 +1799,7 @@ def search(q: str = ""):
         return {"clients": [], "articles": [], "ecritures": [], "fournisseurs": []}
     needle = f"%{q}%"
     clients = _rows(
-        "SELECT  CT_Num_code, CT_SoldeActuel FROM DIM_CLIENT "
+        "SELECT  CT_Num_code, CT_SoldeActuel, CT_Intitule FROM DIM_CLIENT "
         "WHERE CONVERT(VARCHAR(30), CT_Num_code) LIKE :q ORDER BY CT_Num_code",
         {"q": needle},
     )
@@ -1674,7 +1820,7 @@ def search(q: str = ""):
         {"q": needle},
     )
     return {
-        "clients": [{"label": f"Client {r.CT_Num_code}", "subtitle": f"Solde {round(_num(r.CT_SoldeActuel))} DT", "to": "/acteurs"} for r in clients],
+        "clients": [{"label": r.CT_Intitule or f"Client {r.CT_Num_code}", "subtitle": f"Solde {round(_num(r.CT_SoldeActuel))} DT", "to": "/acteurs"} for r in clients],
         "articles": [{"label": f"Article {r.AR_Ref_code}", "subtitle": f"Famille {r.id_famille or 'N/A'}", "to": "/produits"} for r in articles],
         "ecritures": [{"label": f"Ecriture {r.EC_No or ''}", "subtitle": f"Compte {r.CG_Num or ''} - {round(_num(r.EC_Montant))} DT", "to": "/fiscalite"} for r in ecritures],
         "fournisseurs": [{"label": f"Fournisseur {r.CT_Num_code}", "subtitle": f"Encours {round(_num(r.CT_Encours))} DT", "to": "/acteurs"} for r in fournisseurs],
@@ -1806,10 +1952,10 @@ def get_assistant_summary():
 
         try:
             result["impayes"] = [
-                {"client": f"Client {r.CT_Num_code}", "montant": _num(r.montant_impaye),
+                {"client": r.nom or f"Client {r.CT_Num_code}", "montant": _num(r.montant_impaye),
                 "anciennete": _int(r.anciennete)}
                 for r in _q("""
-                    SELECT  c.CT_Num_code, SUM(r.RT_Montant) AS montant_impaye,
+                    SELECT  c.CT_Num_code, MAX(c.CT_Intitule) AS nom, SUM(r.RT_Montant) AS montant_impaye,
                         MAX(r.delai_reel_jours) AS anciennete
                     FROM FAIT_REGLEMENTS r JOIN DIM_CLIENT c ON c.id_client=r.id_client
                     WHERE r.DR_Regle=0 AND r.id_client IS NOT NULL

@@ -191,7 +191,7 @@ function BanquePage() {
         reference: tx.reference,
         client: tx.client,
         mode: tx.mode,
-        banque: activeBanques[i % activeBanques.length],
+        banque: tx.banque && tx.banque !== "Non spécifiée" ? tx.banque : activeBanques[i % activeBanques.length],
         montant: tx.montant,
         ecart: 100, // 100% non rapproché
       }));
@@ -199,16 +199,28 @@ function BanquePage() {
 
   const pipelineRemises = useMemo(() => {
     const list = breakdownApi?.transactions ?? [];
+    // Uniquement les Chèques et Traites ont un délai d'échéance dans la trésorerie (pas les Espèces/Autres)
     return list
+      .filter((tx) => tx.mode === "Chèque" || tx.mode === "Traite")
       .filter((tx) => modeBanque === "Tous" || tx.mode === modeBanque)
       .slice(0, 10)
-      .map((tx, i) => ({
-        id: tx.reference,
-        banque: activeBanques[i % activeBanques.length],
-        mode: tx.mode,
-        montant: tx.montant,
-        echeance: Math.min(30, (i + 1) * 3),
-      }))
+      .map((tx, i) => {
+        let days = Math.min(30, (i + 1) * 3);
+        if (tx.echeance_date) {
+          const diffTime = new Date(tx.echeance_date) - new Date();
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          if (diffDays > 0) {
+            days = Math.min(60, diffDays);
+          }
+        }
+        return {
+          id: tx.reference,
+          banque: tx.banque && tx.banque !== "Non spécifiée" ? tx.banque : activeBanques[i % activeBanques.length],
+          mode: tx.mode,
+          montant: tx.montant,
+          echeance: days,
+        };
+      })
       .sort((a, b) => a.echeance - b.echeance);
   }, [breakdownApi, activeBanques, modeBanque]);
 

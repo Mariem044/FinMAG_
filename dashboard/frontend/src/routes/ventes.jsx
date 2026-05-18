@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useChartHeight, ChartCard, KPICardSkeleton } from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
-import { DollarSign, Percent, ShoppingCart, TrendingUp } from "lucide-react";
+import { DollarSign, Percent, ShoppingCart, TrendingUp, Brain, Sparkles, Cpu, ShieldCheck } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -18,7 +18,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { CHART_COLORS, formatTND } from "@/lib/dashboardConstants";
+import { CHART_COLORS, formatTND, MONTHS } from "@/lib/dashboardConstants";
 import { useFilters } from "@/store/useFilters";
 import { useMemo } from "react";
 import { api } from "@/lib/api";
@@ -32,21 +32,22 @@ const toNumber = (value) => Number(value) || 0;
 
 function VentesPage() {
   const { year, segment, depot, source, getActiveMonthIndexes } = useFilters();
-  const caByMonthFn = useMemo(() => () => api.ventes.caByMonth(year), [year]);
-  const caByRegionFn = useMemo(() => () => api.ventes.caByRegion(year), [year]);
+  const caByMonthFn = useMemo(() => () => api.ventes.caByMonth(year), [year, segment, depot, source]);
+  const caByRegionFn = useMemo(() => () => api.ventes.caByRegion(year), [year, segment, depot, source]);
   const topFamillesFn = useMemo(
-    () => () => api.ventes.topFamilles(year, segment, depot, source),
+    () => () => api.ventes.topFamilles(),
     [year, segment, depot, source],
   );
+  
   const { data: monthlyData, loading: monthlyLoading } = useApiResource(caByMonthFn, []);
   const { data: familleData, loading: familleLoading } = useApiResource(topFamillesFn, []);
   const { data: regionData, loading: regionLoading } = useApiResource(caByRegionFn, []);
+
   const activeIdx = getActiveMonthIndexes();
   const activeIdxKey = activeIdx.join("");
   const chartH = useChartHeight();
   const kpiLoading = monthlyLoading || regionLoading;
   const chartsLoading = monthlyLoading || familleLoading || regionLoading;
-  const sourceRatio = source === "GRT_MAG" ? 0.5 : source === "MAG_2020" ? 0.5 : 1;
 
   const monthlyRows = Array.isArray(monthlyData) ? monthlyData : [];
   const familleRows = Array.isArray(familleData) ? familleData : [];
@@ -60,12 +61,14 @@ function VentesPage() {
         .map((m) => ({
           ...m,
           month: m.month || "",
-          ca: Math.round(toNumber(m.ca) * sourceRatio),
-          objectif: Math.round(toNumber(m.objectif) * sourceRatio),
-          caN1: Math.round(toNumber(m.caN1) * sourceRatio),
+          ca: Math.round(toNumber(m.ca)),
+          objectif: Math.round(toNumber(m.objectif)),
+          caN1: Math.round(toNumber(m.caN1)),
         })),
-    [activeIdxKey, sourceRatio, monthlyRows],
+    [activeIdxKey, monthlyRows],
   );
+
+
 
   const filteredRegions = useMemo(() => {
     const depotName = depot.replace("Depot ", "").replace("Dépôt ", "");
@@ -75,11 +78,11 @@ function VentesPage() {
       .map((r) => ({
         ...r,
         name: r.name || "Non renseigne",
-        ca: Math.round(toNumber(r.ca) * sourceRatio),
+        ca: Math.round(toNumber(r.ca)),
         clients: toNumber(r.clients),
         commandes: toNumber(r.commandes),
       }));
-  }, [depot, sourceRatio, regionRows]);
+  }, [depot, regionRows]);
 
   const topFamilles = useMemo(
     () =>
@@ -93,10 +96,10 @@ function VentesPage() {
           return {
             ...f,
             name,
-            ca: Math.round(toNumber(f.ca) * sourceRatio),
+            ca: Math.round(toNumber(f.ca)),
           };
         }),
-    [familleRows, sourceRatio],
+    [familleRows],
   );
 
   const totalCA = filteredMonthly.reduce((s, m) => s + m.ca, 0);
@@ -156,43 +159,45 @@ function VentesPage() {
           loading={chartsLoading}
           skeleton="line"
           key={`${segment}-${depot}-${source}-${activeIdxKey}`}
-          title="Evolution mensuelle du CA vs Objectif"
+          title="Évolution du CA : Réel vs Objectif vs N-1"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <AreaChart data={filteredMonthly}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
-              <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
+              <XAxis dataKey="month" interval={0} tick={{ fill: "#666", fontSize: 10 }} axisLine={false} />
               <YAxis
-                tick={{ fill: "#666", fontSize: 11 }}
+                tick={{ fill: "#666", fontSize: 10 }}
                 axisLine={false}
                 tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`}
               />
               <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 12, color: "#888" }} />
+              <Legend wrapperStyle={{ fontSize: 11, color: "#888" }} />
               <Area
                 type="monotone"
                 dataKey="ca"
                 stroke="#3b82f6"
                 fill="#3b82f6"
-                fillOpacity={0.15}
-                name="CA realise"
+                fillOpacity={0.12}
+                strokeWidth={2}
+                name="CA Réel"
               />
               <Area
                 type="monotone"
-                dataKey="objectif"
-                stroke="#6366f1"
+                dataKey="caN1"
+                stroke="#94a3b8"
                 fill="none"
-                strokeDasharray="5 5"
-                name="Objectif"
+                strokeWidth={1.5}
+                strokeDasharray="4 4"
+                name="CA N-1"
               />
               <Line
                 type="monotone"
-                dataKey="caN1"
-                stroke="#f97316"
+                dataKey="objectif"
+                stroke="#6366f1"
                 strokeWidth={1.5}
-                strokeDasharray="3 3"
+                strokeDasharray="5 5"
                 dot={false}
-                name="CA N-1"
+                name="Objectif Sage (110%)"
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -249,39 +254,9 @@ function VentesPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="line" title="Tendance mensuelle CA vs N-1">
-          <ResponsiveContainer width="100%" height={chartH}>
-            <LineChart data={filteredMonthly}>
-              <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
-              <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} />
-              <YAxis
-                tick={{ fill: "#666", fontSize: 11 }}
-                axisLine={false}
-                tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`}
-              />
-              <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 12, color: "#888" }} />
-              <Line
-                type="monotone"
-                dataKey="ca"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                dot={{ r: 3 }}
-                name="CA 2024"
-              />
-              <Line
-                type="monotone"
-                dataKey="caN1"
-                stroke="#f97316"
-                strokeWidth={2}
-                strokeDasharray="4 4"
-                dot={false}
-                name="CA 2023"
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartCard>
+
       </div>
     </div>
   );
 }
+

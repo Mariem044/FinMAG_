@@ -13,6 +13,7 @@ import { Route as VentesRouteImport } from './routes/ventes'
 import { Route as TresorerieRouteImport } from './routes/tresorerie'
 import { Route as ProfilRouteImport } from './routes/profil'
 import { Route as ProduitsRouteImport } from './routes/produits'
+import { Route as PredictionsRouteImport } from './routes/predictions'
 import { Route as ParametresRouteImport } from './routes/parametres'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as FiscaliteRouteImport } from './routes/fiscalite'
@@ -41,6 +42,11 @@ const ProfilRoute = ProfilRouteImport.update({
 const ProduitsRoute = ProduitsRouteImport.update({
   id: '/produits',
   path: '/produits',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PredictionsRoute = PredictionsRouteImport.update({
+  id: '/predictions',
+  path: '/predictions',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ParametresRoute = ParametresRouteImport.update({
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/fiscalite': typeof FiscaliteRoute
   '/login': typeof LoginRoute
   '/parametres': typeof ParametresRoute
+  '/predictions': typeof PredictionsRoute
   '/produits': typeof ProduitsRoute
   '/profil': typeof ProfilRoute
   '/tresorerie': typeof TresorerieRoute
@@ -114,6 +121,7 @@ export interface FileRoutesByTo {
   '/fiscalite': typeof FiscaliteRoute
   '/login': typeof LoginRoute
   '/parametres': typeof ParametresRoute
+  '/predictions': typeof PredictionsRoute
   '/produits': typeof ProduitsRoute
   '/profil': typeof ProfilRoute
   '/tresorerie': typeof TresorerieRoute
@@ -130,6 +138,7 @@ export interface FileRoutesById {
   '/fiscalite': typeof FiscaliteRoute
   '/login': typeof LoginRoute
   '/parametres': typeof ParametresRoute
+  '/predictions': typeof PredictionsRoute
   '/produits': typeof ProduitsRoute
   '/profil': typeof ProfilRoute
   '/tresorerie': typeof TresorerieRoute
@@ -147,6 +156,7 @@ export interface FileRouteTypes {
     | '/fiscalite'
     | '/login'
     | '/parametres'
+    | '/predictions'
     | '/produits'
     | '/profil'
     | '/tresorerie'
@@ -162,6 +172,7 @@ export interface FileRouteTypes {
     | '/fiscalite'
     | '/login'
     | '/parametres'
+    | '/predictions'
     | '/produits'
     | '/profil'
     | '/tresorerie'
@@ -177,6 +188,7 @@ export interface FileRouteTypes {
     | '/fiscalite'
     | '/login'
     | '/parametres'
+    | '/predictions'
     | '/produits'
     | '/profil'
     | '/tresorerie'
@@ -193,6 +205,7 @@ export interface RootRouteChildren {
   FiscaliteRoute: typeof FiscaliteRoute
   LoginRoute: typeof LoginRoute
   ParametresRoute: typeof ParametresRoute
+  PredictionsRoute: typeof PredictionsRoute
   ProduitsRoute: typeof ProduitsRoute
   ProfilRoute: typeof ProfilRoute
   TresorerieRoute: typeof TresorerieRoute
@@ -227,6 +240,13 @@ declare module '@tanstack/react-router' {
       path: '/produits'
       fullPath: '/produits'
       preLoaderRoute: typeof ProduitsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/predictions': {
+      id: '/predictions'
+      path: '/predictions'
+      fullPath: '/predictions'
+      preLoaderRoute: typeof PredictionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/parametres': {
@@ -305,6 +325,7 @@ const rootRouteChildren: RootRouteChildren = {
   FiscaliteRoute: FiscaliteRoute,
   LoginRoute: LoginRoute,
   ParametresRoute: ParametresRoute,
+  PredictionsRoute: PredictionsRoute,
   ProduitsRoute: ProduitsRoute,
   ProfilRoute: ProfilRoute,
   TresorerieRoute: TresorerieRoute,

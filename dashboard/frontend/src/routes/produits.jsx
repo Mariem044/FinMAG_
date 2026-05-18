@@ -2,12 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useChartHeight, ChartCard, KPICardSkeleton } from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
-import { Boxes, AlertTriangle, Clock, Bell } from "lucide-react";
+import { Boxes, AlertTriangle, Clock, Bell, Search, Brain, Cpu, ShieldCheck, Sparkles, TrendingUp } from "lucide-react";
 import {
   ScatterChart,
   Scatter,
-  Treemap,
-  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -18,7 +16,7 @@ import {
 } from "recharts";
 import { FAMILLES, CHART_COLORS, formatTND } from "@/lib/dashboardConstants";
 import { useFilters } from "@/store/useFilters";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useApiResource } from "@/hooks/useApiResource";
 
@@ -38,11 +36,11 @@ function priorityBadge(p) {
     URGENT: "bg-orange-500/20 text-orange-400 border border-orange-500/30",
     ATTENTION: "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30",
   };
-  return map[p] || "";
+  return map[p] || "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
 }
 
-function GaugeChart({ value, target, label }) {
-  const pct = Math.min(value / 100, 1);
+function GaugeChart({ value, target, label, maxVal = 100 }) {
+  const pct = Math.min(value / maxVal, 1);
   const r = 70,
     cx = 100,
     cy = 90;
@@ -53,29 +51,35 @@ function GaugeChart({ value, target, label }) {
   const arcY = (a, rr) => cy + rr * Math.sin(a);
   const bgPath = `M ${arcX(startA, r)} ${arcY(startA, r)} A ${r} ${r} 0 0 1 ${arcX(endA, r)} ${arcY(endA, r)}`;
   const valPath = `M ${arcX(startA, r)} ${arcY(startA, r)} A ${r} ${r} 0 ${pct > 0.5 ? 1 : 0} 1 ${arcX(valA, r)} ${arcY(valA, r)}`;
-  const color = value < target ? "#22c55e" : value < target * 1.5 ? "#f97316" : "#ef4444";
+  
+  // Decide color depending on gauge type
+  const isR2 = label.includes("R²");
+  const color = isR2 
+    ? (value >= target ? "#10b981" : value >= 60 ? "#f97316" : "#ef4444")
+    : (value <= target ? "#10b981" : value <= target * 2 ? "#f97316" : "#ef4444");
+
   return (
     <div className="flex flex-col items-center">
-      <svg width={200} height={110}>
-        <path d={bgPath} fill="none" stroke="#2a2a2a" strokeWidth={14} strokeLinecap="round" />
-        <path d={valPath} fill="none" stroke={color} strokeWidth={14} strokeLinecap="round" />
+      <svg width={200} height={105}>
+        <path d={bgPath} fill="none" stroke="#2a2a2a" strokeWidth={11} strokeLinecap="round" />
+        <path d={valPath} fill="none" stroke={color} strokeWidth={11} strokeLinecap="round" />
         <line
           x1={cx}
           y1={cy}
-          x2={arcX(valA, r - 18)}
-          y2={arcY(valA, r - 18)}
+          x2={arcX(valA, r - 15)}
+          y2={arcY(valA, r - 15)}
           stroke={color}
-          strokeWidth={2}
+          strokeWidth={1.5}
           strokeLinecap="round"
         />
-        <circle cx={cx} cy={cy} r={4} fill={color} />
-        <text x={cx} y={cy - 18} textAnchor="middle" fill={color} fontSize={22} fontWeight="bold">
+        <circle cx={cx} cy={cy} r={3} fill={color} />
+        <text x={cx} y={cy - 14} textAnchor="middle" fill={color} fontSize={18} fontWeight="bold">
           {value}%
         </text>
-        <text x={cx} y={cy - 4} textAnchor="middle" fill="#666" fontSize={10}>
-          objectif &lt; {target}%
+        <text x={cx} y={cy - 1} textAnchor="middle" fill="#666" fontSize={8.5}>
+          {isR2 ? `cible > ${target}%` : `limite < ${target}%`}
         </text>
-        <text x={cx} y={105} textAnchor="middle" fill="#888" fontSize={11}>
+        <text x={cx} y={100} textAnchor="middle" fill="#999" fontSize={9.5} fontWeight="semibold" className="tracking-wide">
           {label}
         </text>
       </svg>
@@ -86,63 +90,35 @@ function GaugeChart({ value, target, label }) {
 function ProduitsPage() {
   const { famille, statutArticle, horizonPrev, depot, getActiveMonthIndexes } = useFilters();
   const { data: articles, loading: articlesLoading } = useApiResource(api.produits.articles, []);
-  const { data: stockAlerts, loading: alertsLoading } = useApiResource(api.produits.alerts, []);
+
+  const avgR2 = useMemo(() => {
+    const validScores = articles.map(a => a.r2Score).filter(s => s !== undefined && s !== null);
+    if (validScores.length === 0) return 76; // default
+    return Math.round(validScores.reduce((s, v) => s + v, 0) / validScores.length * 100);
+  }, [articles]);
+
+  const [searchQuery, setSearchQuery] = useState("");
+
   const activeIdx = getActiveMonthIndexes();
   const chartH = useChartHeight();
-  const kpiLoading = articlesLoading || alertsLoading;
-  const chartsLoading = articlesLoading || alertsLoading;
+  const kpiLoading = articlesLoading;
+  const chartsLoading = articlesLoading;
 
   const filteredArticles = useMemo(() => {
     return articles.filter((a) => {
       if (famille !== "Toutes" && a.famille !== famille) return false;
       if (statutArticle === "En sommeil" && a.qteVendue > 100) return false;
       if (statutArticle === "Actifs uniquement" && a.qteVendue === 0) return false;
+
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const matchesDesignation = a.designation && a.designation.toLowerCase().includes(q);
+        const matchesArticle = (a.ref || a.code || a.article || "").toLowerCase().includes(q);
+        if (!matchesDesignation && !matchesArticle) return false;
+      }
       return true;
     });
-  }, [articles, famille, statutArticle]);
-
-  const treemapData = useMemo(() => {
-    const totals = new Map();
-    for (const article of filteredArticles) {
-      const rawKey = article.famille || "Sans famille";
-      const key = rawKey.length > 20 ? rawKey.substring(0, 20) + "…" : rawKey;
-      const current = totals.get(key) || { size: 0, qteVendue: 0, stock: 0 };
-      current.size += Math.round((article.stock || 0) * (article.prixMoyen || 0));
-      current.qteVendue += article.qteVendue || 0;
-      current.stock += article.stock || 0;
-      totals.set(key, current);
-    }
-
-    const rows = Array.from(totals.entries())
-      .map(([name, values], i) => ({
-        name,
-        size: values.size,
-        rotation: values.stock > 0 ? Math.min(1, values.qteVendue / (values.stock * 10)) : 0,
-        fill: CHART_COLORS[i % CHART_COLORS.length],
-      }))
-      .filter((r) => r.size > 0)
-      .sort((a, b) => b.size - a.size)
-      .slice(0, 12);
-
-    if (famille !== "Toutes") return rows.filter((row) => row.name.startsWith(famille.substring(0, 10)));
-    return rows.length
-      ? rows
-      : FAMILLES.map((name, i) => ({
-          name,
-          size: 0,
-          rotation: 0,
-          fill: CHART_COLORS[i % CHART_COLORS.length],
-        }));
-  }, [famille, filteredArticles]);
-
-  const alertes = useMemo(() => {
-    return stockAlerts
-      .filter((a) => famille === "Toutes" || a.famille === famille)
-      .sort((a, b) => {
-        const order = { CRITIQUE: 0, URGENT: 1, ATTENTION: 2 };
-        return order[a.priorite] - order[b.priorite];
-      });
-  }, [famille, stockAlerts]);
+  }, [articles, famille, statutArticle, searchQuery]);
 
   const dsiScatter = useMemo(() => {
     return filteredArticles.slice(0, 40).map((a) => ({
@@ -154,13 +130,11 @@ function ProduitsPage() {
   }, [filteredArticles]);
 
   const valeurStock = filteredArticles.reduce((s, a) => s + (a.stock || 0) * (a.prixMoyen || 0), 0);
-  const nbRuptures = alertes.length;
+  const nbRuptures = filteredArticles.filter(a => (a.stock || 0) <= 0).length;
   const dsiMoyen = Math.round(
     dsiScatter.reduce((s, d) => s + d.dsi, 0) / Math.max(dsiScatter.length, 1),
   );
-  const nbAlertes = alertes.filter(
-    (a) => a.priorite === "CRITIQUE" || a.priorite === "URGENT",
-  ).length;
+  const nbArticles = filteredArticles.length;
   const txRupture = parseFloat(
     ((nbRuptures / Math.max(filteredArticles.length, 1)) * 100).toFixed(1),
   );
@@ -196,116 +170,85 @@ function ProduitsPage() {
               icon={Clock}
             />
             <KPICard
-              label="Alertes restock actives"
-              value={String(nbAlertes)}
-              subtitle={`à commander sous ${horizonPrev}`}
-              icon={Bell}
+              label="Nombre d'articles"
+              value={String(nbArticles)}
+              subtitle="Sélection filtrée"
+              icon={Boxes}
             />
           </>
         )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ChartCard
-          loading={chartsLoading}
-          skeleton="bar"
-          key={`${famille}-${statutArticle}-${horizonPrev}`}
-          title={`Valeur stock par famille${famille !== "Toutes" ? ` — ${famille}` : ""}`}
-        >
-          <ResponsiveContainer width="100%" height={chartH}>
-            <Treemap
-              data={treemapData}
-              dataKey="size"
-              nameKey="name"
-              stroke="#1a1a1a"
-              content={({ x, y, width, height, name, rotation }) => (
-                <g>
-                  <rect
-                    x={x}
-                    y={y}
-                    width={width}
-                    height={height}
-                    fill={rotationColor(rotation ?? 0.5)}
-                    stroke="#111"
-                    strokeWidth={2}
-                    rx={3}
-                    opacity={0.85}
-                  />
-                  {width > 60 && height > 30 && (
-                    <text
-                      x={x + width / 2}
-                      y={y + height / 2}
-                      textAnchor="middle"
-                      fill="#fff"
-                      fontSize={Math.min(11, width / 8)}
-                      dominantBaseline="middle"
-                      style={{ pointerEvents: "none" }}
-                    >
-                      {width < 100 ? (name || "").substring(0, 8) : (name || "").substring(0, 14)}
-                    </text>
-                  )}
-                </g>
-              )}
-            />
-          </ResponsiveContainer>
-          <div className="flex gap-4 text-[10px] text-text-dim mt-1 justify-end">
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Rotation lente
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-orange-500 inline-block" /> Moyenne
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Rapide
-            </span>
-          </div>
-        </ChartCard>
-
+        {/* Catalogue Produits (Sage) Table */}
         <ChartCard
           loading={chartsLoading}
           skeleton="table"
-          title={`Alertes réapprovisionnement — horizon ${horizonPrev}`}
+          title="Catalogue des Produits & Niveaux de Stock"
         >
+          <div className="flex flex-col md:flex-row gap-3 mb-4 items-center justify-between relative z-20">
+            {/* Search Input */}
+            <div className="relative w-full md:w-60">
+              <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-text-dim" />
+              <input
+                type="text"
+                placeholder="Rechercher SKU, Désignation..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 pr-4 py-1.5 w-full text-[11px] bg-surface/40 hover:bg-surface/60 focus:bg-surface-hover/50 border border-border/40 focus:border-primary/50 focus:ring-1 focus:ring-primary/20 rounded-lg focus:outline-none transition-all duration-300 backdrop-blur-md text-foreground placeholder:text-text-dim"
+              />
+            </div>
+            <div className="text-[10px] text-text-dim">
+              Affichage de {filteredArticles.slice(0, 100).length} sur {filteredArticles.length} articles
+            </div>
+          </div>
+
           <div className="overflow-auto max-h-[280px]">
             <table className="w-full text-[11px]">
               <thead className="sticky top-0 bg-background">
                 <tr className="text-text-dim border-b border-border">
-                  <th className="text-left py-1 px-2">Article</th>
-                  <th className="text-right py-1 px-2">Stock</th>
-                  <th className="text-right py-1 px-2">Seuil</th>
-                  <th className="text-center py-1 px-2">Rupture</th>
-                  <th className="text-center py-1 px-2">Priorité</th>
+                  <th className="text-left py-1.5 px-2">Référence / Désignation</th>
+                  <th className="text-left py-1.5 px-2">Famille</th>
+                  <th className="text-right py-1.5 px-2">Stock dispo</th>
+                  <th className="text-right py-1.5 px-2">Prix Moyen</th>
+                  <th className="text-right py-1.5 px-2">CA Généré</th>
+                  <th className="text-right py-1.5 px-2">DSI (Rotation)</th>
                 </tr>
               </thead>
               <tbody>
-                {alertes.map((row, i) => (
-                  <tr key={i} className="border-b border-border/30 hover:bg-surface-hover/30">
-                    <td className="py-1.5 px-2">
-                      <div className="font-medium text-foreground">{row.article}</div>
-                      <div className="text-text-dim text-[10px]">{row.fournisseur}</div>
+                {filteredArticles.slice(0, 100).map((row, i) => (
+                  <tr key={i} className="border-b border-border/30 hover:bg-surface-hover/30 transition-all duration-200">
+                    <td className="py-2 px-2">
+                      <div className="font-semibold text-foreground truncate max-w-[155px]">{row.designation || 'Article sans nom'}</div>
+                      <div className="text-text-dim text-[9.5px] font-mono">{row.ref || row.code || `ART-${row.id}`}</div>
                     </td>
-                    <td
-                      className={`py-1.5 px-2 text-right font-semibold ${row.stockActuel < row.seuil ? "text-red-400" : "text-foreground"}`}
-                    >
-                      {row.stockActuel}
+                    <td className="py-2 px-2 text-left text-text-dim truncate max-w-[100px]">
+                      {row.famille || '-'}
                     </td>
-                    <td className="py-1.5 px-2 text-right text-text-dim">{row.seuil}</td>
-                    <td className="py-1.5 px-2 text-center text-text-dim text-[10px]">
-                      {row.dateRupture}
+                    <td className="py-2 px-2 text-right font-bold">
+                      {Math.round(row.stock || 0)}
                     </td>
-                    <td className="py-1.5 px-2 text-center">
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${priorityBadge(row.priorite)}`}
-                      >
-                        {row.priorite}
+                    <td className="py-2 px-2 text-right text-text-dim font-mono">
+                      {formatTND(row.prixMoyen || 0)}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono font-bold text-cyan-400">
+                      {formatTND(row.ca || 0)}
+                    </td>
+                    <td className="py-2 px-2 text-right">
+                      <span className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold ${
+                        (row.dsi || 0) > 90 ? 'bg-red-500/10 text-red-400' :
+                        (row.dsi || 0) > 30 ? 'bg-yellow-500/10 text-yellow-400' :
+                        'bg-green-500/10 text-green-400'
+                      }`}>
+                        {Math.round(row.dsi || 0)}j
                       </span>
                     </td>
                   </tr>
                 ))}
-                {alertes.length === 0 && (
+                {filteredArticles.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-text-dim text-[12px]">
-                      Aucune alerte pour cette famille
+                    <td colSpan={6} className="py-12 text-center text-text-dim">
+                      Aucun article ne correspond aux critères
                     </td>
                   </tr>
                 )}
@@ -314,52 +257,11 @@ function ProduitsPage() {
           </div>
         </ChartCard>
 
-        <ChartCard
-          loading={chartsLoading}
-          skeleton="gauge"
-          title="Taux de rupture & tension stock"
-        >
-          <div className="flex items-start gap-4 h-[280px]">
-            <div className="flex flex-col items-center justify-center flex-shrink-0 pt-4">
-              <GaugeChart value={txRupture} target={3} label="Taux rupture" />
-            </div>
-            <div className="flex-1 overflow-auto">
-              <p className="text-[10px] text-text-dim font-semibold uppercase tracking-wider mb-2 mt-2">
-                Top articles en tension (réservé/dispo &gt; 80%)
-              </p>
-              {alertes.slice(0, 10).map((a, i) => {
-                const ratio = Math.round((a.ratioTension || 0) * 100);
-                const priorityPct = a.priorite === "CRITIQUE" ? 100 : a.priorite === "URGENT" ? 80 : 50;
-                const displayPct = ratio > 0 ? ratio : priorityPct;
-                const color = a.priorite === "CRITIQUE" ? "#ef4444" : a.priorite === "URGENT" ? "#f97316" : "#22c55e";
-                return (
-                  <div key={i} className="flex items-center gap-2 mb-1.5">
-                    <span className="text-[10px] text-text-dim w-16 flex-shrink-0">
-                      {a.article}
-                    </span>
-                    <div className="flex-1 h-2 bg-surface-hover rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full"
-                        style={{ width: `${displayPct}%`, background: color }}
-                      />
-                    </div>
-                    <span
-                      className={`text-[10px] font-medium w-16 text-right`}
-                      style={{ color }}
-                    >
-                      {a.priorite}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </ChartCard>
-
+        {/* Dynamic Rotation Scatter plot */}
         <ChartCard
           loading={chartsLoading}
           skeleton="scatter"
-          title="Rotation stocks — DSI vs CA par article"
+          title="Rotation Stocks — DSI vs CA par article"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
@@ -367,20 +269,20 @@ function ProduitsPage() {
               <XAxis
                 dataKey="dsi"
                 name="DSI (j)"
-                tick={{ fill: "#666", fontSize: 11 }}
+                tick={{ fill: "#666", fontSize: 10 }}
                 axisLine={false}
                 label={{
                   value: "DSI (jours)",
                   position: "insideBottom",
                   offset: -10,
                   fill: "#555",
-                  fontSize: 11,
+                  fontSize: 10,
                 }}
               />
               <YAxis
                 dataKey="ca"
                 name="CA"
-                tick={{ fill: "#666", fontSize: 11 }}
+                tick={{ fill: "#666", fontSize: 10 }}
                 axisLine={false}
                 tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`}
               />
@@ -390,7 +292,7 @@ function ProduitsPage() {
                 x={dsiMoyen}
                 stroke="#444"
                 strokeDasharray="4 4"
-                label={{ value: "DSI moy.", fill: "#555", fontSize: 10, position: "top" }}
+                label={{ value: "DSI moy.", fill: "#555", fontSize: 9, position: "top" }}
               />
               <Scatter
                 data={dsiScatter}
@@ -407,8 +309,8 @@ function ProduitsPage() {
                     <circle
                       cx={cx}
                       cy={cy}
-                      r={6}
-                      fill={isStar ? "#22c55e" : isSlow ? "#ef4444" : "#3b82f6"}
+                      r={5}
+                      fill={isStar ? "#10b981" : isSlow ? "#ef4444" : "#3b82f6"}
                       opacity={0.75}
                     />
                   );
@@ -416,7 +318,7 @@ function ProduitsPage() {
               />
             </ScatterChart>
           </ResponsiveContainer>
-          <div className="flex gap-4 text-[10px] text-text-dim mt-1 justify-end">
+          <div className="flex gap-4 text-[9.5px] text-text-dim mt-1 justify-end">
             <span className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Star / Fast
             </span>
@@ -429,6 +331,9 @@ function ProduitsPage() {
           </div>
         </ChartCard>
       </div>
+
+
     </div>
   );
 }
+
