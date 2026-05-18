@@ -121,7 +121,7 @@ function PredictionsStudioPage() {
       { t: formatTime(11), m: "[PROPHET Engine] Training Facebook Prophet with Multiplicative Seasonality...", type: "info" },
       { t: formatTime(13), m: "[PROPHET Engine] Fitting Prophet: Changepoint prior scale = 0.15...", type: "process" },
       { t: formatTime(15), m: "[PROPHET Engine] Prophet Back-test: MAE = 2.66M | MAPE = 18.4% [OK]", type: "success" },
-      { t: formatTime(16), m: "Writing consolidated prediction blocks to ML_KPI05_CA_FORECAST...", type: "info" },
+      { t: formatTime(16), m: "Writing consolidated prediction blocks to ML_CA_FORECAST...", type: "info" },
       { t: formatTime(17), m: "Persisting models: statsmodels & prophet binaries saved to ml/models/ [OK]", type: "success" },
       { t: formatTime(18), m: "PIPELINE COMPLETED SUCCESSFULLY. ARIMA, SARIMA, PROPHET: OK.", type: "done" }
     ];
