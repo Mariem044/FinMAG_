@@ -111,7 +111,7 @@ const _tresorerieImpayesFournisseurs = () => get("/api/tresorerie/impayes-fourni
 const _tresorerieEncaissements = () => get("/api/tresorerie/encaissements-by-mode");
 const _tresorerieAging = () => get("/api/tresorerie/aging");
 
-const _produitsArticles = () => get("/api/produits/articles");
+const _produitsArticles = (year) => get(`/api/produits/articles${year ? `?year=${year}` : ""}`);
 const _produitsAlerts = () => get("/api/produits/stock-alerts");
 
 const _acteursClients = () => get("/api/acteurs/clients");

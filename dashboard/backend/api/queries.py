@@ -1,11 +1,24 @@
+import sys
+import os
 import json
 import logging
-import os
 import re
 import threading
 import unicodedata
 from typing import List
 from pathlib import Path
+
+# Add potential backend paths to sys.path to resolve 'ml' module imports
+current_dir = os.path.abspath(os.path.dirname(__file__))
+possible_paths = [
+    os.path.join(current_dir, "..", "..", "dashboard", "backend"), # from etl/api
+    os.path.join(current_dir, ".."),                              # from dashboard/backend/api
+    os.path.join(os.getcwd(), "dashboard", "backend"),             # from root
+]
+for path in possible_paths:
+    abs_path = os.path.abspath(path)
+    if os.path.exists(abs_path) and abs_path not in sys.path:
+        sys.path.insert(0, abs_path)
 
 from google import genai
 from fastapi import BackgroundTasks, FastAPI
@@ -146,8 +159,8 @@ def _build_dynamic_filters(
 
     c_famille = _clean_filter(famille)
     if c_famille and aliases.get("famille"):
-        clauses.append(f"AND {aliases['famille']}.FA_Intitule = :p_famille")
-        params["p_famille"] = c_famille
+        clauses.append(f"AND {aliases['famille']}.FA_Intitule LIKE :p_famille")
+        params["p_famille"] = f"%{c_famille}%"
 
     c_segment = _clean_filter(segment)
     if c_segment and aliases.get("segment"):
@@ -356,15 +369,17 @@ def run_ml_endpoint():
 def get_ml_forecast_ca():
     try:
         rows = _rows("""
-            SELECT TOP 50
+            SELECT
+                model_name,
                 CONVERT(VARCHAR(10), ds, 23) AS ds,
                 yhat, yhat_lower, yhat_upper, is_historical
             FROM ML_KPI05_CA_FORECAST WITH (NOLOCK)
             WHERE run_date = (SELECT MAX(run_date) FROM ML_KPI05_CA_FORECAST WITH (NOLOCK))
-            ORDER BY ds
+            ORDER BY model_name, ds
         """)
         return [
             {
+                "model_name": r.model_name.strip() if hasattr(r, 'model_name') else "PROPHET",
                 "ds": r.ds,
                 "yhat": _num(r.yhat),
                 "yhat_lower": _num(r.yhat_lower),
@@ -401,17 +416,26 @@ def get_ml_forecast_tresorerie():
 
 
 @app.get("/api/ml/produits-alerts")
-def get_ml_produits_alerts():
+def get_ml_produits_alerts(famille: str = None):
     try:
-        rows = _rows("""
+        filt_clause = ""
+        params = {}
+        c_famille = _clean_filter(famille)
+        if c_famille:
+            filt_clause = "AND famille LIKE :p_famille"
+            params["p_famille"] = f"%{c_famille}%"
+
+        sql = f"""
             SELECT TOP 100
                 article, famille, priorite,
                 consoJourMoy, consoJourPred, cvConso,
                 stockActuel, stockSecurite, r2Score
             FROM ML_KPI18_RUPTURE_FORECAST WITH (NOLOCK)
             WHERE run_date = (SELECT MAX(run_date) FROM ML_KPI18_RUPTURE_FORECAST WITH (NOLOCK))
+            {filt_clause}
             ORDER BY priorite DESC, cvConso DESC
-        """)
+        """
+        rows = _rows(sql, params)
         return [
             {
                 "article": r.article,
@@ -1162,17 +1186,37 @@ def get_stock_alerts():
 
 
 @app.get("/api/produits/articles")
-def get_articles():
-    sql = """
+def get_articles(
+    year: int = None,
+    quarter: str = None,
+    month: str = None,
+    region: str = None,
+    famille: str = None,
+    segment: str = None,
+    depot: str = None,
+    source: str = None,
+):
+    filt_sql, filt_params = _build_dynamic_filters(
+        year=year, quarter=quarter, month=month, region=region, famille=famille,
+        segment=segment, depot=depot, source=source,
+        aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
+    )
+    sql = f"""
         WITH sales AS (
             SELECT
-                id_article,
+                f.id_article,
                 COALESCE(SUM(DL_Qte), 0) AS qte_vendue,
                 COALESCE(SUM(DL_MontantHT), 0) AS ca
             FROM FAIT_LIGNES_VENTE f
             JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
+            LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
+            LEFT JOIN DIM_CLIENT c ON c.id_client = f.id_client
+            LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+            LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
+            LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
             WHERE dom.DO_Domaine = 0
-            GROUP BY id_article
+            {filt_sql}
+            GROUP BY f.id_article
         ),
         stock AS (
             SELECT
@@ -1190,29 +1234,29 @@ def get_articles():
             GROUP BY e.id_article
         )
         SELECT 
-        a.AR_Ref_code,
-        a.AR_Ref,
-        a.AR_Design,
-        a.id_famille,
-        COALESCE(NULLIF(fa.FA_Intitule, ''), 'Sans famille') AS famille,
-        CASE
-            WHEN COALESCE(a.AR_PrixAch, 0) > 0 THEN a.AR_PrixAch
-            WHEN COALESCE(stock.stock, 0) > 0 AND COALESCE(stock.valeur_stock, 0) > 0
-            THEN stock.valeur_stock / stock.stock
-            ELSE 0
-        END AS prix_moyen,
-        COALESCE(sales.qte_vendue, 0) AS qte_vendue,
-        COALESCE(sales.ca, 0) AS ca,
-        COALESCE(stock.stock, 0) AS stock,
-        stock.dsi_jours,
-        stock.ratio_tension
-    FROM DIM_ARTICLE a
-    LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
-    LEFT JOIN sales ON sales.id_article = a.id_article
-    LEFT JOIN stock ON stock.id_article = a.id_article
-    WHERE COALESCE(sales.ca, 0) > 0 OR COALESCE(stock.stock, 0) > 0
-    ORDER BY ca DESC
-"""
+            a.AR_Ref_code,
+            a.AR_Ref,
+            a.AR_Design,
+            a.id_famille,
+            COALESCE(NULLIF(fa.FA_Intitule, ''), 'Sans famille') AS famille,
+            CASE
+                WHEN COALESCE(a.AR_PrixAch, 0) > 0 THEN a.AR_PrixAch
+                WHEN COALESCE(stock.stock, 0) > 0 AND COALESCE(stock.valeur_stock, 0) > 0
+                THEN stock.valeur_stock / stock.stock
+                ELSE 0
+            END AS prix_moyen,
+            COALESCE(sales.qte_vendue, 0) AS qte_vendue,
+            COALESCE(sales.ca, 0) AS ca,
+            COALESCE(stock.stock, 0) AS stock,
+            stock.dsi_jours,
+            stock.ratio_tension
+        FROM DIM_ARTICLE a
+        LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
+        LEFT JOIN sales ON sales.id_article = a.id_article
+        LEFT JOIN stock ON stock.id_article = a.id_article
+        WHERE COALESCE(sales.ca, 0) > 0 OR COALESCE(stock.stock, 0) > 0
+        ORDER BY ca DESC
+    """
     return [
         {
             "code": r.AR_Ref if r.AR_Ref else f"ART-{r.AR_Ref_code}",
@@ -1222,12 +1266,12 @@ def get_articles():
             "ca": _num(r.ca),
             "prixMoyen": _num(r.prix_moyen),
             "marge": round(
-    (_num(r.ca) - _num(r.prix_moyen) * _num(r.qte_vendue)) / _num(r.ca) * 100, 1
-) if _num(r.ca) > 0 and _num(r.prix_moyen) > 0 else None,
+                (_num(r.ca) - _num(r.prix_moyen) * _num(r.qte_vendue)) / _num(r.ca) * 100, 1
+            ) if _num(r.ca) > 0 and _num(r.prix_moyen) > 0 else None,
             "stock": _num(r.stock),
             "dsi": _num(r.dsi_jours),
         }
-        for r in _rows(sql)
+        for r in _rows(sql, filt_params)
     ]
 
 @app.get("/api/acteurs/clients")

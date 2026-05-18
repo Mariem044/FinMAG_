@@ -88,8 +88,18 @@ function GaugeChart({ value, target, label, maxVal = 100 }) {
 }
 
 function ProduitsPage() {
-  const { famille, statutArticle, horizonPrev, depot, getActiveMonthIndexes } = useFilters();
-  const { data: articles, loading: articlesLoading } = useApiResource(api.produits.articles, []);
+  const { year, famille, statutArticle, horizonPrev, depot, getActiveMonthIndexes } = useFilters();
+  
+  const articlesFn = useMemo(
+    () => () => api.produits.articles(year),
+    [year, famille, statutArticle, horizonPrev, depot]
+  );
+  
+  const { data: articles, loading: articlesLoading } = useApiResource(
+    articlesFn,
+    [],
+    [year, famille, statutArticle, horizonPrev, depot]
+  );
 
   const avgR2 = useMemo(() => {
     const validScores = articles.map(a => a.r2Score).filter(s => s !== undefined && s !== null);
@@ -106,7 +116,7 @@ function ProduitsPage() {
 
   const filteredArticles = useMemo(() => {
     return articles.filter((a) => {
-      if (famille !== "Toutes" && a.famille !== famille) return false;
+      if (famille !== "Toutes" && !a.famille.toLowerCase().includes(famille.toLowerCase())) return false;
       if (statutArticle === "En sommeil" && a.qteVendue > 100) return false;
       if (statutArticle === "Actifs uniquement" && a.qteVendue === 0) return false;
 
@@ -182,6 +192,7 @@ function ProduitsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Catalogue Produits (Sage) Table */}
         <ChartCard
+          key={`catalog-${year}-${famille}-${statutArticle}-${horizonPrev}-${depot}`}
           loading={chartsLoading}
           skeleton="table"
           title="Catalogue des Produits & Niveaux de Stock"
@@ -259,6 +270,7 @@ function ProduitsPage() {
 
         {/* Dynamic Rotation Scatter plot */}
         <ChartCard
+          key={`rotation-${year}-${famille}-${statutArticle}-${horizonPrev}-${depot}`}
           loading={chartsLoading}
           skeleton="scatter"
           title="Rotation Stocks — DSI vs CA par article"

@@ -16,20 +16,10 @@ def get_last_error():
     return _ML_LAST_ERROR
 
 def run_all(only=None, skip=None):
-    from ml import (
-        ca_forecast,
-        tresorerie_forecast,
-        reappro_alert,
-        rupture_forecast,
-        rfm_kmeans,
-    )
+    from ml import ca_forecast
 
     modules = {
         "05": ca_forecast,
-        "11": tresorerie_forecast,
-        "17": reappro_alert,
-        "18": rupture_forecast,
-        "22": rfm_kmeans,
     }
 
     if only:
@@ -40,7 +30,7 @@ def run_all(only=None, skip=None):
     results = {}
     for kpi_id, mod in modules.items():
         try:
-            logger.info(f"Running ML KPI-{kpi_id}...")
+            logger.info(f"Running ML KPI-{kpi_id} (ARIMA, SARIMA, PROPHET)...")
             mod.run()
             results[kpi_id] = "OK"
         except Exception as exc:

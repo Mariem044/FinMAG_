@@ -327,8 +327,7 @@ function TresorerietPage() {
                   <th className="text-left py-1 px-2">Fournisseur</th>
                   <th className="text-right py-1 px-2">Montant</th>
                   <th className="text-center py-1 px-2">État</th>
-                  <th className="text-center py-1 px-2">Délai eff.</th>
-                  <th className="text-center py-1 px-2">Écart</th>
+                  <th className="text-center py-1 px-2">Retard</th>
                 </tr>
               </thead>
               <tbody>
@@ -347,7 +346,6 @@ function TresorerietPage() {
                           {row.etat}
                         </span>
                       </td>
-                      <td className="py-1.5 px-2 text-center">{row.delaiEffectif}j</td>
                       <td
                         className={`py-1.5 px-2 text-center font-medium ${ecart > 0 ? "text-red-400" : "text-green-400"}`}
                       >
@@ -358,7 +356,7 @@ function TresorerietPage() {
                 })}
                 {safeImpayesFournisseurs.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-8 px-2 text-center text-text-dim">
+                    <td colSpan={4} className="py-8 px-2 text-center text-text-dim">
                       Aucun impayé-fournisseur disponible dans le DW
                     </td>
                   </tr>
