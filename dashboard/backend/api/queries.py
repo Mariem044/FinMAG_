@@ -168,9 +168,10 @@ def _build_dynamic_filters(
         params["p_segment"] = c_segment
 
     c_depot = _clean_filter(depot)
-    if c_depot and aliases.get("depot"):
+    if c_depot:
         if "central" in c_depot.lower():
-            clauses.append(f"AND {aliases['depot']}.DE_Principal = 1")
+            if aliases.get("depot"):
+                clauses.append(f"AND {aliases['depot']}.DE_Principal = 1")
         else:
             depot_region = c_depot.replace("Depot ", "").replace("Dépôt ", "").split(" ")[0]
             if aliases.get("client") and depot_region != "Tous":
@@ -369,25 +370,20 @@ def run_ml_endpoint():
 def get_ml_forecast_ca():
     try:
         rows = _rows("""
-            SELECT
-                model_name,
+            SELECT TOP 50
                 CONVERT(VARCHAR(10), ds, 23) AS ds,
-                yhat, yhat_lower, yhat_upper, is_historical,
-                mape, mae
+                yhat, yhat_lower, yhat_upper, is_historical
             FROM ML_KPI05_CA_FORECAST WITH (NOLOCK)
             WHERE run_date = (SELECT MAX(run_date) FROM ML_KPI05_CA_FORECAST WITH (NOLOCK))
-            ORDER BY model_name, ds
+            ORDER BY ds
         """)
         return [
             {
-                "model_name": r.model_name.strip() if hasattr(r, 'model_name') else "PROPHET",
                 "ds": r.ds,
                 "yhat": _num(r.yhat),
                 "yhat_lower": _num(r.yhat_lower),
                 "yhat_upper": _num(r.yhat_upper),
                 "is_historical": int(r.is_historical),
-                "mape": _num(r.mape) if hasattr(r, 'mape') else 0.0,
-                "mae": _num(r.mae) if hasattr(r, 'mae') else 0.0,
             }
             for r in rows
         ]
@@ -948,18 +944,35 @@ def get_ca_by_region(
 
 
 @app.get("/api/tresorerie/summary")
-def get_tresorerie_summary():
-   
-    sql = """
+def get_tresorerie_summary(
+    year: int = None,
+    quarter: str = None,
+    month: str = None,
+    region: str = None,
+    famille: str = None,
+    segment: str = None,
+    depot: str = None,
+    source: str = None,
+):
+    filt_sql, filt_params = _build_dynamic_filters(
+        year=year, quarter=quarter, month=month, region=region, famille=famille,
+        segment=segment, depot=depot, source=source,
+        aliases={"date": "d", "client": "c", "segment": "s"}
+    )
+    sql = f"""
         WITH deduped AS (
             SELECT
-                RT_Num,
-                MAX(RT_Montant)         AS RT_Montant,
-                MAX(DR_Regle)           AS DR_Regle,
-                MAX(delai_reel_jours)   AS delai_reel_jours
-            FROM FAIT_REGLEMENTS
-            WHERE RT_Num IS NOT NULL AND id_client IS NOT NULL
-            GROUP BY RT_Num
+                r.RT_Num,
+                MAX(r.RT_Montant)         AS RT_Montant,
+                MAX(r.DR_Regle)           AS DR_Regle,
+                MAX(r.delai_reel_jours)   AS delai_reel_jours
+            FROM FAIT_REGLEMENTS r
+            LEFT JOIN DIM_DATE d ON d.id_date = r.id_date_paiement
+            LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
+            LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+            WHERE r.RT_Num IS NOT NULL AND r.id_client IS NOT NULL
+            {filt_sql}
+            GROUP BY r.RT_Num
         )
         SELECT
             SUM(CASE WHEN DR_Regle = 1 THEN RT_Montant ELSE 0 END) AS encaissements,
@@ -967,7 +980,7 @@ def get_tresorerie_summary():
             AVG(CAST(delai_reel_jours AS FLOAT)) AS delai_moyen
         FROM deduped
     """
-    row = _row(sql)
+    row = _row(sql, filt_params)
     encaissements = _num(row.encaissements)
     impayes = _num(row.impayes)
     total = encaissements + impayes
@@ -980,29 +993,51 @@ def get_tresorerie_summary():
 
 
 @app.get("/api/tresorerie/impayes")
-def get_impayes():
-    sql = """
+def get_impayes(
+    year: int = None,
+    quarter: str = None,
+    month: str = None,
+    region: str = None,
+    famille: str = None,
+    segment: str = None,
+    depot: str = None,
+    source: str = None,
+):
+    filt_sql, filt_params = _build_dynamic_filters(
+        year=year, quarter=quarter, month=month, region=region, famille=famille,
+        segment=segment, depot=depot, source=source,
+        aliases={"date": "d", "client": "c", "segment": "s"}
+    )
+    sql = f"""
         WITH buckets AS (
             SELECT DISTINCT
-                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delai_reel_jours) OVER ()
+                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY r.delai_reel_jours) OVER ()
                     AS p50,
-                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delai_reel_jours) OVER () * 6
+                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY r.delai_reel_jours) OVER () * 6
                     AS p50x6,
-                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delai_reel_jours) OVER () * 18
+                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY r.delai_reel_jours) OVER () * 18
                     AS p50x18
-            FROM FAIT_REGLEMENTS
-            WHERE delai_reel_jours > 0 AND DR_Regle = 0
+            FROM FAIT_REGLEMENTS r
+            LEFT JOIN DIM_DATE d ON d.id_date = r.id_date_paiement
+            LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
+            LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+            WHERE r.delai_reel_jours > 0 AND r.DR_Regle = 0
+            {filt_sql}
         ),
         deduped AS (
             SELECT
-                id_client,
-                RT_Num,
-                MAX(RT_Montant) AS RT_Montant,
-                MAX(delai_reel_jours) AS delai_reel_jours,
-                MAX(DR_Regle) AS DR_Regle
-            FROM FAIT_REGLEMENTS
-            WHERE id_client IS NOT NULL
-            GROUP BY id_client, RT_Num
+                r.id_client,
+                r.RT_Num,
+                MAX(r.RT_Montant) AS RT_Montant,
+                MAX(r.delai_reel_jours) AS delai_reel_jours,
+                MAX(r.DR_Regle) AS DR_Regle
+            FROM FAIT_REGLEMENTS r
+            LEFT JOIN DIM_DATE d ON d.id_date = r.id_date_paiement
+            LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
+            LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+            WHERE r.id_client IS NOT NULL
+            {filt_sql}
+            GROUP BY r.id_client, r.RT_Num
         )
         SELECT
             c.CT_Num_code,
@@ -1037,13 +1072,27 @@ def get_impayes():
                 else "Normal"
             ),
         }
-        for r in _rows(sql)
+        for r in _rows(sql, filt_params)
     ]
 
 
 @app.get("/api/tresorerie/impayes-fournisseurs")
-def get_impayes_fournisseurs():
-    sql = """
+def get_impayes_fournisseurs(
+    year: int = None,
+    quarter: str = None,
+    month: str = None,
+    region: str = None,
+    famille: str = None,
+    segment: str = None,
+    depot: str = None,
+    source: str = None,
+):
+    filt_sql, filt_params = _build_dynamic_filters(
+        year=year, quarter=quarter, month=month, region=region, famille=famille,
+        segment=segment, depot=depot, source=source,
+        aliases={"date": "d", "client": "c", "segment": "s"}
+    )
+    sql = f"""
         SELECT 
             f.CT_Num_code,
             f.CT_Intitule,
@@ -1053,8 +1102,12 @@ def get_impayes_fournisseurs():
         FROM FAIT_REGLEMENTS r
         JOIN DIM_FOURNISSEUR f ON f.id_fournisseur = r.id_fournisseur
         LEFT JOIN DIM_DATE dt_pai ON dt_pai.id_date = r.id_date_paiement
+        LEFT JOIN DIM_DATE d ON d.id_date = r.id_date_paiement
+        LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
+        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
         WHERE r.DR_Regle = 0
         AND r.id_fournisseur IS NOT NULL
+        {filt_sql}
         GROUP BY f.CT_Num_code, f.CT_Intitule
         HAVING SUM(r.RT_Montant) > 0
         ORDER BY montant_impaye DESC
@@ -1071,22 +1124,42 @@ def get_impayes_fournisseurs():
                 else "En cours"
             ),
         }
-        for r in _rows(sql)
+        for r in _rows(sql, filt_params)
     ]
 
+
 @app.get("/api/tresorerie/encaissements-by-mode")
-def get_encaissements_by_mode():
-    sql = """
+def get_encaissements_by_mode(
+    year: int = None,
+    quarter: str = None,
+    month: str = None,
+    region: str = None,
+    famille: str = None,
+    segment: str = None,
+    depot: str = None,
+    source: str = None,
+):
+    filt_sql, filt_params = _build_dynamic_filters(
+        year=year, quarter=quarter, month=month, region=region, famille=famille,
+        segment=segment, depot=depot, source=source,
+        aliases={"date": "d", "client": "c", "segment": "s"}
+    )
+    sql = f"""
         WITH deduped AS (
             SELECT
-                id_client,
-                id_fournisseur,
-                id_mode_reg,
-                DR_ModeReg,
-                DR_Regle,
-                RT_Rapproche,
-                RT_Montant
-            FROM FAIT_REGLEMENTS
+                r.id_client,
+                r.id_fournisseur,
+                r.id_mode_reg,
+                r.DR_ModeReg,
+                r.DR_Regle,
+                r.RT_Rapproche,
+                r.RT_Montant
+            FROM FAIT_REGLEMENTS r
+            LEFT JOIN DIM_DATE d ON d.id_date = r.id_date_paiement
+            LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
+            LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+            WHERE 1=1
+            {filt_sql}
         )
         SELECT
             COALESCE(m.libelle_mode_reg, CONCAT('Mode ', r.DR_ModeReg)) AS mode,
@@ -1109,14 +1182,27 @@ def get_encaissements_by_mode():
             "grt": _num(r.grt),
             "rapprochement": round(_num(r.rapprochement)),
         }
-        for r in _rows(sql)
+        for r in _rows(sql, filt_params)
     ]
 
 
 @app.get("/api/tresorerie/aging")
-def get_aging():
-
-    sql = """
+def get_aging(
+    year: int = None,
+    quarter: str = None,
+    month: str = None,
+    region: str = None,
+    famille: str = None,
+    segment: str = None,
+    depot: str = None,
+    source: str = None,
+):
+    filt_sql, filt_params = _build_dynamic_filters(
+        year=year, quarter=quarter, month=month, region=region, famille=famille,
+        segment=segment, depot=depot, source=source,
+        aliases={"date": "d", "client": "c", "segment": "s"}
+    )
+    sql = f"""
         SELECT 
             COALESCE(MAX(c.CT_Intitule), CONVERT(VARCHAR(30), c.CT_Num_code)) AS client,
             SUM(CASE WHEN r.bucket_impaye = 0 THEN r.RT_Montant ELSE 0 END) AS b0,
@@ -1125,8 +1211,11 @@ def get_aging():
             SUM(CASE WHEN r.bucket_impaye = 3 THEN r.RT_Montant ELSE 0 END) AS b3
         FROM FAIT_REGLEMENTS r
         LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
+        LEFT JOIN DIM_DATE d ON d.id_date = r.id_date_paiement
+        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
         WHERE r.id_client IS NOT NULL
         AND r.DR_Regle = 0
+        {filt_sql}
         GROUP BY c.CT_Num_code
         ORDER BY b3 DESC
     """
@@ -1138,7 +1227,7 @@ def get_aging():
             "61-90j": _num(r.b2),
             ">90j": _num(r.b3),
         }
-        for r in _rows(sql)
+        for r in _rows(sql, filt_params)
     ]
 
 
