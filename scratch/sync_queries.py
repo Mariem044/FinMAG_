@@ -1,11 +1,14 @@
 import shutil
 import os
 
-src = "etl/api/queries.py"
-dst = "dashboard/backend/api/queries.py"
+src = r"c:\Users\marie\Desktop\myProject\FINMAG\dashboard\backend\api\queries.py"
+dst = r"c:\Users\marie\Desktop\myProject\FINMAG\etl\api\queries.py"
 
-if os.path.exists(src):
-    shutil.copy(src, dst)
-    print(f"Copied {src} to {dst} successfully!")
-else:
-    print(f"Source file {src} not found.")
+# Back up the destination file first to be safe
+backup = dst + ".bak"
+shutil.copy2(dst, backup)
+print("Backed up etl/api/queries.py to", backup)
+
+# Overwrite destination file with source
+shutil.copy2(src, dst)
+print("Successfully synced queries.py from dashboard/backend/api to etl/api!")

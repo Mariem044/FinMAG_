@@ -63,7 +63,6 @@ def _train_and_forecast_fallback(df: pd.DataFrame, horizon: int) -> pd.DataFrame
     t = np.arange(n_obs)
     y = df["y"].values.astype(float)
     
-    # 1. Fit linear trend: y = alpha * t + beta
     if n_obs >= 2:
         alpha, beta = np.polyfit(t, y, 1)
     else:
@@ -71,7 +70,6 @@ def _train_and_forecast_fallback(df: pd.DataFrame, horizon: int) -> pd.DataFrame
     
     trend = alpha * t + beta
     
-    # 2. Multiplicative seasonal indices
     trend_safe = np.where(trend <= 0, 1e-5, trend)
     seasonal_ratios = y / trend_safe
     
@@ -79,19 +77,16 @@ def _train_and_forecast_fallback(df: pd.DataFrame, horizon: int) -> pd.DataFrame
     df_temp["ratio"] = seasonal_ratios
     df_temp["month"] = df_temp["ds"].dt.month
     
-    # Average ratio per calendar month
     monthly_seasonality = df_temp.groupby("month")["ratio"].mean().to_dict()
     for m in range(1, 13):
         if m not in monthly_seasonality:
             monthly_seasonality[m] = 1.0
             
-    # Normalize seasonal indices to average to 1.0
     mean_ratio = np.mean(list(monthly_seasonality.values()))
     if mean_ratio > 0:
         for m in monthly_seasonality:
             monthly_seasonality[m] /= mean_ratio
             
-    # 3. Create future dates
     last_ds = df["ds"].max()
     future_dates = [last_ds + pd.DateOffset(months=i) for i in range(1, horizon + 1)]
     future_df = pd.DataFrame({"ds": future_dates})
@@ -101,15 +96,12 @@ def _train_and_forecast_fallback(df: pd.DataFrame, horizon: int) -> pd.DataFrame
     full_df["t"] = np.arange(len(full_df))
     full_df["month"] = full_df["ds"].dt.month
     
-    # 4. Predict
     pred_trend = alpha * full_df["t"].values + beta
     full_df["yhat"] = pred_trend * full_df["month"].map(monthly_seasonality)
     
-    # Residuals standard deviation to compute confidence bounds
     residuals = y - (trend * df_temp["month"].map(monthly_seasonality))
     std_err = np.std(residuals) if len(residuals) > 1 else 0.1 * np.mean(y) if len(y) > 0 else 1.0
     
-    # 80% confidence interval: yhat +/- 1.28 * std_err
     full_df["yhat_lower"] = full_df["yhat"] - 1.28 * std_err
     full_df["yhat_upper"] = full_df["yhat"] + 1.28 * std_err
     

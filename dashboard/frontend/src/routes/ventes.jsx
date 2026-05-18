@@ -35,7 +35,7 @@ function VentesPage() {
   const caByMonthFn = useMemo(() => () => api.ventes.caByMonth(year), [year, segment, depot, source]);
   const caByRegionFn = useMemo(() => () => api.ventes.caByRegion(year), [year, segment, depot, source]);
   const topFamillesFn = useMemo(
-    () => () => api.ventes.topFamilles(),
+    () => () => api.ventes.topFamilles(year),
     [year, segment, depot, source],
   );
   
@@ -57,7 +57,6 @@ function VentesPage() {
     () =>
       monthlyRows
         .filter(Boolean)
-        .filter((_, i) => activeIdx.includes(i))
         .map((m) => ({
           ...m,
           month: m.month || "",
@@ -65,7 +64,7 @@ function VentesPage() {
           objectif: Math.round(toNumber(m.objectif)),
           caN1: Math.round(toNumber(m.caN1)),
         })),
-    [activeIdxKey, monthlyRows],
+    [monthlyRows],
   );
 
 
@@ -158,7 +157,7 @@ function VentesPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="line"
-          key={`${segment}-${depot}-${source}-${activeIdxKey}`}
+          key={`ca-evo-${year}-${segment}-${depot}-${source}-${activeIdxKey}`}
           title="Évolution du CA : Réel vs Objectif vs N-1"
         >
           <ResponsiveContainer width="100%" height={chartH}>
@@ -203,7 +202,12 @@ function VentesPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="bar" title="Top familles de produits par CA">
+        <ChartCard
+          loading={chartsLoading}
+          skeleton="bar"
+          key={`top-familles-${year}-${segment}-${depot}-${source}`}
+          title="Top familles de produits par CA"
+        >
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={topFamilles} layout="vertical">
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" horizontal={false} />
@@ -233,6 +237,7 @@ function VentesPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
+          key={`ca-region-${year}-${segment}-${depot}-${source}`}
           title={`CA par region${depot !== "Tous" ? ` - ${depot}` : ""}`}
         >
           <ResponsiveContainer width="100%" height={chartH}>

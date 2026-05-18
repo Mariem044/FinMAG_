@@ -1,14 +1,3 @@
-"""
-ML Runner — orchestrate all predictive KPIs
-============================================
-Runs all 5 ML models in dependency order.
-Can be called from the ETL pipeline, a cron job, or manually.
-
-Usage:
-    python -m ml.runner                  # run all
-    python -m ml.runner --kpi 05 18      # run specific KPIs
-    python -m ml.runner --skip 11        # skip XGBoost if not installed
-"""
 from __future__ import annotations
 
 import argparse
@@ -21,7 +10,7 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Ordered list: (kpi_id, module_path, default_kwargs)
+
 _KPI_REGISTRY = [
     ("05", "ml.kpi05_ca_forecast",        {"horizon": 12}),
     ("11", "ml.kpi11_tresorerie_forecast", {"horizon": 90}),
@@ -35,18 +24,7 @@ def run_all(
     only: Optional[list[str]] = None,
     skip: Optional[list[str]] = None,
 ) -> dict[str, str]:
-    """
-    Run all registered ML KPIs.
-
-    Parameters
-    ----------
-    only : list of KPI IDs to run exclusively (e.g. ['05', '18'])
-    skip : list of KPI IDs to skip
-
-    Returns
-    -------
-    dict mapping kpi_id → 'OK' | 'SKIPPED' | 'ERROR: <msg>'
-    """
+    
     results: dict[str, str] = {}
     only = only or []
     skip = skip or []
@@ -80,7 +58,7 @@ def run_all(
             results[kpi_id] = f"ERROR: {exc}"
             logger.error(f"[ML Runner] KPI-{kpi_id} FAILED: {exc}\n{traceback.format_exc()}")
 
-    # Summary
+    
     logger.info("[ML Runner] ══ Summary ══")
     for kpi_id, status in results.items():
         logger.info(f"  KPI-{kpi_id}: {status}")

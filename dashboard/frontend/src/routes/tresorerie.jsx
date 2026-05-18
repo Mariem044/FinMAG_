@@ -34,17 +34,26 @@ const toNumber = (value) => Number(value) || 0;
 function TresorerietPage() {
   const { modePaiement, horizonPrev, getActiveMonthIndexes, segment, depot, source } = useFilters();
 
-  const { data: summary, loading: summaryLoading } = useApiResource(api.tresorerie.summary, {
-    encaissements: 0,
-    impayes: 0,
-    delai_moyen: 0,
-    taux_recouvrement: 0,
-  });
+  const { data: summary, loading: summaryLoading } = useApiResource(
+    api.tresorerie.summary,
+    {
+      encaissements: 0,
+      impayes: 0,
+      delai_moyen: 0,
+      taux_recouvrement: 0,
+    },
+    [modePaiement, horizonPrev, segment, depot, source]
+  );
   const { data: encaissementsData, loading: encaissementsLoading } = useApiResource(
     api.tresorerie.encaissementsByMode,
     [],
+    [modePaiement, horizonPrev, segment, depot, source]
   );
-  const { data: agingData, loading: agingLoading } = useApiResource(api.tresorerie.aging, []);
+  const { data: agingData, loading: agingLoading } = useApiResource(
+    api.tresorerie.aging,
+    [],
+    [modePaiement, horizonPrev, segment, depot, source]
+  );
 
   const activeIdx = getActiveMonthIndexes();
   const activeIdxKey = activeIdx.join("");
@@ -123,7 +132,11 @@ function TresorerietPage() {
       ? Math.round(summary.taux_recouvrement || 0)
       : (encaissementsMode[0]?.rapprochement ?? 0);
 
-  const { data: impayesFournisseurs } = useApiResource(api.tresorerie.impayesFournisseurs, []);
+  const { data: impayesFournisseurs } = useApiResource(
+    api.tresorerie.impayesFournisseurs,
+    [],
+    [modePaiement, horizonPrev, segment, depot, source]
+  );
   const impayesFournisseurRows = Array.isArray(impayesFournisseurs) ? impayesFournisseurs : [];
   const safeImpayesFournisseurs = useMemo(
     () =>
@@ -187,7 +200,7 @@ function TresorerietPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="pie"
-          key={`${modePaiement}-${horizonPrev}-${source}-${activeIdxKey}`}
+          key={`${modePaiement}-${horizonPrev}-${source}-${activeIdxKey}-${depot}-${segment}`}
           title={`Encaissements par mode — ${source}${modePaiement !== "Tous" ? ` (${modePaiement})` : ""}`}
         >
           <div className="grid grid-cols-2 gap-2 h-[280px]">
@@ -233,6 +246,7 @@ function TresorerietPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
+          key={`forecast-${modePaiement}-${horizonPrev}-${source}-${depot}-${segment}`}
           title="Flux de Trésorerie Prévisionnel"
         >
           <ResponsiveContainer width="100%" height={chartH}>
@@ -274,6 +288,7 @@ function TresorerietPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
+          key={`aging-${modePaiement}-${horizonPrev}-${source}-${depot}-${segment}`}
           title="Vieillissement des créances — Aging"
         >
           <ResponsiveContainer width="100%" height={chartH}>
@@ -302,6 +317,7 @@ function TresorerietPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="table"
+          key={`impayes-fourn-${modePaiement}-${horizonPrev}-${source}-${depot}-${segment}`}
           title="Impayés fournisseurs & Délais"
         >
           <div className="overflow-auto max-h-[280px]">

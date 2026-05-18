@@ -77,20 +77,8 @@ const DOMAIN_EXTRA = {
       options: ["Tous", "Chèque", "Traite", "Virement"],
     },
   ],
-  "/acteurs": [
-    {
-      storeKey: "segment",
-      labelKey: "filters.segment",
-      options: ["Tous", "Grand compte", "PME", "Petit client"],
-    },
-  ],
-  "/ventes": [
-    {
-      storeKey: "segment",
-      labelKey: "filters.segment",
-      options: ["Tous", "Grand compte", "PME", "Petit client"],
-    },
-  ],
+  "/acteurs": [],
+  "/ventes": [],
 };
 
 const FILTER_LABELS = {

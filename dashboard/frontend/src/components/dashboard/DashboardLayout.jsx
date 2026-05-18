@@ -6,7 +6,7 @@ import { DataSourceStatus } from "./DataSourceStatus";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useSyncFiltersWithUrl } from "@/store/useFilters";
 
-const NO_FILTER_PAGES = ["/", "/parametres", "/aide", "/profil", "/assistant", "/predictions"];
+const NO_FILTER_PAGES = ["/parametres", "/aide", "/profil", "/assistant"];
 
 export function DashboardLayout() {
   const location = useLocation();

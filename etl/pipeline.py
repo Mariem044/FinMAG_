@@ -429,7 +429,6 @@ def _assemble_fait_reglements(
         .assign(RT_NbJour=lambda d: d["RT_NbJour_contrat"])
     )
 
-    # Derive DR_Regle from RT_Etat when docregl join yields NULL
     if "RT_Etat" in df.columns:
         df["DR_Regle"] = df.apply(
             lambda row: (1 if row.get("RT_Etat") == RT_ETAT_SOLDE else 0)
@@ -581,10 +580,7 @@ def _assemble_dim_banque(lookups: Dict) -> pd.DataFrame:
     )
 
 
-# ---------------------------------------------------------------------------
-# FIX 1: _normalize_ecriturec — explicit float64 cast + whitespace stripping
-# This prevents Decimal/object columns from becoming NaN/0 after to_numeric.
-# ---------------------------------------------------------------------------
+
 def _normalize_ecriturec(df: pd.DataFrame, source_name: str) -> pd.DataFrame:
     df = _ensure_columns(df, {
         "JO_Num": None,
@@ -603,8 +599,7 @@ def _normalize_ecriturec(df: pd.DataFrame, source_name: str) -> pd.DataFrame:
     df["CG_Num"] = pd.to_numeric(df["CG_Num"], errors="coerce").astype("Int64")
     df["EC_Sens"] = pd.to_numeric(df["EC_Sens"], errors="coerce").astype("Int16")
 
-    # FIX: strip formatting characters (spaces, non-breaking spaces, commas)
-    # before numeric conversion — Sage sometimes returns amounts as formatted strings
+    
     ec_montant_raw = df["EC_Montant"]
     if ec_montant_raw.dtype == object:
         ec_montant_raw = (
@@ -728,10 +723,7 @@ def _assemble_fait_ecritures(
         .rename(columns={"MC_Date": "EC_Date"})
     )
 
-    # ---------------------------------------------------------------------------
-    # FIX 3: artstock — ensure typed empty df + explicit numeric casts so
-    # add_fact_ecritures_calcs never KeyErrors on an empty/untyped DataFrame.
-    # ---------------------------------------------------------------------------
+    
     artstock = extract.extract_fait_artstock()
     if artstock.empty:
         logger.warning(

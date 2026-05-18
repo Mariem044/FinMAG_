@@ -47,7 +47,7 @@ function OverviewPage() {
   const caByMonthFn = useMemo(() => () => api.dashboard.caByMonth(year), [year, segment, depot, source]);
   const caByRegionFn = useMemo(() => () => api.dashboard.caByRegion(year), [year, segment, depot, source]);
   const topFamillesFn = useMemo(
-    () => () => api.dashboard.topFamilles(),
+    () => () => api.dashboard.topFamilles(year),
     [year, segment, depot, source],
   );
   const { data: kpis, loading: kpisApiLoading } = useApiResource(kpisFn, {
@@ -119,7 +119,12 @@ function OverviewPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ChartCard loading={chartsLoading} skeleton="line" title="Évolution mensuelle du CA">
+        <ChartCard
+          loading={chartsLoading}
+          skeleton="line"
+          key={`ca-month-${year}-${segment}-${depot}-${source}`}
+          title="Évolution mensuelle du CA"
+        >
           <ResponsiveContainer width="100%" height={chartH}>
             <LineChart data={caByMonth}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -142,7 +147,12 @@ function OverviewPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="bar" title="Top familles par CA">
+        <ChartCard
+          loading={chartsLoading}
+          skeleton="bar"
+          key={`top-familles-${year}-${segment}-${depot}-${source}`}
+          title="Top familles par CA"
+        >
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={topFamilles.slice(0, 5).map(f => ({...f, name: (f.name||'').length > 18 ? (f.name||'').substring(0,18)+'…' : f.name}))} layout="vertical">
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" horizontal={false} />
@@ -165,7 +175,12 @@ function OverviewPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="pie" title="Répartition CA par région">
+        <ChartCard
+          loading={chartsLoading}
+          skeleton="pie"
+          key={`ca-region-${year}-${segment}-${depot}-${source}`}
+          title="Répartition CA par région"
+        >
           <ResponsiveContainer width="100%" height={chartH}>
             <PieChart>
               <Pie
@@ -194,7 +209,12 @@ function OverviewPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="line" title="Ventes vs Objectifs">
+        <ChartCard
+          loading={chartsLoading}
+          skeleton="line"
+          key={`ventes-obj-${year}-${segment}-${depot}-${source}`}
+          title="Ventes vs Objectifs"
+        >
           <ResponsiveContainer width="100%" height={chartH}>
             <AreaChart data={caByMonth}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />

@@ -154,8 +154,8 @@ function BanquePage() {
   }, [activeBanques, activeModes, breakdownApi]);
 
   const rapprochData = useMemo(
-    () => rapprochementApi.filter((_, i) => activeIdx.includes(i)),
-    [activeIdxKey, rapprochementApi],
+    () => rapprochementApi,
+    [rapprochementApi],
   );
 
   const currentTaux =

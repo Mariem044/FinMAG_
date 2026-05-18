@@ -79,10 +79,7 @@ AUDIT_TABLE_NAME:  str = os.environ.get("ETL_AUDIT_TABLE", "ETL_AUDIT")
 ERROR_MSG_MAX_LEN: int = int(os.environ.get("ETL_ERROR_MSG_MAX_LEN", "500"))
 SEUIL_TENSION_STOCK: float = float(os.environ.get("SEUIL_TENSION_STOCK", "0.5"))
 
-# ── hash configuration ───────────────────────────────────────────────────────
-# ETL_HASH_BYTES must be >= 8 to avoid birthday-paradox collisions on large
-# datasets. With 4 bytes (31 bits of usable range) collisions are expected
-# around 55,000 rows; 8 bytes (63 bits) raises that threshold to ~4.3 billion.
+
 _HASH_BYTES: int = int(os.environ.get("ETL_HASH_BYTES", "8"))
 if _HASH_BYTES < 8:
     raise ValueError(
@@ -92,15 +89,7 @@ if _HASH_BYTES < 8:
 
 
 def hash_key(value: Optional[str | int | float]) -> Optional[int]:
-    """
-    Compute a stable surrogate key for a natural key value.
-
-    Uses the first _HASH_BYTES bytes of SHA-256 (big-endian, sign-masked)
-    so the result fits in a SQL Server BIGINT column without overflow.
-    The mask strips the sign bit so all values are positive.
-
-    Returns None for NULL/NaN/empty inputs.
-    """
+    
     if value is None:
         return None
     try:

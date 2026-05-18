@@ -212,7 +212,7 @@ def _layer3_ml(open_df: pd.DataFrame, hist_df: pd.DataFrame, horizon: int) -> pd
         pd.to_numeric(hist_df["delai_reel_jours"], errors="coerce").fillna(999) <= horizon
     ).astype(int)
 
-    # Fallback if XGBoost is missing
+    
     try:
         from xgboost import XGBClassifier
     except ImportError:

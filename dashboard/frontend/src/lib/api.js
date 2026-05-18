@@ -98,12 +98,12 @@ const _mlLogs = () => get("/api/ml/logs");
 
 const _dashboardKpis = (year) => get(`/api/dashboard/kpis${year ? `?year=${year}` : ""}`);
 const _dashboardCaByMonth = (year) => get(`/api/ventes/ca-by-month${year ? `?year=${year}` : ""}`);
-const _dashboardTopFamilles = () => get("/api/ventes/top-familles");
+const _dashboardTopFamilles = (year) => get(`/api/ventes/top-familles${year ? `?year=${year}` : ""}`);
 const _dashboardCaByRegion = (year) =>
   get(`/api/ventes/ca-by-region${year ? `?year=${year}` : ""}`);
 
 const _ventesCaByMonth = (year) => get(`/api/ventes/ca-by-month${year ? `?year=${year}` : ""}`);
-const _ventesTopFamilles = () => get("/api/ventes/top-familles");
+const _ventesTopFamilles = (year) => get(`/api/ventes/top-familles${year ? `?year=${year}` : ""}`);
 const _ventesCaByRegion = (year) => get(`/api/ventes/ca-by-region${year ? `?year=${year}` : ""}`);
 const _tresorerieSummary = () => get("/api/tresorerie/summary");
 const _tresorerieImpayes = () => get("/api/tresorerie/impayes");

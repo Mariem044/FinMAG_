@@ -107,7 +107,7 @@ def _predict_consumption(sales_df: pd.DataFrame) -> pd.DataFrame:
             alpha, beta = np.polyfit(t, y, 1)
             y_pred = alpha * t + beta
             
-            # R2 score calculation
+            
             ss_res = np.sum((y - y_pred) ** 2)
             ss_tot = np.sum((y - np.mean(y)) ** 2)
             r2 = max(0.0, 1 - (ss_res / ss_tot)) if ss_tot > 0 else 0.0
@@ -186,14 +186,14 @@ def _compute_rupture_dates(
 
     df["priorite"] = df.apply(_priorite, axis=1)
     
-    # Rename columns to match user's expected schema
+    
     df = df.rename(columns={
         "AR_Ref_code": "article",
         "stock_actuel": "stockActuel",
         "stock_mini": "stockSecurite"
     })
     
-    # Ensure article is a string like "ART-..."
+    
     df["article"] = "ART-" + df["article"].astype(str)
 
     return df
