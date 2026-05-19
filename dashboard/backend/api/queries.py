@@ -1462,22 +1462,26 @@ def get_fiscalite_kpis(
         aliases={"date": "d"}
     )
     sql_kpis = f"""
+        WITH stats AS (
+            SELECT 
+                AVG(ABS(EC_Montant))  AS avg_montant,
+                STDEV(ABS(EC_Montant)) AS stdev_montant
+            FROM FAIT_ECRITURES
+            WHERE EC_Montant IS NOT NULL
+        )
         SELECT
             SUM(CASE WHEN e.grain IN (1, 2) THEN 1 ELSE 0 END) AS nb_ecritures,
             SUM(CASE WHEN e.grain = 2 AND j.JO_Type = 0 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS tva_collectee,
             SUM(CASE WHEN e.grain = 2 AND j.JO_Type = 1 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS tva_deductible,
             SUM(CASE
                 WHEN e.grain = 1
-                AND ABS(COALESCE(e.EC_Montant, 0)) >= (
-                    SELECT AVG(ABS(EC_Montant)) + STDEV(ABS(EC_Montant))
-                    FROM FAIT_ECRITURES
-                    WHERE EC_Montant IS NOT NULL
-                )
+                AND ABS(COALESCE(e.EC_Montant, 0)) >= stats.avg_montant + 2 * stats.stdev_montant
                 THEN 1 ELSE 0
             END) AS anomalies
         FROM FAIT_ECRITURES e
         LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
         LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
+        CROSS JOIN stats
         WHERE 1=1
         {filt_sql}
     """

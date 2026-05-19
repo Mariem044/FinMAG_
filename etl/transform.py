@@ -19,13 +19,27 @@ def transform_dim_date(df):
 
 
 def add_fact_reglements_calcs(df):
-    """Calcule le délai de paiement réel en jours."""
+    """Calcule le délai de paiement réel en jours et le bucket impayé."""
     df = df.copy()
     df["RT_Date"]         = pd.to_datetime(df["RT_Date"], errors="coerce")
     df["DO_Date"]         = pd.to_datetime(df["DO_Date"], errors="coerce")
     df["RT_NbJour"]       = pd.to_numeric(df["RT_NbJour"], errors="coerce").fillna(0)
     df["delai_reel_jours"]= (df["RT_Date"] - df["DO_Date"]).dt.days
     df["ecart_delai"]     = df["delai_reel_jours"] - df["RT_NbJour"]
+    
+    if "LB_EcheanceReg" in df.columns:
+        echeance = pd.to_datetime(df["LB_EcheanceReg"], errors="coerce")
+        today = pd.Timestamp.now()
+        days_overdue = (today - echeance).dt.days
+        bucket = pd.cut(
+            days_overdue,
+            bins=[-float("inf"), 30, 60, 90, float("inf")],
+            labels=[0, 1, 2, 3]
+        )
+        df["bucket_impaye"] = bucket
+    else:
+        df["bucket_impaye"] = None
+        
     return df
 
 
