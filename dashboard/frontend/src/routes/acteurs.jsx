@@ -52,18 +52,18 @@ function EmptyState({ message = "Aucune donnée pour ce filtre" }) {
 }
 
 function ActeursPage() {
-  const { year, segment, depot } = useFilters();
+  const { year, quarter, segment, depot } = useFilters();
 
   // useMemo est OBLIGATOIRE ici :
   // useApiResource re-fetch seulement quand fetcherFn change de référence.
   // Sans useMemo, la fonction est recréée à chaque render MAIS avec la même identité
   // (non-stable), ce qui causerait une boucle infinie.
-  // Avec useMemo([year]), la fonction change seulement quand year change.
+  // Avec useMemo([year, quarter, segment, depot]), la fonction change seulement quand year, quarter, segment ou depot change.
   // Le filtre segment/depot est appliqué côté JS dans filteredClients ci-dessous.
-  const clientsFn = useMemo(() => api.acteurs.clients, [year]);
-  const agingFn   = useMemo(() => api.acteurs.aging,   [year]);
-  const fournisseursFn = useMemo(() => api.acteurs.fournisseurs, [year]);
-  const concentrationFn = useMemo(() => api.acteurs.fournisseurConcentration, [year]);
+  const clientsFn = useMemo(() => api.acteurs.clients, [year, quarter, segment, depot]);
+  const agingFn   = useMemo(() => api.acteurs.aging,   [year, quarter, segment, depot]);
+  const fournisseursFn = useMemo(() => api.acteurs.fournisseurs, [year, quarter, segment, depot]);
+  const concentrationFn = useMemo(() => api.acteurs.fournisseurConcentration, [year, quarter, segment, depot]);
 
   const { data: clients } = useApiResource(clientsFn, []);
   const { data: agingRows } = useApiResource(agingFn, []);

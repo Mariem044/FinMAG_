@@ -33,8 +33,8 @@ function FinancePage() {
   const fetchCaisses      = useMemo(() => api.caisse.caisses,               [year, quarter, month, depot]);
   const fetchFlux         = useMemo(() => api.caisse.fluxDaily,             [year, quarter, month, depot]);
   const fetchNature       = useMemo(() => api.caisse.mouvementsByType,      [year, quarter, month, depot]);
-  const fetchRapproch     = useMemo(() => api.banque.rapprochement,         [year, quarter, month]);
-  const fetchBreakdown    = useMemo(() => api.banque.rapprochementBreakdown,[year, quarter, month]);
+  const fetchRapproch     = useMemo(() => api.banque.rapprochement,         [year, quarter, month, depot, banque, modeBanque]);
+  const fetchBreakdown    = useMemo(() => api.banque.rapprochementBreakdown,[year, quarter, month, depot, banque, modeBanque]);
 
   const { data: caissesData, loading: caissesLoading }   = useApiResource(fetchCaisses,   []);
   const { data: fluxData,    loading: fluxLoading }       = useApiResource(fetchFlux,      []);

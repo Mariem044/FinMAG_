@@ -28,20 +28,27 @@ function AnomalyDot(props) {
 }
 
 function ComptabilitePage() {
+  const { year, quarter } = useFilters();
   const chartH = useChartHeight();
 
+  const summaryFn = useMemo(() => api.tresorerie.summary, [year, quarter]);
+  const agingFn   = useMemo(() => api.tresorerie.aging,   [year, quarter]);
+  const fiscKpisFn = useMemo(() => api.fiscalite.kpis,   [year, quarter]);
+  const tvaDataFn  = useMemo(() => api.fiscalite.tvaByMonth, [year, quarter]);
+  const anomalyDataFn = useMemo(() => api.fiscalite.anomalies, [year, quarter]);
+
   // ── Trésorerie data ──
-  const { data: summary, loading: summaryLoading } = useApiResource(api.tresorerie.summary, {
+  const { data: summary, loading: summaryLoading } = useApiResource(summaryFn, {
     encaissements: 0, impayes: 0, delai_moyen: 0, taux_recouvrement: 0,
   });
-  const { data: agingData, loading: agingLoading } = useApiResource(api.tresorerie.aging, []);
+  const { data: agingData, loading: agingLoading } = useApiResource(agingFn, []);
 
   // ── Fiscalité data ──
-  const { data: fiscKpis, loading: fiscLoading } = useApiResource(api.fiscalite.kpis, {
+  const { data: fiscKpis, loading: fiscLoading } = useApiResource(fiscKpisFn, {
     nb_ecritures: 0, tva_collectee: 0, tva_deductible: 0, anomalies: 0, equilibre_pct: 0,
   });
-  const { data: tvaData, loading: tvaLoading } = useApiResource(api.fiscalite.tvaByMonth, []);
-  const { data: anomalyData, loading: anomaliesLoading } = useApiResource(api.fiscalite.anomalies, []);
+  const { data: tvaData, loading: tvaLoading } = useApiResource(tvaDataFn, []);
+  const { data: anomalyData, loading: anomaliesLoading } = useApiResource(anomalyDataFn, []);
 
   const kpiLoading = summaryLoading || fiscLoading;
   const chartsLoading = summaryLoading || agingLoading || tvaLoading || anomaliesLoading;

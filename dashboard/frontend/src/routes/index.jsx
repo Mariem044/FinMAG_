@@ -40,12 +40,12 @@ function rotationColor(dsi) {
 }
 
 function OverviewPage() {
-  const { year, segment, depot, source } = useFilters();
+  const { year, quarter, segment, depot, source } = useFilters();
 
-  const kpisFn = useMemo(() => () => api.dashboard.kpis(year), [year, segment, depot, source]);
-  const caByMonthFn = useMemo(() => () => api.dashboard.caByMonth(year), [year, segment, depot, source]);
-  const topFamillesFn = useMemo(() => () => api.dashboard.topFamilles(year), [year, segment, depot, source]);
-  const articlesFn = useMemo(() => () => api.dashboard.articles(year), [year, segment, depot, source]);
+  const kpisFn = useMemo(() => () => api.dashboard.kpis(year), [year, quarter, segment, depot, source]);
+  const caByMonthFn = useMemo(() => () => api.dashboard.caByMonth(year), [year, quarter, segment, depot, source]);
+  const topFamillesFn = useMemo(() => () => api.dashboard.topFamilles(year), [year, quarter, segment, depot, source]);
+  const articlesFn = useMemo(() => () => api.dashboard.articles(year), [year, quarter, segment, depot, source]);
 
   const { data: kpis, loading: kpisLoading } = useApiResource(kpisFn, {
     ca_total: 0,
@@ -160,7 +160,7 @@ function OverviewPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="line"
-          key={`ca-month-${year}-${segment}-${depot}-${source}`}
+          key={`ca-month-${year}`}
           title="Évolution mensuelle du CA : Réel vs Objectif vs N-1"
         >
           <ResponsiveContainer width="100%" height={chartH}>
@@ -207,7 +207,7 @@ function OverviewPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
-          key={`top-familles-${year}-${segment}-${depot}-${source}`}
+          key={`top-familles-${year}`}
           title="Top 5 familles par CA"
         >
           <ResponsiveContainer width="100%" height={chartH}>
@@ -246,7 +246,7 @@ function OverviewPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="scatter"
-          key={`rotation-${year}-${segment}-${depot}`}
+          key={`rotation-${year}`}
           title="Rotation Stocks — DSI vs CA par article"
         >
           <ResponsiveContainer width="100%" height={chartH}>

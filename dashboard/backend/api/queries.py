@@ -398,43 +398,46 @@ def get_dashboard_kpis(
         aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
     )
     
-    if not year:
-        
-        year_res = _row("""
-            SELECT MAX(d.annee) AS annee
-            FROM FAIT_LIGNES_VENTE f
-            JOIN DIM_DATE d ON d.id_date = f.id_date
-            WHERE f.DO_Domaine = 0
-        """)
-        year = year_res.annee if year_res else datetime.now().year
+    max_year_res = _row("""
+        SELECT MAX(d.annee) AS annee
+        FROM FAIT_LIGNES_VENTE f
+        JOIN DIM_DATE d ON d.id_date = f.id_date
+        WHERE f.DO_Domaine = 0
+    """)
+    max_year = max_year_res.annee if max_year_res else datetime.now().year
 
-   
-    meta = _row("""
-        WITH counts AS (
-            SELECT d2.mois, COUNT(*) AS row_cnt
-            FROM FAIT_LIGNES_VENTE f2 WITH (NOLOCK)
-            JOIN DIM_DATE d2 WITH (NOLOCK) ON d2.id_date = f2.id_date
-            WHERE f2.DO_Domaine = 0 AND d2.annee = :year
-            GROUP BY d2.mois
-        ),
-        monthly_stats AS (
-            SELECT AVG(CAST(row_cnt AS FLOAT)) AS avg_rows
-            FROM (
-                SELECT d2.annee, d2.mois, COUNT(*) AS row_cnt
+    if not year:
+        year = max_year
+
+    if year < max_year:
+        latest_month = 12
+    else:
+        meta = _row("""
+            WITH counts AS (
+                SELECT d2.mois, COUNT(*) AS row_cnt
                 FROM FAIT_LIGNES_VENTE f2 WITH (NOLOCK)
                 JOIN DIM_DATE d2 WITH (NOLOCK) ON d2.id_date = f2.id_date
-                WHERE f2.DO_Domaine = 0
-                GROUP BY d2.annee, d2.mois
-            ) counts_all
-        )
-        SELECT
-            COALESCE(MAX(c.mois), 12) AS latest_month
-        FROM counts c
-        CROSS JOIN monthly_stats ms
-        WHERE c.row_cnt >= ms.avg_rows * 0.5
-    """, {"year": year})
+                WHERE f2.DO_Domaine = 0 AND d2.annee = :year
+                GROUP BY d2.mois
+            ),
+            monthly_stats AS (
+                SELECT AVG(CAST(row_cnt AS FLOAT)) AS avg_rows
+                FROM (
+                    SELECT d2.annee, d2.mois, COUNT(*) AS row_cnt
+                    FROM FAIT_LIGNES_VENTE f2 WITH (NOLOCK)
+                    JOIN DIM_DATE d2 WITH (NOLOCK) ON d2.id_date = f2.id_date
+                    WHERE f2.DO_Domaine = 0
+                    GROUP BY d2.annee, d2.mois
+                ) counts_all
+            )
+            SELECT
+                COALESCE(MAX(c.mois), 12) AS latest_month
+            FROM counts c
+            CROSS JOIN monthly_stats ms
+            WHERE c.row_cnt >= ms.avg_rows * 0.5
+        """, {"year": year})
+        latest_month = meta.latest_month if meta and meta.latest_month else 12
     
-    latest_month = meta.latest_month if meta and meta.latest_month else 12
     latest_year = year
 
     sql = f"""
@@ -625,6 +628,14 @@ def get_ca_by_month(
         segment=segment, depot=depot, source=source,
         aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
     )
+    max_year_res = _row("""
+        SELECT MAX(d.annee) AS annee
+        FROM FAIT_LIGNES_VENTE f
+        JOIN DIM_DATE d ON d.id_date = f.id_date
+        WHERE f.DO_Domaine = 0
+    """)
+    max_year = max_year_res.annee if max_year_res else datetime.now().year
+
     year_filter = f"AND d.annee IN ({year}, {year - 1})" if year else ""
     sql = f"""
         WITH monthly_stats AS (
@@ -659,7 +670,11 @@ def get_ca_by_month(
         latest AS (
             SELECT 
                 MAX(m.annee) AS latest_year,
-                MAX(CASE WHEN m.row_cnt >= ms.avg_rows * 0.5 THEN m.mois ELSE 0 END) AS latest_full_month
+                CASE 
+                    WHEN MAX(m.annee) = :max_year
+                    THEN COALESCE(NULLIF(MAX(CASE WHEN m.row_cnt >= ms.avg_rows * 0.5 THEN m.mois ELSE 0 END), 0), 12)
+                    ELSE 12
+                END AS latest_full_month
             FROM monthly m
             CROSS JOIN monthly_stats ms
             WHERE m.annee = (SELECT MAX(annee) FROM monthly)
@@ -675,7 +690,10 @@ def get_ca_by_month(
             FROM monthly m
             CROSS JOIN monthly_stats ms
             CROSS JOIN latest
-            WHERE m.row_cnt >= ms.avg_rows * 0.5
+            WHERE (
+                m.annee < :max_year
+                OR m.row_cnt >= ms.avg_rows * 0.5
+            )
             AND (
                 m.annee < latest.latest_year
                 OR (m.annee = latest.latest_year AND m.mois <= latest.latest_full_month)
@@ -694,11 +712,16 @@ def get_ca_by_month(
         LEFT JOIN monthly prev
             ON prev.annee = r.annee - 1
             AND prev.mois = r.mois
-            AND prev.row_cnt >= ms.avg_rows * 0.1
+            AND (
+                prev.annee < :max_year
+                OR prev.row_cnt >= ms.avg_rows * 0.1
+            )
         WHERE r.annee = latest.latest_year
         ORDER BY r.annee, r.mois
     """
-    rows = _rows(sql, filt_params)
+    params = {"max_year": max_year}
+    params.update(filt_params)
+    rows = _rows(sql, params)
     
     rec_by_month = {}
     if rows:

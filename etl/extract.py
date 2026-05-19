@@ -81,7 +81,7 @@ def extract_dim_client_grt():
     return _read(GRT_ENGINE, sql)
 
 def extract_dim_depot():
-    return _read(MAG_ENGINE, "SELECT DE_No, DE_Principal FROM F_DEPOT")
+    return _read(MAG_ENGINE, "SELECT DE_No, DE_Intitule, DE_Principal FROM F_DEPOT")
 
 def extract_dim_journal():
     return _read(MAG_ENGINE, "SELECT JO_Num, JO_Type FROM F_JOURNAUX")
