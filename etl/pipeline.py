@@ -103,6 +103,7 @@ def run_pipeline():
             "CL_No1": "niveau_0_code",
             "CL_No2": "niveau_1_code",
             "CL_No3": "niveau_2_code",
+            "CL_No4": "niveau_3_code",
         })
         df_fam = df_fam.drop_duplicates(subset=["FA_CodeFamille_code"])
         load.load_dimension(df_fam, "DIM_FAMILLE")
@@ -153,8 +154,9 @@ def run_pipeline():
         df_vente = extract.extract_fait_lignes_vente()
         df_achat = extract.extract_fait_lignes_achat()
         df_flv = pd.concat([df_vente, df_achat], ignore_index=True)
+        from etl.config import hash_key
         df_flv["DO_Piece_hash"] = df_flv["DO_Piece"].apply(
-            lambda v: abs(hash(str(v))) if pd.notna(v) else None
+            lambda v: hash_key(v) if pd.notna(v) else None
         )
         df_flv["id_date"]    = pd.to_datetime(df_flv["DO_Date"]).dt.date.map(lookups["DIM_DATE"])
         df_flv["id_client"]  = df_flv["CT_Num"].map(lookups["DIM_CLIENT"])
@@ -193,7 +195,12 @@ def run_pipeline():
         df_reg["id_fournisseur"] = df_reg.apply(
             lambda r: lookups["DIM_FOURNISSEUR"].get(r["CT_Num"]) if r["_acteur"] == "FOURNISSEUR" else None, axis=1
         )
-        df_reg["id_banque"] = df_reg["BQ_ABREGE"].map(lookups["DIM_BANQUE"])
+        df_reg["id_banque"] = df_reg.apply(
+            lambda r: lookups["DIM_BANQUE"].get(r.get("BQ_ABREGE"))
+            if r.get("_acteur") == "CLIENT"
+            else lookups["DIM_BANQUE"].get(r.get("BQ_Num")),
+            axis=1,
+        )
         df_reg["date_extraction"] = today
         df_reg["RT_Rapproche"] = pd.to_numeric(df_reg.get("RT_Rapproche"), errors="coerce").fillna(0).astype("int16")
         load.load_fact(df_reg, "FAIT_REGLEMENTS")

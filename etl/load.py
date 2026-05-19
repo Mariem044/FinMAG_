@@ -1,9 +1,33 @@
+import hashlib
 import pandas as pd
 from sqlalchemy import text
-from etl.config import DW_ENGINE
+from etl.config import DW_ENGINE, CHUNK_SIZE, ERROR_MSG_MAX_LEN
 from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _to_python(value):
+    """Convertit un scalaire pandas/numpy en type Python natif (None si NA)."""
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if hasattr(value, "item"):
+        return value.item()
+    return value
+
+
+def _sha256_row(row: "pd.Series") -> bytes:
+    """Retourne un hash SHA-256 de 32 octets, stable et déterministe."""
+    h = hashlib.sha256()
+    for v in row:
+        h.update(str(_to_python(v)).encode())
+        h.update(b"\x00")
+    return h.digest()
 
 
 def get_table_columns(table):
@@ -28,9 +52,10 @@ def load_dimension(df, table):
     with DW_ENGINE.begin() as conn:
         conn.execute(text(f"DELETE FROM [{table}]"))
 
-    df_clean.to_sql(table, DW_ENGINE, if_exists="append", index=False, chunksize=5000)
+    df_clean.to_sql(table, DW_ENGINE, if_exists="append", index=False, chunksize=CHUNK_SIZE)
     logger.info(f"[{table}] {len(df_clean)} lignes chargées.")
 
 
 def load_fact(df, table):
+    """Charge une table de faits (même stratégie que les dimensions)."""
     load_dimension(df, table)

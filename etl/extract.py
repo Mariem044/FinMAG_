@@ -3,9 +3,30 @@ from sqlalchemy import text
 from etl.config import MAG_ENGINE, GRT_ENGINE
 
 
+import re
+
+_SAFE_COL_RE = re.compile(r'^[\w.]+$')
+
+
 def _read(engine, sql):
     with engine.connect() as conn:
         return pd.read_sql(text(sql), conn)
+
+
+def _delta_filter(column: str, last_run) -> tuple[str, dict]:
+    """Retourne une clause WHERE AND et ses paramètres pour un chargement delta."""
+    if not _SAFE_COL_RE.match(column):
+        raise ValueError(f"Nom de colonne non sûr : {column!r}")
+    if last_run is None:
+        return "", {}
+    return f" AND {column} >= :last_run", {"last_run": last_run}
+
+
+def _validate_columns(df: "pd.DataFrame", required: list[str], context: str) -> None:
+    """Lève ValueError si des colonnes obligatoires sont absentes du DataFrame."""
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"[{context}] missing columns: {missing}")
 
 
 def extract_exercices_fiscaux():
@@ -54,7 +75,7 @@ def extract_dim_client_grt():
 
     col_3m = "CT_EchustTroisMois AS CT_EchusTroisMois" if has_typo else "CT_EchusTroisMois"
     sql = f"""
-        SELECT CT_NUM AS CT_Num, CT_SoldeActuel, CT_Engagement, CT_ChiffreAffaire, CT_EchusUnMois, CT_EchusDeuxMois, {col_3m}, CT_EchusPlusTroisMois, CT_MoyenneDelaiPayement, CT_MoyenneDelaiImpaye
+        SELECT CT_Num, CT_SoldeActuel, CT_Engagement, CT_ChiffreAffaire, CT_EchusUnMois, CT_EchusDeuxMois, {col_3m}, CT_EchusPlusTroisMois, CT_MoyenneDelaiPayement, CT_MoyenneDelaiImpaye
         FROM F_COMPTET
     """
     return _read(GRT_ENGINE, sql)

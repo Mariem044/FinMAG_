@@ -95,7 +95,8 @@ def create_all_tables(drop_existing=False):
                 FA_Intitule         NVARCHAR(100) NULL,
                 niveau_0_code       NVARCHAR(50) NULL,
                 niveau_1_code       NVARCHAR(50) NULL,
-                niveau_2_code       NVARCHAR(50) NULL
+                niveau_2_code       NVARCHAR(50) NULL,
+                niveau_3_code       NVARCHAR(50) NULL
             )
         """,
         "DIM_CLIENT": """
@@ -129,7 +130,6 @@ def create_all_tables(drop_existing=False):
             CREATE TABLE DIM_ARTICLE (
                 id_article     INT IDENTITY(1,1) PRIMARY KEY,
                 AR_Ref_code    NVARCHAR(50) NOT NULL UNIQUE,
-                AR_Ref         NVARCHAR(50) NULL,
                 AR_Design      NVARCHAR(200) NULL,
                 id_famille     INT NULL,
                 id_fournisseur INT NULL,
@@ -232,6 +232,7 @@ def create_all_tables(drop_existing=False):
                 qte_disponible     NUMERIC(18,4) NULL,
                 ratio_tension      NUMERIC(18,4) NULL,
                 en_rupture         SMALLINT NULL,
+                alerte_tension     SMALLINT NULL,
                 qte_vendue_365j    NUMERIC(18,4) NULL,
                 dsi_jours          NUMERIC(18,4) NULL,
                 MC_Debit           NUMERIC(18,4) NULL,

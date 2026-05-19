@@ -1,6 +1,6 @@
 from datetime import datetime
 from sqlalchemy import text
-from etl.config import DW_ENGINE
+from etl.config import DW_ENGINE, ERROR_MSG_MAX_LEN
 from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -82,7 +82,7 @@ def end_run(run_id, status, error_msg=None):
                 ),
                 {
                     "status": status,
-                    "error_msg": error_msg[:500] if error_msg else None,
+                    "error_msg": error_msg[:ERROR_MSG_MAX_LEN] if error_msg else None,
                     "run_id": run_id,
                 },
             )
