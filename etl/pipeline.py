@@ -43,7 +43,7 @@ def run_pipeline():
         # B1. DIM_TYPE_MVT_CAISSE
         logger.info("[DIM_TYPE_MVT_CAISSE] Extraction...")
         df_mvt = extract.extract_dim_type_mvt_caisse()
-        df_mvt = df_mvt.rename(columns={"code_type_mvt": "MC_TypeMvt"})
+        df_mvt = df_mvt.rename(columns={"code_type_mvt": "MC_TypeMvt", "intitule_type_mvt": "MC_IntituleTypeMvt"})
         df_mvt = df_mvt.drop_duplicates(subset=["MC_TypeMvt"])
         load.load_dimension(df_mvt, "DIM_TYPE_MVT_CAISSE")
         lookups["DIM_TYPE_MVT_CAISSE"] = _build_lookup("DIM_TYPE_MVT_CAISSE", "MC_TypeMvt", "id_type_mvt")

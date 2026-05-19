@@ -28,13 +28,26 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from etl.config import DW_ENGINE, MAG_ENGINE, SEUIL_TENSION_STOCK, AUDIT_TABLE_NAME
+from etl.config import DW_ENGINE, MAG_ENGINE, AUDIT_TABLE_NAME
 from etl import pipeline
 
 app = FastAPI(title="FinMAG API") 
 _ETL_RUN_LOCK = threading.Lock()
 _ETL_LAST_ERROR = None
 _startup_logger = logging.getLogger("api.startup")
+
+@app.middleware("http")
+async def log_requests(request, call_next):
+    url = str(request.url)
+    try:
+        # Save log file in backend folder
+        log_path = os.path.join(os.path.dirname(__file__), "api_request_logs.txt")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now()}: {request.method} {url}\n")
+    except Exception:
+        pass
+    response = await call_next(request)
+    return response
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,13 +59,25 @@ app.add_middleware(
 MONTHS = ["Jan", "Fev", "Mar", "Avr", "Mai", "Jun", "Jul", "Aou", "Sep", "Oct", "Nov", "Dec"]
 
 def _rows(sql, params=None):
-    with DW_ENGINE.connect() as conn:
-        return conn.execute(text(sql), params or {}).fetchall()
+    if _ETL_RUN_LOCK.locked():
+        return []
+    try:
+        with DW_ENGINE.connect() as conn:
+            return conn.execute(text(sql), params or {}).fetchall()
+    except Exception as e:
+        logging.error(f"Database query error in _rows: {e}")
+        return []
 
 
 def _row(sql, params=None):
-    with DW_ENGINE.connect() as conn:
-        return conn.execute(text(sql), params or {}).fetchone()
+    if _ETL_RUN_LOCK.locked():
+        return None
+    try:
+        with DW_ENGINE.connect() as conn:
+            return conn.execute(text(sql), params or {}).fetchone()
+    except Exception as e:
+        logging.error(f"Database query error in _row: {e}")
+        return None
 
 
 def _num(value, default=0.0):
@@ -404,7 +429,7 @@ def get_dashboard_kpis(
         JOIN DIM_DATE d ON d.id_date = f.id_date
         WHERE f.DO_Domaine = 0
     """)
-    max_year = max_year_res.annee if max_year_res else datetime.now().year
+    max_year = max_year_res.annee if (max_year_res and max_year_res.annee is not None) else datetime.now().year
 
     if not year:
         year = max_year
@@ -563,7 +588,7 @@ def get_dashboard_kpis(
                     r.RT_Num,
                     MAX(r.RT_Montant)         AS RT_Montant,
                     MAX(r.DR_Regle)           AS DR_Regle,
-                    MAX(r.id_date_paiement)   AS id_date_paiement
+                    MAX(COALESCE(r.id_date_paiement, r.id_date_echeance)) AS id_date
                 FROM FAIT_REGLEMENTS r WITH (NOLOCK)
                 WHERE r.RT_Num IS NOT NULL AND r.id_client IS NOT NULL
                 GROUP BY r.RT_Num
@@ -573,7 +598,7 @@ def get_dashboard_kpis(
                 SUM(CASE WHEN DR_Regle = 1 THEN RT_Montant ELSE 0 END) AS encaissements,
                 SUM(CASE WHEN DR_Regle = 0 THEN RT_Montant ELSE 0 END) AS impayes
             FROM deduped d
-            JOIN DIM_DATE dt WITH (NOLOCK) ON dt.id_date = d.id_date_paiement
+            JOIN DIM_DATE dt WITH (NOLOCK) ON dt.id_date = d.id_date
             WHERE dt.annee IN (:year, :year - 1)
             GROUP BY dt.annee
         """
@@ -634,7 +659,7 @@ def get_ca_by_month(
         JOIN DIM_DATE d ON d.id_date = f.id_date
         WHERE f.DO_Domaine = 0
     """)
-    max_year = max_year_res.annee if max_year_res else datetime.now().year
+    max_year = max_year_res.annee if (max_year_res and max_year_res.annee is not None) else datetime.now().year
 
     year_filter = f"AND d.annee IN ({year}, {year - 1})" if year else ""
     sql = f"""
@@ -732,7 +757,7 @@ def get_ca_by_month(
                     r.RT_Num,
                     MAX(r.RT_Montant)         AS RT_Montant,
                     MAX(r.DR_Regle)           AS DR_Regle,
-                    MAX(r.id_date_paiement)   AS id_date_paiement
+                    MAX(COALESCE(r.id_date_paiement, r.id_date_echeance)) AS id_date
                 FROM FAIT_REGLEMENTS r WITH (NOLOCK)
                 WHERE r.RT_Num IS NOT NULL AND r.id_client IS NOT NULL
                 GROUP BY r.RT_Num
@@ -742,7 +767,7 @@ def get_ca_by_month(
                 SUM(CASE WHEN DR_Regle = 1 THEN RT_Montant ELSE 0 END) AS encaissements,
                 SUM(CASE WHEN DR_Regle = 0 THEN RT_Montant ELSE 0 END) AS impayes
             FROM deduped d
-            JOIN DIM_DATE dt WITH (NOLOCK) ON dt.id_date = d.id_date_paiement
+            JOIN DIM_DATE dt WITH (NOLOCK) ON dt.id_date = d.id_date
             WHERE dt.annee = :year
             GROUP BY dt.mois
         """
@@ -762,7 +787,6 @@ def get_ca_by_month(
             "nb_clients_actifs": _int(r.nb_clients_actifs),
             "marge_brute": _num(r.marge_brute),
             "taux_recouvrement": rec_by_month.get(r.month_num, 0.0),
-            "objectif": round(_num(r.caN1) * 1.10, 2) if _num(r.caN1) > 0 else round(_num(r.ca) * 1.05, 2),
         }
         for r in rows
     ]
@@ -833,7 +857,7 @@ def get_tresorerie_summary(
                 MAX(r.DR_Regle)           AS DR_Regle,
                 MAX(r.delai_reel_jours)   AS delai_reel_jours
             FROM FAIT_REGLEMENTS r
-            LEFT JOIN DIM_DATE d ON d.id_date = r.id_date_paiement
+            LEFT JOIN DIM_DATE d ON d.id_date = COALESCE(r.id_date_paiement, r.id_date_echeance)
             LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
             LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
             WHERE r.RT_Num IS NOT NULL AND r.id_client IS NOT NULL
@@ -893,7 +917,7 @@ def get_aging(
             SUM(CASE WHEN r.bucket_impaye = 3 THEN r.RT_Montant ELSE 0 END) AS b3
         FROM FAIT_REGLEMENTS r
         LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
-        LEFT JOIN DIM_DATE d ON d.id_date = r.id_date_paiement
+        LEFT JOIN DIM_DATE d ON d.id_date = COALESCE(r.id_date_paiement, r.id_date_echeance)
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
         WHERE r.id_client IS NOT NULL
         AND r.DR_Regle = 0
@@ -930,6 +954,33 @@ def get_articles(
         segment=segment, depot=depot, source=source,
         aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
     )
+    
+    # Custom depot clause for stock CTE
+    c_depot = _clean_filter(depot)
+    depot_clause = ""
+    if c_depot:
+        if "central" in c_depot.lower():
+            depot_clause = "AND dp.DE_Principal = 1"
+        else:
+            depot_clause = "AND dp.DE_Intitule = :p_depot_name"
+            filt_params["p_depot_name"] = c_depot
+
+    # Custom famille clause for outer query
+    c_famille = _clean_filter(famille)
+    famille_clause = "AND fa.FA_Intitule LIKE :p_famille_main" if c_famille else ""
+    if c_famille:
+        filt_params["p_famille_main"] = f"%{c_famille}%"
+
+    # Calculate days in the selected period for dynamic DSI
+    days_in_period = 365.0
+    c_quarter = _clean_filter(quarter)
+    c_month = _clean_filter(month)
+    if c_month:
+        days_in_period = 30.0
+    elif c_quarter and c_quarter != "Tous":
+        days_in_period = 90.0
+    filt_params["p_days_in_period"] = days_in_period
+
     sql = f"""
         WITH sales AS (
             SELECT
@@ -955,8 +1006,10 @@ def get_articles(
                 MAX(e.ratio_tension) AS ratio_tension,
                 SUM(e.AS_MontSto)   AS valeur_stock
             FROM FAIT_ECRITURES e
+            LEFT JOIN DIM_DEPOT dp ON dp.id_depot = e.id_depot
             WHERE e.grain = 4
             AND e.AS_QteSto IS NOT NULL
+            {depot_clause}
             GROUP BY e.id_article
         )
         SELECT 
@@ -973,13 +1026,18 @@ def get_articles(
             COALESCE(sales.qte_vendue, 0) AS qte_vendue,
             COALESCE(sales.ca, 0) AS ca,
             COALESCE(stock.stock, 0) AS stock,
-            stock.dsi_jours,
+            CASE 
+                WHEN COALESCE(sales.qte_vendue, 0) > 0 
+                THEN COALESCE(stock.stock, 0) / (sales.qte_vendue / :p_days_in_period)
+                ELSE NULL 
+            END AS dsi_jours,
             stock.ratio_tension
         FROM DIM_ARTICLE a
         LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
         LEFT JOIN sales ON sales.id_article = a.id_article
         LEFT JOIN stock ON stock.id_article = a.id_article
-        WHERE COALESCE(sales.ca, 0) > 0 OR COALESCE(stock.stock, 0) > 0
+        WHERE (COALESCE(sales.ca, 0) > 0 OR COALESCE(stock.stock, 0) > 0)
+        {famille_clause}
         ORDER BY ca DESC
     """
     return [
@@ -997,191 +1055,6 @@ def get_articles(
             "dsi": _num(r.dsi_jours),
         }
         for r in _rows(sql, filt_params)
-    ]
-
-@app.get("/api/acteurs/clients")
-def get_clients(
-    year: Optional[int] = None,
-    quarter: Optional[str] = None,
-    month: Optional[str] = None,
-    region: Optional[str] = None,
-    famille: Optional[str] = None,
-    segment: Optional[str] = None,
-    depot: Optional[str] = None,
-    source: Optional[str] = None,
-):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
-        aliases={"date": "d", "client": "c", "segment": "s"}
-    )
-    sql = f"""
-        SELECT 
-            c.CT_Num_code,
-            COALESCE(c.CT_Intitule, CONVERT(VARCHAR(30), c.CT_Num_code)) AS nom,
-            COALESCE(s.libelle_segment, 'Sans segment') AS segment,
-            COALESCE(SUM(v.DL_MontantHT), 0) AS ca_total,
-            COUNT(DISTINCT v.DO_Piece_hash) AS nb_commandes,
-            FORMAT(MAX(d.date_val), 'yyyy-MM-dd') AS derniere_commande,
-            c.CT_SoldeActuel AS solde_impaye,
-            c.CT_Sommeil AS sommeil
-        FROM DIM_CLIENT c
-        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-        LEFT JOIN FAIT_LIGNES_VENTE v ON v.id_client = c.id_client AND v.DO_Domaine = 0
-        LEFT JOIN DIM_DATE d ON d.id_date = v.id_date
-        WHERE 1=1
-        {filt_sql}
-        GROUP BY c.CT_Num_code, c.CT_Intitule, s.libelle_segment, c.CT_SoldeActuel, c.CT_Sommeil
-        ORDER BY ca_total DESC
-    """
-    return [
-        {
-            "code": str(r.CT_Num_code),
-            "nom": r.nom,
-            "region": "",
-            "caTotal": _num(r.ca_total),
-            "nbCommandes": _int(r.nb_commandes),
-            "derniereCommande": r.derniere_commande or "",
-            "soldeImpaye": _num(r.solde_impaye),
-            "segment": r.segment,
-            "actif": _int(r.sommeil) == 0,
-            "nouveau": _int(r.nb_commandes) == 1,
-        }
-        for r in _rows(sql, filt_params)
-    ]
-
-
-
-@app.get("/api/acteurs/aging")
-def get_acteurs_aging(
-    year: Optional[int] = None,
-    quarter: Optional[str] = None,
-    month: Optional[str] = None,
-    region: Optional[str] = None,
-    famille: Optional[str] = None,
-    segment: Optional[str] = None,
-    depot: Optional[str] = None,
-    source: Optional[str] = None,
-):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
-        aliases={"date": "d", "client": "c", "segment": "s"}
-    )
-    sql = f"""
-        SELECT 
-            c.CT_Num_code,
-            COALESCE(c.CT_Intitule, CONVERT(VARCHAR(30), c.CT_Num_code)) AS client_nom,
-            SUM(CASE WHEN r.bucket_impaye = 0 THEN r.RT_Montant ELSE 0 END) AS b0,
-            SUM(CASE WHEN r.bucket_impaye = 1 THEN r.RT_Montant ELSE 0 END) AS b1,
-            SUM(CASE WHEN r.bucket_impaye = 2 THEN r.RT_Montant ELSE 0 END) AS b2,
-            SUM(CASE WHEN r.bucket_impaye = 3 THEN r.RT_Montant ELSE 0 END) AS b3
-        FROM FAIT_REGLEMENTS r
-        LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
-        LEFT JOIN DIM_DATE d ON d.id_date = COALESCE(r.id_date_paiement, r.id_date_echeance)
-        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-        WHERE r.id_client IS NOT NULL
-        AND r.DR_Regle = 0
-        {filt_sql}
-        GROUP BY c.CT_Num_code, c.CT_Intitule
-        ORDER BY b3 DESC
-    """
-    return [
-        {
-            "clientCode": str(r.CT_Num_code),
-            "client": r.client_nom,
-            "0-30j": _num(r.b0),
-            "31-60j": _num(r.b1),
-            "61-90j": _num(r.b2),
-            ">90j": _num(r.b3),
-        }
-        for r in _rows(sql, filt_params)
-    ]
-
-
-@app.get("/api/acteurs/fournisseurs")
-def get_acteurs_fournisseurs(
-    year: Optional[int] = None,
-    quarter: Optional[str] = None,
-    month: Optional[str] = None,
-    region: Optional[str] = None,
-    famille: Optional[str] = None,
-    segment: Optional[str] = None,
-    depot: Optional[str] = None,
-    source: Optional[str] = None,
-):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
-        aliases={"famille": "a", "article": "a"}
-    )
-    sql = f"""
-        SELECT 
-            f.CT_Num_code,
-            f.CT_Intitule,
-            f.CT_Encours,
-            COUNT(a.id_article) AS nb_articles
-        FROM DIM_FOURNISSEUR f
-        LEFT JOIN DIM_ARTICLE a ON a.id_fournisseur = f.id_fournisseur
-        WHERE 1=1
-        {filt_sql}
-        GROUP BY f.CT_Num_code, f.CT_Intitule, f.CT_Encours
-        ORDER BY nb_articles DESC, f.CT_Encours DESC
-    """
-    return [
-        {
-            "code": str(r.CT_Num_code),
-            "nom": r.CT_Intitule if r.CT_Intitule else f"Fournisseur {r.CT_Num_code}",
-            "encours": _num(r.CT_Encours),
-            "nbArticles": _int(r.nb_articles),
-        }
-        for r in _rows(sql, filt_params)
-    ]
-
-
-
-@app.get("/api/acteurs/fournisseur-concentration")
-def get_fournisseur_concentration(
-    year: Optional[int] = None,
-    quarter: Optional[str] = None,
-    month: Optional[str] = None,
-    region: Optional[str] = None,
-    famille: Optional[str] = None,
-    segment: Optional[str] = None,
-    depot: Optional[str] = None,
-    source: Optional[str] = None,
-):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
-        aliases={"famille": "a", "article": "a"}
-    )
-    sql = f"""
-        SELECT
-            f.CT_Num_code,
-            f.CT_Intitule,
-            f.CT_Encours             AS montant_achat,
-            COUNT(a.id_article)      AS nb_articles
-        FROM DIM_FOURNISSEUR f
-        LEFT JOIN DIM_ARTICLE a ON a.id_fournisseur = f.id_fournisseur
-        WHERE 1=1
-        {filt_sql}
-        GROUP BY f.CT_Num_code, f.CT_Intitule, f.CT_Encours
-        HAVING COUNT(a.id_article) > 0
-        ORDER BY f.CT_Encours DESC
-    """
-    rows = list(_rows(sql, filt_params))
-    total = sum(_num(r.montant_achat) for r in rows)
-    return [
-        {
-            "fournisseur": r.CT_Intitule if r.CT_Intitule else f"Fournisseur {r.CT_Num_code}",
-            "nbArticles": _int(r.nb_articles),
-            "nbArticlesAchetes": _int(r.nb_articles),
-            "montantAchat": _num(r.montant_achat),
-            "hhi": round((_num(r.montant_achat) / total) ** 2, 4) if total > 0 else 0,
-            "risqueConcentration": (_num(r.montant_achat) / total > 0.3) if total > 0 else False,
-        }
-        for r in rows
     ]
 
 
@@ -1218,7 +1091,7 @@ def get_banque_rapprochement(
             LEFT JOIN DIM_DATE d ON d.id_date = COALESCE(r.id_date_paiement, r.id_date_echeance)
             LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
             LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-            WHERE r.RT_Num IS NOT NULL AND r.id_client IS NOT NULL
+            WHERE r.RT_Num IS NOT NULL
             {filt_sql}
             GROUP BY r.RT_Num
         )
@@ -1288,7 +1161,6 @@ def get_banque_rapprochement_breakdown(
         LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
         WHERE COALESCE(r.RT_Rapproche, 0) = 0 AND COALESCE(r.DR_Regle, 0) = 0
-        AND r.id_client IS NOT NULL
         {filt_sql}
         GROUP BY r.RT_Mode
     """
@@ -1320,7 +1192,6 @@ def get_banque_rapprochement_breakdown(
         LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
         WHERE COALESCE(r.RT_Rapproche, 0) = 0 AND COALESCE(r.DR_Regle, 0) = 0
-        AND r.id_client IS NOT NULL
         {filt_sql}
         ORDER BY COALESCE(r.RT_Montant, 0) DESC
     """
@@ -1509,12 +1380,15 @@ def get_caisse_mouvements_by_type(
 
     sql = f"""
         SELECT
-            CASE tm.MC_TypeMvt
-                WHEN 1 THEN 'Recette'
-                WHEN 2 THEN 'Dépense'
-                WHEN 3 THEN 'Transfert'
-                ELSE CONCAT('Mouvement ', tm.MC_TypeMvt)
-            END AS name,
+            COALESCE(
+                NULLIF(tm.MC_IntituleTypeMvt, ''),
+                CASE tm.MC_TypeMvt
+                    WHEN 1 THEN 'Recette'
+                    WHEN 2 THEN 'Dépense'
+                    WHEN 3 THEN 'Transfert'
+                    ELSE CONCAT('Mouvement ', tm.MC_TypeMvt)
+                END
+            ) AS name,
             SUM(ABS(COALESCE(e.MC_Credit, 0)) + ABS(COALESCE(e.MC_Debit, 0))) AS value
         FROM FAIT_ECRITURES e
         LEFT JOIN DIM_TYPE_MVT_CAISSE tm ON tm.id_type_mvt = e.id_type_mvt_caisse
@@ -1522,7 +1396,7 @@ def get_caisse_mouvements_by_type(
         WHERE e.grain = 3
         {depot_clause}
         {filt_sql}
-        GROUP BY tm.MC_TypeMvt
+        GROUP BY tm.MC_TypeMvt, tm.MC_IntituleTypeMvt
         ORDER BY SUM(ABS(COALESCE(e.MC_Credit, 0)) + ABS(COALESCE(e.MC_Debit, 0))) DESC
     """
     params = {}

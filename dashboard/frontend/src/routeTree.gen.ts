@@ -14,7 +14,6 @@ import { Route as ParametresRouteImport } from './routes/parametres'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as FinanceRouteImport } from './routes/finance'
 import { Route as ComptabiliteRouteImport } from './routes/comptabilite'
-import { Route as ActeursRouteImport } from './routes/acteurs'
 import { Route as IndexRouteImport } from './routes/index'
 
 const PredictionsRoute = PredictionsRouteImport.update({
@@ -42,11 +41,6 @@ const ComptabiliteRoute = ComptabiliteRouteImport.update({
   path: '/comptabilite',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ActeursRoute = ActeursRouteImport.update({
-  id: '/acteurs',
-  path: '/acteurs',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -55,7 +49,6 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/acteurs': typeof ActeursRoute
   '/comptabilite': typeof ComptabiliteRoute
   '/finance': typeof FinanceRoute
   '/login': typeof LoginRoute
@@ -64,7 +57,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/acteurs': typeof ActeursRoute
   '/comptabilite': typeof ComptabiliteRoute
   '/finance': typeof FinanceRoute
   '/login': typeof LoginRoute
@@ -74,7 +66,6 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/acteurs': typeof ActeursRoute
   '/comptabilite': typeof ComptabiliteRoute
   '/finance': typeof FinanceRoute
   '/login': typeof LoginRoute
@@ -85,7 +76,6 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/acteurs'
     | '/comptabilite'
     | '/finance'
     | '/login'
@@ -94,7 +84,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/acteurs'
     | '/comptabilite'
     | '/finance'
     | '/login'
@@ -103,7 +92,6 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/acteurs'
     | '/comptabilite'
     | '/finance'
     | '/login'
@@ -113,7 +101,6 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  ActeursRoute: typeof ActeursRoute
   ComptabiliteRoute: typeof ComptabiliteRoute
   FinanceRoute: typeof FinanceRoute
   LoginRoute: typeof LoginRoute
@@ -158,13 +145,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ComptabiliteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/acteurs': {
-      id: '/acteurs'
-      path: '/acteurs'
-      fullPath: '/acteurs'
-      preLoaderRoute: typeof ActeursRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
@@ -177,7 +157,6 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  ActeursRoute: ActeursRoute,
   ComptabiliteRoute: ComptabiliteRoute,
   FinanceRoute: FinanceRoute,
   LoginRoute: LoginRoute,

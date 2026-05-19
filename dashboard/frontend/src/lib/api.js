@@ -103,12 +103,7 @@ export const api = {
     aging: () => get("/api/tresorerie/aging"),
   },
 
-  acteurs: {
-    clients: () => get("/api/acteurs/clients"),
-    aging: () => get("/api/acteurs/aging"),
-    fournisseurs: () => get("/api/acteurs/fournisseurs"),
-    fournisseurConcentration: () => get("/api/acteurs/fournisseur-concentration"),
-  },
+
 
   banque: {
     rapprochement: () => get("/api/banque/rapprochement"),

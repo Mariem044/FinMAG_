@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useChartHeight, ChartCard, KPICardSkeleton } from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
-import { Banknote, CheckCircle, Receipt } from "lucide-react";
+import { Banknote, CheckCircle } from "lucide-react";
 import {
   BarChart, Bar, ComposedChart, LineChart, Line,
   PieChart, Pie, Cell,
@@ -30,11 +30,11 @@ function FinancePage() {
 
   // Wrap each fetcher in useMemo so its reference changes when filters change.
   // useApiResource watches the function reference: new ref → new fetch.
-  const fetchCaisses      = useMemo(() => api.caisse.caisses,               [year, quarter, month, depot]);
-  const fetchFlux         = useMemo(() => api.caisse.fluxDaily,             [year, quarter, month, depot]);
-  const fetchNature       = useMemo(() => api.caisse.mouvementsByType,      [year, quarter, month, depot]);
-  const fetchRapproch     = useMemo(() => api.banque.rapprochement,         [year, quarter, month, depot, banque, modeBanque]);
-  const fetchBreakdown    = useMemo(() => api.banque.rapprochementBreakdown,[year, quarter, month, depot, banque, modeBanque]);
+  const fetchCaisses      = useMemo(() => () => api.caisse.caisses(),               [year, quarter, month, depot]);
+  const fetchFlux         = useMemo(() => () => api.caisse.fluxDaily(),             [year, quarter, month, depot]);
+  const fetchNature       = useMemo(() => () => api.caisse.mouvementsByType(),      [year, quarter, month, depot]);
+  const fetchRapproch     = useMemo(() => () => api.banque.rapprochement(),         [year, quarter, month, depot, banque, modeBanque]);
+  const fetchBreakdown    = useMemo(() => () => api.banque.rapprochementBreakdown(), [year, quarter, month, depot, banque, modeBanque]);
 
   const { data: caissesData, loading: caissesLoading }   = useApiResource(fetchCaisses,   []);
   const { data: fluxData,    loading: fluxLoading }       = useApiResource(fetchFlux,      []);
@@ -78,16 +78,6 @@ function FinancePage() {
     return Math.round(rapprochementApi.reduce((s, d) => s + d.taux, 0) / rapprochementApi.length);
   }, [rapprochementApi]);
 
-  const agiosData = useMemo(() =>
-    rapprochementApi.map((row, i) => ({
-      bordereau: `BR-${String(i + 1).padStart(3, "0")}`,
-      banque: activeBanques[i % activeBanques.length],
-      agios: row.agios ?? 0,
-      nbJour: row.nbJour ?? 0,
-    })), [activeBanques, rapprochementApi]);
-
-  const totalAgios = agiosData.reduce((sum, r) => sum + r.agios, 0);
-
   const banqueMode = useMemo(() => {
     const totals = breakdownApi?.totals ?? { Chèque: 0, Traite: 0, Virement: 0 };
     return activeBanques.map((b) => {
@@ -99,9 +89,9 @@ function FinancePage() {
 
   return (
     <div className="space-y-6">
-      {/* ── 3 KPIs ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {kpiLoading ? (<><KPICardSkeleton /><KPICardSkeleton /><KPICardSkeleton /></>) : (
+      {/* ── 2 KPIs ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {kpiLoading ? (<><KPICardSkeleton /><KPICardSkeleton /></>) : (
           <>
             <KPICard label="Solde Caisse Total"
               value={`${(soldeTotal / 1000).toFixed(0)} K DT`}
@@ -111,13 +101,10 @@ function FinancePage() {
               value={`${currentTaux}%`}
               subtitle={banque !== "Toutes" ? banque : "4 banques"}
               icon={CheckCircle} />
-            <KPICard label="Agios & Frais Bancaires"
-              value={`${totalAgios.toLocaleString("fr-TN")} DT`}
-              subtitle="Cumulé période"
-              icon={Receipt} />
           </>
         )}
       </div>
+
 
       {/* Section Caisse */}
       <div className="flex items-center gap-3">
@@ -206,7 +193,7 @@ function FinancePage() {
             <LineChart data={rapprochementApi}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
               <XAxis dataKey="month" tick={{ fill: "#666", fontSize: 10 }} axisLine={false} />
-              <YAxis domain={[80, 100]} tick={{ fill: "#666", fontSize: 10 }}
+              <YAxis domain={[0, 100]} tick={{ fill: "#666", fontSize: 10 }}
                 axisLine={false} tickFormatter={(v) => `${v}%`} />
               <Tooltip content={<CustomTooltip />} />
               <ReferenceLine y={95} stroke="#22c55e" strokeDasharray="3 3"

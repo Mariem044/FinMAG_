@@ -49,8 +49,6 @@ function OverviewPage() {
 
   const { data: kpis, loading: kpisLoading } = useApiResource(kpisFn, {
     ca_total: 0,
-    nb_commandes: 0,
-    nb_clients_actifs: 0,
     taux_recouvrement: 0,
     marge_brute_pct: null,
     ca_avec_cout: 0,
@@ -98,10 +96,9 @@ function OverviewPage() {
   return (
     <div className="space-y-6">
       {/* ── KPIs ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {kpiLoading ? (
           <>
-            <KPICardSkeleton />
             <KPICardSkeleton />
             <KPICardSkeleton />
           </>
@@ -136,13 +133,7 @@ function OverviewPage() {
               trend={kpis.marge_brute_pct !== null ? (kpis.marge_brute_growth_pct ?? 0) : undefined}
               icon={TrendingUp}
             />
-            {/* KPI 3 : Valeur Stock */}
-            <KPICard
-              label="Valeur Stock"
-              value={`${(valeurStock / 1_000_000).toFixed(1)} MDT`}
-              subtitle={`DSI moyen : ${dsiMoyen}j`}
-              icon={Boxes}
-            />
+
           </>
         )}
       </div>
@@ -161,7 +152,7 @@ function OverviewPage() {
           loading={chartsLoading}
           skeleton="line"
           key={`ca-month-${year}`}
-          title="Évolution mensuelle du CA : Réel vs Objectif vs N-1"
+          title="Évolution mensuelle du CA : Réel vs N-1"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <AreaChart data={caByMonth}>
@@ -191,14 +182,6 @@ function OverviewPage() {
                 strokeWidth={1.5}
                 strokeDasharray="4 4"
                 name="CA N-1"
-              />
-              <Area
-                type="monotone"
-                dataKey="objectif"
-                stroke="#6366f1"
-                fill="none"
-                strokeDasharray="5 5"
-                name="Objectif"
               />
             </AreaChart>
           </ResponsiveContainer>

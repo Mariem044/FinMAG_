@@ -93,12 +93,30 @@ def extract_dim_banque_grt():
     return pd.DataFrame(columns=["EB_Abrege", "EB_Banque"])
 
 def extract_dim_caisse_mag():
-    check_sql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'F_CAISSE' AND COLUMN_NAME = 'CA_Type'"
-    with MAG_ENGINE.connect() as conn:
-        result = conn.execute(text(check_sql)).scalar()
-        has_ca_type = result is not None and result > 0
-    col_type = "CA_Type" if has_ca_type else "NULL AS CA_Type"
-    return _read(MAG_ENGINE, f"SELECT CA_No, JO_Num, DE_No, CO_No, {col_type} FROM F_CAISSE")
+    try:
+        check_sql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'F_CAISSE' AND COLUMN_NAME = 'CA_Type'"
+        with MAG_ENGINE.connect() as conn:
+            result = conn.execute(text(check_sql)).scalar()
+            has_ca_type = result is not None and result > 0
+        col_type = "CA_Type" if has_ca_type else "NULL AS CA_Type"
+        df = _read(MAG_ENGINE, f"SELECT CA_No, JO_Num, DE_No, CO_No, {col_type} FROM F_CAISSE")
+        if not df.empty:
+            return df
+    except Exception:
+        pass
+
+    # Fallback to GRT_ENGINE F_Caisse
+    sql_grt = """
+        SELECT 
+            CA_Numero AS CA_No, 
+            CA_NumJournal AS JO_Num, 
+            NULL AS DE_No, 
+            NULL AS CO_No, 
+            CA_Type 
+        FROM F_Caisse
+    """
+    return _read(GRT_ENGINE, sql_grt)
+
 
 
 
@@ -191,7 +209,13 @@ def extract_fait_mvtcaisse():
     return _read(GRT_ENGINE, sql)
 
 def extract_dim_type_mvt_caisse():
-    return _read(GRT_ENGINE, "SELECT DISTINCT mc.MC_TypeMvt AS code_type_mvt FROM F_MvtCaisse mc WHERE mc.MC_TypeMvt IS NOT NULL")
+    sql = """
+        SELECT mc.MC_TypeMvt AS code_type_mvt, MAX(mc.MC_IntituleTypeMvt) AS intitule_type_mvt
+        FROM F_MvtCaisse mc
+        WHERE mc.MC_TypeMvt IS NOT NULL
+        GROUP BY mc.MC_TypeMvt
+    """
+    return _read(GRT_ENGINE, sql)
 
 def extract_sales_history_365d():
     sql = """

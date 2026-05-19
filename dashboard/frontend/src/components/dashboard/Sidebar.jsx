@@ -17,7 +17,6 @@ const navItems = [
   { to: "/", label: "CA & Produits", icon: LayoutDashboard },
   { to: "/finance", label: "Finance & Caisse", icon: Landmark },
   { to: "/comptabilite", label: "Comptabilité", icon: BookOpen },
-  { to: "/acteurs", label: "Acteurs", icon: Users },
   { to: "/predictions", label: "Prédictions ML", icon: Brain },
 ];
 

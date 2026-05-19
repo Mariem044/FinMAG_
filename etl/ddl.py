@@ -43,7 +43,8 @@ def create_all_tables(drop_existing=False):
         "DIM_TYPE_MVT_CAISSE": """
             CREATE TABLE DIM_TYPE_MVT_CAISSE (
                 id_type_mvt INT IDENTITY(1,1) PRIMARY KEY,
-                MC_TypeMvt  SMALLINT NOT NULL UNIQUE
+                MC_TypeMvt  SMALLINT NOT NULL UNIQUE,
+                MC_IntituleTypeMvt NVARCHAR(100) NULL
             )
         """,
         "DIM_BANQUE": """

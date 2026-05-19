@@ -1,8 +1,6 @@
 dashboard/frontend/node_modules/
 dashboard/frontend/dist/
 dashboard/frontend/.vite/
-.env
-*.env
 __pycache__/
 *.pyc
 *.pyo

@@ -61,7 +61,8 @@ function PredictionsStudioPage() {
   const [activeTab, setActiveTab] = useState("sarima");
 
   // Real-time ML Pipeline training status from DWH database tables
-  const { data: mlStatus, refresh: refreshMlStatus } = useApiResource(api.ml.status, {
+  const mlStatusFn = useMemo(() => () => api.ml.status(), []);
+  const { data: mlStatus, refresh: refreshMlStatus } = useApiResource(mlStatusFn, {
     running: false,
     lastError: null,
     lastRun: null,
@@ -139,8 +140,8 @@ function PredictionsStudioPage() {
     }, 900);
   };
 
-  // Fetch ML Data
-  const { data: caData, loading: caLoading } = useApiResource(api.ml.forecastCa, []);
+  const forecastCaFn = useMemo(() => () => api.ml.forecastCa(), []);
+  const { data: caData, loading: caLoading } = useApiResource(forecastCaFn, []);
 
   const chartH = useChartHeight();
 

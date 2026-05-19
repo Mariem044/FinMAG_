@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useChartHeight, ChartCard, KPICardSkeleton } from "@/components/dashboard/ChartCard";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
-import { Banknote, AlertCircle, Receipt } from "lucide-react";
+import { Banknote, AlertCircle, Receipt, Activity, ShieldAlert } from "lucide-react";
 import {
   BarChart, Bar, ComposedChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -31,11 +31,11 @@ function ComptabilitePage() {
   const { year, quarter } = useFilters();
   const chartH = useChartHeight();
 
-  const summaryFn = useMemo(() => api.tresorerie.summary, [year, quarter]);
-  const agingFn   = useMemo(() => api.tresorerie.aging,   [year, quarter]);
-  const fiscKpisFn = useMemo(() => api.fiscalite.kpis,   [year, quarter]);
-  const tvaDataFn  = useMemo(() => api.fiscalite.tvaByMonth, [year, quarter]);
-  const anomalyDataFn = useMemo(() => api.fiscalite.anomalies, [year, quarter]);
+  const summaryFn = useMemo(() => () => api.tresorerie.summary(), [year, quarter]);
+  const agingFn   = useMemo(() => () => api.tresorerie.aging(),   [year, quarter]);
+  const fiscKpisFn = useMemo(() => () => api.fiscalite.kpis(),   [year, quarter]);
+  const tvaDataFn  = useMemo(() => () => api.fiscalite.tvaByMonth(), [year, quarter]);
+  const anomalyDataFn = useMemo(() => () => api.fiscalite.anomalies(), [year, quarter]);
 
   // ── Trésorerie data ──
   const { data: summary, loading: summaryLoading } = useApiResource(summaryFn, {
@@ -66,22 +66,48 @@ function ComptabilitePage() {
 
   return (
     <div className="space-y-6">
-      {/* ── 3 KPIs ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {kpiLoading ? (<><KPICardSkeleton /><KPICardSkeleton /><KPICardSkeleton /></>) : (
+      {/* ── 5 KPIs ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        {kpiLoading ? (
           <>
-            <KPICard label="Encaissements Clients"
+            <KPICardSkeleton />
+            <KPICardSkeleton />
+            <KPICardSkeleton />
+            <KPICardSkeleton />
+            <KPICardSkeleton />
+          </>
+        ) : (
+          <>
+            <KPICard
+              label="Encaissements Clients"
               value={formatTND(summary.encaissements)}
-              subtitle={`Taux recouvrement : ${Math.round(summary.taux_recouvrement || 0)}%`}
-              icon={Banknote} />
-            <KPICard label="Créances Impayées"
+              subtitle={`Taux Recov. : ${Math.round(summary.taux_recouvrement || 0)}% | DSO : ${summary.delai_moyen}j`}
+              icon={Banknote}
+            />
+            <KPICard
+              label="Créances Impayées"
               value={formatTND(Math.round(summary.impayes))}
-              subtitle={`dont ${formatTND(gt90)} > 90j`}
-              icon={AlertCircle} />
-            <KPICard label="TVA Collectée YTD"
+              subtitle={`dont ${formatTND(gt90)} > 90j (Aging)`}
+              icon={AlertCircle}
+            />
+            <KPICard
+              label="TVA Collectée YTD"
               value={formatTND(fiscKpis?.tva_collectee || 0)}
               subtitle={`vs ${formatTND(fiscKpis?.tva_deductible || 0)} déductible`}
-              icon={Receipt} />
+              icon={Receipt}
+            />
+            <KPICard
+              label="Taux Équilibre D/C"
+              value={`${(fiscKpis?.equilibre_pct ?? 100).toFixed(2)}%`}
+              subtitle="Intégrité des écritures"
+              icon={Activity}
+            />
+            <KPICard
+              label="Score d'Anomalie"
+              value={`${fiscKpis?.anomalies ?? 0} signaux`}
+              subtitle={`sur ${fiscKpis?.nb_ecritures?.toLocaleString("fr-TN") ?? 0} écritures`}
+              icon={ShieldAlert}
+            />
           </>
         )}
       </div>

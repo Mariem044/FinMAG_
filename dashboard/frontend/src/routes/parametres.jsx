@@ -43,7 +43,7 @@ function ParametresPage() {
   const [etlAction, setEtlAction] = useState("");
 
   // useMemo pour que useApiResource re-fetch quand refreshKey change
-  const etlStatusFn = useMemo(() => api.etl.status, [refreshKey]);
+  const etlStatusFn = useMemo(() => () => api.etl.status(), [refreshKey]);
   const { data: etlStatus, loading: etlLoading } = useApiResource(
     etlStatusFn,
     { running: false, lastRun: null, counts: {}, lastError: null }

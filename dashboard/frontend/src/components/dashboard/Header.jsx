@@ -8,7 +8,6 @@ const pageNames = {
   "/": "CA & Produits",
   "/finance": "Finance & Caisse",
   "/comptabilite": "Comptabilité",
-  "/acteurs": "Acteurs",
   "/predictions": "Prédictions ML",
   "/parametres": "Paramètres",
 };
