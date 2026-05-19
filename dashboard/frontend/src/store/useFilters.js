@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 // Filtres globaux du dashboard
 export const useFilters = create((set, get) => ({
-  year: 2026,
+  year: new Date().getFullYear(),
   quarter: "Tous",
   month: "Tous",
   region: "Toutes",
@@ -27,7 +27,7 @@ export const useFilters = create((set, get) => ({
   setSource: (source) => set({ source }),
   resetAll: () =>
     set({
-      year: 2026, quarter: "Tous", month: "Tous",
+      year: new Date().getFullYear(), quarter: "Tous", month: "Tous",
       region: "Toutes", famille: "Toutes", segment: "Tous",
       depot: "Tous", banque: "Toutes", modeBanque: "Tous",
       modePaiement: "Tous", source: "MAG_2020 + GRT_MAG",

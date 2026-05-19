@@ -20,4 +20,3 @@ SEUIL_TENSION_STOCK = float(os.environ.get("SEUIL_TENSION_STOCK", "0.5"))
 AUDIT_TABLE_NAME = os.environ.get("ETL_AUDIT_TABLE", "ETL_AUDIT")
 CHUNK_SIZE = int(os.environ.get("ETL_CHUNK_SIZE", "5000"))
 ERROR_MSG_MAX_LEN = int(os.environ.get("ETL_ERROR_MSG_MAX_LEN", "500"))
-hash_key = None  # pas utilisé dans etl/ directement

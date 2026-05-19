@@ -7,7 +7,7 @@ export const useParametres = create()(
   persist(
     (set) => ({
       // locale pour le formatage des nombres (toujours fr-TN pour FinMAG Tunisie)
-      locale: () => "fr-TN",
+      locale: "fr-TN",
     }),
     {
       name: "finmag-parametres",

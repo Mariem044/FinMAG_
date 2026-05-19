@@ -200,6 +200,7 @@ def create_all_tables(drop_existing=False):
                 RT_NbJour        SMALLINT NULL,
                 delai_reel_jours INT NULL,
                 ecart_delai      INT NULL,
+                bucket_impaye    SMALLINT NULL,
                 DR_ModeReg       SMALLINT NULL,
                 RT_Rapproche     SMALLINT NOT NULL DEFAULT 0,
                 date_extraction  DATE NOT NULL
@@ -241,8 +242,13 @@ def create_all_tables(drop_existing=False):
                 date_extraction    DATE NOT NULL
             )
         """,
-        "ETL_AUDIT": """
-            CREATE TABLE ETL_AUDIT (
+        "DIM_MODE_REGLEMENT": """
+            CREATE TABLE DIM_MODE_REGLEMENT (
+                id_mode_reg      INT IDENTITY(1,1) PRIMARY KEY,
+                RT_Mode          SMALLINT NOT NULL UNIQUE,
+                libelle_mode_reg NVARCHAR(50) NULL
+            )
+        """,
                 run_id           INT IDENTITY(1,1) PRIMARY KEY,
                 run_date         DATETIME NOT NULL DEFAULT GETUTCDATE(),
                 mode             VARCHAR(10) NOT NULL,

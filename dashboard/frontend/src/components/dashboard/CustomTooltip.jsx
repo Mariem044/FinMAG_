@@ -35,7 +35,7 @@ export function CustomTooltip({ active, payload, label }) {
                 _jsx("span", {
                   className: "text-foreground font-medium tabular-nums",
                   children:
-                    typeof p.value === "number" ? p.value.toLocaleString(locale()) : p.value,
+                    typeof p.value === "number" ? p.value.toLocaleString(locale) : p.value,
                 }),
               ],
             },
