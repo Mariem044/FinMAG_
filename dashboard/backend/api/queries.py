@@ -938,7 +938,6 @@ def get_articles(
         )
         SELECT 
             a.AR_Ref_code,
-            a.AR_Ref,
             a.AR_Design,
             a.id_famille,
             COALESCE(NULLIF(fa.FA_Intitule, ''), 'Sans famille') AS famille,
@@ -962,7 +961,7 @@ def get_articles(
     """
     return [
         {
-            "code": r.AR_Ref if r.AR_Ref else f"ART-{r.AR_Ref_code}",
+            "code": r.AR_Ref_code,
             "designation": r.AR_Design if r.AR_Design else f"Article {r.AR_Ref_code}",
             "famille": r.famille,
             "qteVendue": _num(r.qte_vendue),
