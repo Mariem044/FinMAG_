@@ -1,50 +1,35 @@
 import { memo } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { useSidebar } from "@/store/useSidebar";
-import { useParametres } from "@/store/useParametres";
 import { useAuth } from "@/store/useAuth";
 import {
   X,
   LayoutDashboard,
-  TrendingUp,
-  Wallet,
-  Boxes,
-  Users,
-  Receipt,
   Landmark,
-  Banknote,
-  Settings,
-  HelpCircle,
-  Sparkles,
+  BookOpen,
+  Users,
   Brain,
+  Settings,
+  Sparkles,
 } from "lucide-react";
+
+const navItems = [
+  { to: "/", label: "CA & Produits", icon: LayoutDashboard },
+  { to: "/finance", label: "Finance & Caisse", icon: Landmark },
+  { to: "/comptabilite", label: "Comptabilité", icon: BookOpen },
+  { to: "/acteurs", label: "Acteurs", icon: Users },
+  { to: "/predictions", label: "Prédictions ML", icon: Brain },
+];
+
+const bottomItems = [
+  { to: "/parametres", label: "Paramètres", icon: Settings },
+];
 
 export const Sidebar = memo(function Sidebar() {
   const location = useLocation();
   const path = location.pathname;
   const { open, setOpen } = useSidebar();
-  const { t } = useParametres();
-  const { canAccessRoute } = useAuth();
-
-  const allNavItems = [
-    { to: "/", label: t("nav.dashboard"), icon: LayoutDashboard },
-    { to: "/ventes", label: t("nav.ventes"), icon: TrendingUp },
-    { to: "/tresorerie", label: t("nav.tresorerie"), icon: Wallet },
-    { to: "/produits", label: t("nav.produits"), icon: Boxes },
-    { to: "/acteurs", label: t("nav.acteurs"), icon: Users },
-    { to: "/predictions", label: "Predictions & ML Studio", icon: Brain },
-    { to: "/fiscalite", label: t("nav.fiscalite"), icon: Receipt },
-    { to: "/caisse", label: t("nav.caisse"), icon: Banknote },
-    { to: "/banque", label: t("nav.banque"), icon: Landmark },
-  ];
-
-  const navItems = allNavItems.filter((item) => canAccessRoute(item.to));
-
-  const bottomItems = [
-    { to: "/assistant", label: t("nav.assistant"), icon: Sparkles },
-    { to: "/parametres", label: t("nav.parametres"), icon: Settings },
-    { to: "/aide", label: t("nav.aide"), icon: HelpCircle },
-  ].filter((item) => canAccessRoute(item.to));
+  const { user, logout } = useAuth();
 
   return (
     <>
@@ -64,6 +49,7 @@ export const Sidebar = memo(function Sidebar() {
           backdrop-blur-sm
         `}
       >
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-border">
           <div>
             <h1 className="text-[22px] leading-none font-extrabold text-foreground tracking-tight">
@@ -81,9 +67,10 @@ export const Sidebar = memo(function Sidebar() {
           </button>
         </div>
 
+        {/* Navigation principale */}
         <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
           <p className="text-[10px] font-semibold text-text-dim uppercase tracking-widest px-3 mb-2">
-            {t("nav.domains")}
+            Navigation
           </p>
           {navItems.map((item) => {
             const active = item.to === "/" ? path === "/" : path.startsWith(item.to);
@@ -115,6 +102,7 @@ export const Sidebar = memo(function Sidebar() {
           })}
         </nav>
 
+        {/* Bas : Paramètres + Aide + Déconnexion */}
         <div className="border-t border-border px-3 py-3 space-y-0.5">
           {bottomItems.map((item) => {
             const active = path === item.to;
@@ -130,16 +118,22 @@ export const Sidebar = memo(function Sidebar() {
                       : "text-text-muted hover:bg-surface-hover hover:text-foreground border-transparent"
                   }`}
               >
-                <item.icon
-                  size={16}
-                  className={active ? "text-primary flex-shrink-0" : "text-text-dim flex-shrink-0"}
-                />
+                <item.icon size={16} className={active ? "text-primary flex-shrink-0" : "text-text-dim flex-shrink-0"} />
                 {item.label}
               </Link>
             );
           })}
 
-          <p className="text-[10px] text-[#444] px-3 pt-1">{t("common.version")}</p>
+          {/* Déconnexion */}
+          <button
+            onClick={logout}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] w-full text-text-muted hover:text-red-400 hover:bg-red-500/10 border border-transparent transition-colors"
+          >
+            <Sparkles size={16} className="text-text-dim flex-shrink-0" />
+            Déconnexion
+          </button>
+
+          <p className="text-[10px] text-[#444] px-3 pt-1">FinMAG v1.0 — PFE 2026</p>
         </div>
       </aside>
     </>

@@ -5,34 +5,32 @@ from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-def get_table_columns(table: str) -> list[str]:
-    sql = """
-        SELECT COLUMN_NAME 
-        FROM INFORMATION_SCHEMA.COLUMNS 
-        WHERE TABLE_NAME = :table
-    """
+
+def get_table_columns(table):
+    """Retourne la liste des colonnes qui existent dans une table de la base de données."""
+    sql = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = :table"
     with DW_ENGINE.connect() as conn:
         rows = conn.execute(text(sql), {"table": table}).fetchall()
     return [row[0] for row in rows]
 
-def load_dimension(df: pd.DataFrame, table: str, mode: str = "full", key_col=None) -> None:
+
+def load_dimension(df, table):
+    """Supprime toutes les lignes de la table puis insère les nouvelles données."""
     if df.empty:
-        logger.info(f"  [LOAD] {table} : DataFrame vide, rien a charger")
+        logger.info(f"[{table}] DataFrame vide, rien à charger.")
         return
 
+    # Ne garder que les colonnes qui existent dans la table cible
     target_cols = get_table_columns(table)
-
     valid_cols = [c for c in df.columns if c in target_cols]
     df_clean = df[valid_cols].copy()
 
     with DW_ENGINE.begin() as conn:
         conn.execute(text(f"DELETE FROM [{table}]"))
 
-    import sqlalchemy
-    dtypes = {col: sqlalchemy.types.BINARY(32) for col in df_clean.columns if col.lower() in ("source_hash", "row_hash")}
+    df_clean.to_sql(table, DW_ENGINE, if_exists="append", index=False, chunksize=5000)
+    logger.info(f"[{table}] {len(df_clean)} lignes chargées.")
 
-    df_clean.to_sql(table, DW_ENGINE, if_exists="append", index=False, chunksize=5000, dtype=dtypes)
-    logger.info(f"  [LOAD SUCCESS] {table} : {len(df_clean)} lignes chargees")
 
-def load_fact(df: pd.DataFrame, table: str, mode: str = "full", key_col=None) -> None:
-    load_dimension(df, table, mode, key_col)
+def load_fact(df, table):
+    load_dimension(df, table)

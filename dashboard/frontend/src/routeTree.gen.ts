@@ -9,41 +9,14 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as VentesRouteImport } from './routes/ventes'
-import { Route as TresorerieRouteImport } from './routes/tresorerie'
-import { Route as ProfilRouteImport } from './routes/profil'
-import { Route as ProduitsRouteImport } from './routes/produits'
 import { Route as PredictionsRouteImport } from './routes/predictions'
 import { Route as ParametresRouteImport } from './routes/parametres'
 import { Route as LoginRouteImport } from './routes/login'
-import { Route as FiscaliteRouteImport } from './routes/fiscalite'
-import { Route as CaisseRouteImport } from './routes/caisse'
-import { Route as BanqueRouteImport } from './routes/banque'
-import { Route as AssistantRouteImport } from './routes/assistant'
-import { Route as AideRouteImport } from './routes/aide'
+import { Route as FinanceRouteImport } from './routes/finance'
+import { Route as ComptabiliteRouteImport } from './routes/comptabilite'
 import { Route as ActeursRouteImport } from './routes/acteurs'
 import { Route as IndexRouteImport } from './routes/index'
 
-const VentesRoute = VentesRouteImport.update({
-  id: '/ventes',
-  path: '/ventes',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const TresorerieRoute = TresorerieRouteImport.update({
-  id: '/tresorerie',
-  path: '/tresorerie',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ProfilRoute = ProfilRouteImport.update({
-  id: '/profil',
-  path: '/profil',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ProduitsRoute = ProduitsRouteImport.update({
-  id: '/produits',
-  path: '/produits',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const PredictionsRoute = PredictionsRouteImport.update({
   id: '/predictions',
   path: '/predictions',
@@ -59,29 +32,14 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const FiscaliteRoute = FiscaliteRouteImport.update({
-  id: '/fiscalite',
-  path: '/fiscalite',
+const FinanceRoute = FinanceRouteImport.update({
+  id: '/finance',
+  path: '/finance',
   getParentRoute: () => rootRouteImport,
 } as any)
-const CaisseRoute = CaisseRouteImport.update({
-  id: '/caisse',
-  path: '/caisse',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BanqueRoute = BanqueRouteImport.update({
-  id: '/banque',
-  path: '/banque',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AssistantRoute = AssistantRouteImport.update({
-  id: '/assistant',
-  path: '/assistant',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AideRoute = AideRouteImport.update({
-  id: '/aide',
-  path: '/aide',
+const ComptabiliteRoute = ComptabiliteRouteImport.update({
+  id: '/comptabilite',
+  path: '/comptabilite',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ActeursRoute = ActeursRouteImport.update({
@@ -98,150 +56,73 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/acteurs': typeof ActeursRoute
-  '/aide': typeof AideRoute
-  '/assistant': typeof AssistantRoute
-  '/banque': typeof BanqueRoute
-  '/caisse': typeof CaisseRoute
-  '/fiscalite': typeof FiscaliteRoute
+  '/comptabilite': typeof ComptabiliteRoute
+  '/finance': typeof FinanceRoute
   '/login': typeof LoginRoute
   '/parametres': typeof ParametresRoute
   '/predictions': typeof PredictionsRoute
-  '/produits': typeof ProduitsRoute
-  '/profil': typeof ProfilRoute
-  '/tresorerie': typeof TresorerieRoute
-  '/ventes': typeof VentesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/acteurs': typeof ActeursRoute
-  '/aide': typeof AideRoute
-  '/assistant': typeof AssistantRoute
-  '/banque': typeof BanqueRoute
-  '/caisse': typeof CaisseRoute
-  '/fiscalite': typeof FiscaliteRoute
+  '/comptabilite': typeof ComptabiliteRoute
+  '/finance': typeof FinanceRoute
   '/login': typeof LoginRoute
   '/parametres': typeof ParametresRoute
   '/predictions': typeof PredictionsRoute
-  '/produits': typeof ProduitsRoute
-  '/profil': typeof ProfilRoute
-  '/tresorerie': typeof TresorerieRoute
-  '/ventes': typeof VentesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/acteurs': typeof ActeursRoute
-  '/aide': typeof AideRoute
-  '/assistant': typeof AssistantRoute
-  '/banque': typeof BanqueRoute
-  '/caisse': typeof CaisseRoute
-  '/fiscalite': typeof FiscaliteRoute
+  '/comptabilite': typeof ComptabiliteRoute
+  '/finance': typeof FinanceRoute
   '/login': typeof LoginRoute
   '/parametres': typeof ParametresRoute
   '/predictions': typeof PredictionsRoute
-  '/produits': typeof ProduitsRoute
-  '/profil': typeof ProfilRoute
-  '/tresorerie': typeof TresorerieRoute
-  '/ventes': typeof VentesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/acteurs'
-    | '/aide'
-    | '/assistant'
-    | '/banque'
-    | '/caisse'
-    | '/fiscalite'
+    | '/comptabilite'
+    | '/finance'
     | '/login'
     | '/parametres'
     | '/predictions'
-    | '/produits'
-    | '/profil'
-    | '/tresorerie'
-    | '/ventes'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/acteurs'
-    | '/aide'
-    | '/assistant'
-    | '/banque'
-    | '/caisse'
-    | '/fiscalite'
+    | '/comptabilite'
+    | '/finance'
     | '/login'
     | '/parametres'
     | '/predictions'
-    | '/produits'
-    | '/profil'
-    | '/tresorerie'
-    | '/ventes'
   id:
     | '__root__'
     | '/'
     | '/acteurs'
-    | '/aide'
-    | '/assistant'
-    | '/banque'
-    | '/caisse'
-    | '/fiscalite'
+    | '/comptabilite'
+    | '/finance'
     | '/login'
     | '/parametres'
     | '/predictions'
-    | '/produits'
-    | '/profil'
-    | '/tresorerie'
-    | '/ventes'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ActeursRoute: typeof ActeursRoute
-  AideRoute: typeof AideRoute
-  AssistantRoute: typeof AssistantRoute
-  BanqueRoute: typeof BanqueRoute
-  CaisseRoute: typeof CaisseRoute
-  FiscaliteRoute: typeof FiscaliteRoute
+  ComptabiliteRoute: typeof ComptabiliteRoute
+  FinanceRoute: typeof FinanceRoute
   LoginRoute: typeof LoginRoute
   ParametresRoute: typeof ParametresRoute
   PredictionsRoute: typeof PredictionsRoute
-  ProduitsRoute: typeof ProduitsRoute
-  ProfilRoute: typeof ProfilRoute
-  TresorerieRoute: typeof TresorerieRoute
-  VentesRoute: typeof VentesRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/ventes': {
-      id: '/ventes'
-      path: '/ventes'
-      fullPath: '/ventes'
-      preLoaderRoute: typeof VentesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/tresorerie': {
-      id: '/tresorerie'
-      path: '/tresorerie'
-      fullPath: '/tresorerie'
-      preLoaderRoute: typeof TresorerieRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/profil': {
-      id: '/profil'
-      path: '/profil'
-      fullPath: '/profil'
-      preLoaderRoute: typeof ProfilRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/produits': {
-      id: '/produits'
-      path: '/produits'
-      fullPath: '/produits'
-      preLoaderRoute: typeof ProduitsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/predictions': {
       id: '/predictions'
       path: '/predictions'
@@ -263,39 +144,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/fiscalite': {
-      id: '/fiscalite'
-      path: '/fiscalite'
-      fullPath: '/fiscalite'
-      preLoaderRoute: typeof FiscaliteRouteImport
+    '/finance': {
+      id: '/finance'
+      path: '/finance'
+      fullPath: '/finance'
+      preLoaderRoute: typeof FinanceRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/caisse': {
-      id: '/caisse'
-      path: '/caisse'
-      fullPath: '/caisse'
-      preLoaderRoute: typeof CaisseRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/banque': {
-      id: '/banque'
-      path: '/banque'
-      fullPath: '/banque'
-      preLoaderRoute: typeof BanqueRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/assistant': {
-      id: '/assistant'
-      path: '/assistant'
-      fullPath: '/assistant'
-      preLoaderRoute: typeof AssistantRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/aide': {
-      id: '/aide'
-      path: '/aide'
-      fullPath: '/aide'
-      preLoaderRoute: typeof AideRouteImport
+    '/comptabilite': {
+      id: '/comptabilite'
+      path: '/comptabilite'
+      fullPath: '/comptabilite'
+      preLoaderRoute: typeof ComptabiliteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/acteurs': {
@@ -318,18 +178,11 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ActeursRoute: ActeursRoute,
-  AideRoute: AideRoute,
-  AssistantRoute: AssistantRoute,
-  BanqueRoute: BanqueRoute,
-  CaisseRoute: CaisseRoute,
-  FiscaliteRoute: FiscaliteRoute,
+  ComptabiliteRoute: ComptabiliteRoute,
+  FinanceRoute: FinanceRoute,
   LoginRoute: LoginRoute,
   ParametresRoute: ParametresRoute,
   PredictionsRoute: PredictionsRoute,
-  ProduitsRoute: ProduitsRoute,
-  ProfilRoute: ProfilRoute,
-  TresorerieRoute: TresorerieRoute,
-  VentesRoute: VentesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

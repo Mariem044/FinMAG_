@@ -2,17 +2,19 @@ import pandas as pd
 from sqlalchemy import text
 from etl.config import MAG_ENGINE, GRT_ENGINE
 
-def _read(engine, sql: str) -> pd.DataFrame:
-    """Helper simple pour executer une requete SQL et retourner un DataFrame."""
+
+def _read(engine, sql):
+    """Exécute une requête SQL et retourne un DataFrame."""
     with engine.connect() as conn:
         return pd.read_sql(text(sql), conn)
 
-# ==========================================
-# 1. EXTRACTION DES DIMENSIONS DE BASE
-# ==========================================
 
-def extract_exercices_fiscaux() -> list:
-    """Recupere les annees d'exercices comptables definies."""
+# --------------------------------------------------
+# 1. DIMENSIONS DE BASE
+# --------------------------------------------------
+
+def extract_exercices_fiscaux():
+    """Récupère les années d'exercices comptables."""
     sql = "SELECT D_DebutExo01, D_FinExo01, D_DebutExo02, D_FinExo02, D_DebutExo03, D_FinExo03, D_DebutExo04, D_FinExo04, D_DebutExo05, D_FinExo05 FROM P_DOSSIER"
     try:
         df = _read(MAG_ENGINE, sql)
@@ -26,19 +28,19 @@ def extract_exercices_fiscaux() -> list:
     except Exception:
         return []
 
-def extract_dim_segment() -> pd.DataFrame:
+def extract_dim_segment():
     return _read(MAG_ENGINE, "SELECT cbIndice, CT_PrixTTC FROM P_CATTARIF WHERE cbIndice BETWEEN 1 AND 5")
 
-def extract_dim_collaborateur() -> pd.DataFrame:
+def extract_dim_collaborateur():
     return _read(MAG_ENGINE, "SELECT CO_No, CO_Fonction, CO_Sommeil FROM F_COLLABORATEUR")
 
-def extract_dim_famille() -> pd.DataFrame:
+def extract_dim_famille():
     return _read(MAG_ENGINE, "SELECT FA_CodeFamille, FA_Intitule, CL_No1, CL_No2, CL_No3, CL_No4 FROM F_FAMILLE WHERE FA_Type = 0")
 
-def extract_dim_fournisseur() -> pd.DataFrame:
+def extract_dim_fournisseur():
     return _read(MAG_ENGINE, "SELECT CT_Num, CT_Sommeil, CT_Encours, CT_SvCA, CT_Intitule FROM F_COMPTET WHERE CT_Type = 1")
 
-def extract_dim_article() -> pd.DataFrame:
+def extract_dim_article():
     sql = """
         SELECT a.AR_Ref, a.AR_Design, a.FA_CodeFamille, af.CT_Num AS CT_Num_fourn, a.AR_Sommeil, a.AR_PrixAch, a.AR_SuiviStock
         FROM F_ARTICLE a
@@ -46,15 +48,15 @@ def extract_dim_article() -> pd.DataFrame:
     """
     return _read(MAG_ENGINE, sql)
 
-def extract_dim_client_mag() -> pd.DataFrame:
+def extract_dim_client_mag():
     return _read(MAG_ENGINE, "SELECT CT_Num, CT_Sommeil, N_CatTarif, CO_No, CT_Encours, CT_SvCA, CT_Ville, CT_CodeRegion, CT_Intitule FROM F_COMPTET WHERE CT_Type = 0")
 
-def extract_dim_client_grt() -> pd.DataFrame:
-    # Verifier si la colonne a une faute de frappe Sage (CT_EchustTroisMois)
+def extract_dim_client_grt():
+    # Vérifier si la colonne a une faute de frappe Sage (CT_EchustTroisMois)
     check_sql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'F_COMPTET' AND COLUMN_NAME = 'CT_EchustTroisMois'"
     with GRT_ENGINE.connect() as conn:
         has_typo = conn.execute(text(check_sql)).scalar() > 0
-    
+
     col_3m = "CT_EchustTroisMois AS CT_EchusTroisMois" if has_typo else "CT_EchusTroisMois"
     sql = f"""
         SELECT CT_NUM AS CT_Num, CT_SoldeActuel, CT_Engagement, CT_ChiffreAffaire, CT_EchusUnMois, CT_EchusDeuxMois, {col_3m}, CT_EchusPlusTroisMois, CT_MoyenneDelaiPayement, CT_MoyenneDelaiImpaye
@@ -62,31 +64,31 @@ def extract_dim_client_grt() -> pd.DataFrame:
     """
     return _read(GRT_ENGINE, sql)
 
-def extract_dim_depot() -> pd.DataFrame:
+def extract_dim_depot():
     return _read(MAG_ENGINE, "SELECT DE_No, DE_Principal FROM F_DEPOT")
 
-def extract_dim_journal() -> pd.DataFrame:
+def extract_dim_journal():
     return _read(MAG_ENGINE, "SELECT JO_Num, JO_Type FROM F_JOURNAUX")
 
-def extract_dim_banque_mag() -> pd.DataFrame:
+def extract_dim_banque_mag():
     return _read(MAG_ENGINE, "SELECT EB_Abrege, EB_Banque FROM F_EBANQUE")
 
-def extract_dim_banque_grt() -> pd.DataFrame:
+def extract_dim_banque_grt():
     return pd.DataFrame(columns=["EB_Abrege", "EB_Banque"])
 
-def extract_dim_caisse_mag() -> pd.DataFrame:
+def extract_dim_caisse_mag():
     check_sql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'F_CAISSE' AND COLUMN_NAME = 'CA_Type'"
     with MAG_ENGINE.connect() as conn:
         has_ca_type = conn.execute(text(check_sql)).scalar() > 0
-    
     col_type = "CA_Type" if has_ca_type else "NULL AS CA_Type"
     return _read(MAG_ENGINE, f"SELECT CA_No, JO_Num, DE_No, CO_No, {col_type} FROM F_CAISSE")
 
-# ==========================================
-# 2. EXTRACTION DES FAITS (ACHATS, VENTES, REGLEMENTS, CAISSE, STOCK)
-# ==========================================
 
-def extract_fait_lignes_achat() -> pd.DataFrame:
+# --------------------------------------------------
+# 2. TABLES DE FAITS
+# --------------------------------------------------
+
+def extract_fait_lignes_achat():
     sql = """
         SELECT dl.DO_Domaine, dl.DO_Type, dl.CT_Num, dl.DO_Piece, dl.DL_Ligne, dl.DO_Date, dl.AR_Ref, dl.DL_Qte, dl.DL_PrixUnitaire, dl.DL_Taxe1, dl.DL_MontantHT, dl.DL_MontantTTC, dl.DL_CMUP, dl.DL_PrixRU, de.DO_TxEscompte, de.DO_TotalHT, de.DO_TotalHTNet, de.DO_TotalTTC, de.DO_NetAPayer, de.DO_MontantRegle
         FROM F_DOCLIGNE dl
@@ -95,7 +97,7 @@ def extract_fait_lignes_achat() -> pd.DataFrame:
     """
     return _read(MAG_ENGINE, sql)
 
-def extract_fait_lignes_vente() -> pd.DataFrame:
+def extract_fait_lignes_vente():
     sql = """
         SELECT dl.DO_Domaine, dl.DO_Type, dl.CT_Num, dl.DO_Piece, dl.DL_Ligne, dl.DO_Date, dl.AR_Ref, dl.DL_Qte, dl.DL_PrixUnitaire, dl.DL_Taxe1, dl.DL_MontantHT, dl.DL_MontantTTC, dl.DL_CMUP, dl.DL_PrixRU, de.DO_TxEscompte, de.DO_TotalHT, de.DO_TotalHTNet, de.DO_TotalTTC, de.DO_NetAPayer, de.DO_MontantRegle
         FROM F_DOCLIGNE dl
@@ -104,7 +106,7 @@ def extract_fait_lignes_vente() -> pd.DataFrame:
     """
     return _read(MAG_ENGINE, sql)
 
-def extract_fait_ecriturec() -> pd.DataFrame:
+def extract_fait_ecriturec():
     sql = """
         SELECT ec.JO_Num, ec.EC_No, ec.EC_Date, ec.CG_Num, ec.CT_Num, ec.EC_Sens, ec.EC_Montant, j.JO_Type
         FROM F_ECRITUREC ec
@@ -113,7 +115,7 @@ def extract_fait_ecriturec() -> pd.DataFrame:
     """
     return _read(MAG_ENGINE, sql)
 
-def extract_fait_regtaxe() -> pd.DataFrame:
+def extract_fait_regtaxe():
     sql = """
         SELECT rt.EC_No, rt.TA_Taux01, rt.RT_Base01, rt.RT_Montant01, ec.JO_Num, ec.EC_Date, ec.CT_Num, j.JO_Type
         FROM F_REGTAXE rt
@@ -123,7 +125,7 @@ def extract_fait_regtaxe() -> pd.DataFrame:
     """
     return _read(MAG_ENGINE, sql)
 
-def extract_fait_artstock() -> pd.DataFrame:
+def extract_fait_artstock():
     sql = """
         SELECT s.AR_Ref, s.DE_No, s.AS_MontSto, s.AS_QteSto, s.AS_QteMini, s.AS_QteRes
         FROM F_ARTSTOCK s
@@ -132,24 +134,21 @@ def extract_fait_artstock() -> pd.DataFrame:
     """
     return _read(MAG_ENGINE, sql)
 
-def extract_reglementt() -> pd.DataFrame:
+def extract_reglementt():
     return _read(MAG_ENGINE, "SELECT CT_Num, N_Reglement, RT_NbJour FROM F_REGLEMENTT")
 
-def extract_docentete_dates() -> pd.DataFrame:
+def extract_docentete_dates():
     return _read(MAG_ENGINE, "SELECT DO_Domaine, DO_Type, DO_Piece, DO_Date FROM F_DOCENTETE")
 
-def extract_fait_reglech() -> pd.DataFrame:
-    # Verifier si la table F_REGLECH existe dans GRT
+def extract_fait_reglech():
     check_sql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'F_REGLECH'"
     with GRT_ENGINE.connect() as conn:
         has_table = conn.execute(text(check_sql)).scalar() > 0
-    
     if not has_table:
         return pd.DataFrame(columns=["DO_Piece", "RC_Montant"])
-        
     return _read(GRT_ENGINE, "SELECT DO_Piece, SUM(RC_Montant) AS RC_Montant FROM F_REGLECH GROUP BY DO_Piece")
 
-def extract_fait_reglements_clients() -> pd.DataFrame:
+def extract_fait_reglements_clients():
     sql = """
         SELECT rc.RT_Num, rc.CT_Num, rc.DO_Type, rc.DO_Piece, rc.RT_Date, rc.RT_Mode, rc.RT_Montant, rc.RT_Etat, rc.BQ_Num, rc.BQ_ABREGE, rc.RT_Rapproche, rc.RT_Echeance AS LB_EcheanceReg, lb.LB_Ligne, br.BR_Num, lb.LB_MontantReg, lb.LB_NbJour, lb.LB_Agios, br.BR_TotalReglement, br.BR_Rapproch, NULL AS BR_TauxAgios, NULL AS BR_TMM
         FROM F_ReglementClient rc
@@ -159,13 +158,13 @@ def extract_fait_reglements_clients() -> pd.DataFrame:
     """
     return _read(GRT_ENGINE, sql)
 
-def extract_fait_reglements_fournisseurs() -> pd.DataFrame:
+def extract_fait_reglements_fournisseurs():
     return _read(GRT_ENGINE, "SELECT RT_Num, CT_Num, DO_Type, DO_Piece, RT_Date, RT_Mode, RT_Montant, RT_Etat, BQ_Num FROM F_ReglementFournisseur WHERE RT_Montant IS NOT NULL")
 
-def extract_docregl_grt() -> pd.DataFrame:
+def extract_docregl_grt():
     return _read(GRT_ENGINE, "SELECT DO_Piece, DR_Montant, DR_EtatRegle AS DR_Regle, DR_ModeReg FROM F_DOCREGL")
 
-def extract_fait_mvtcaisse() -> pd.DataFrame:
+def extract_fait_mvtcaisse():
     sql = """
         SELECT mc.MC_Numero, mc.MC_Date, mc.MC_TypeMvt, mc.MC_Debit, mc.MC_Credit, mc.MC_Cloture, c.CA_Numero AS CA_No, c.CA_Type, c.CA_Solde, c.CA_SoldeEspece, c.CA_SoldeCheque, c.CA_NumJournal AS JO_Num
         FROM F_MvtCaisse mc
@@ -173,10 +172,10 @@ def extract_fait_mvtcaisse() -> pd.DataFrame:
     """
     return _read(GRT_ENGINE, sql)
 
-def extract_dim_type_mvt_caisse() -> pd.DataFrame:
+def extract_dim_type_mvt_caisse():
     return _read(GRT_ENGINE, "SELECT DISTINCT mc.MC_TypeMvt AS code_type_mvt FROM F_MvtCaisse mc WHERE mc.MC_TypeMvt IS NOT NULL")
 
-def extract_sales_history_365d() -> pd.DataFrame:
+def extract_sales_history_365d():
     sql = """
         SELECT dl.AR_Ref, SUM(dl.DL_Qte) AS qte_vendue_365j
         FROM F_DOCLIGNE dl

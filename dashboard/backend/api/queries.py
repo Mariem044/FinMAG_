@@ -392,100 +392,6 @@ def get_ml_forecast_ca():
         return []
 
 
-@app.get("/api/ml/forecast-tresorerie")
-def get_ml_forecast_tresorerie():
-    try:
-        rows = _rows("""
-            SELECT TOP 100
-                layer, horizon_bucket, encaissements, nb_reglements
-            FROM ML_KPI11_TRESORERIE_FORECAST WITH (NOLOCK)
-            WHERE run_date = (SELECT MAX(run_date) FROM ML_KPI11_TRESORERIE_FORECAST WITH (NOLOCK))
-            ORDER BY layer, horizon_bucket
-        """)
-        return [
-            {
-                "layer": r.layer,
-                "horizon_bucket": r.horizon_bucket,
-                "encaissements": _num(r.encaissements),
-                "nb_reglements": _int(r.nb_reglements),
-            }
-            for r in rows
-        ]
-    except Exception:
-        return []
-
-
-@app.get("/api/ml/produits-alerts")
-def get_ml_produits_alerts(famille: str = None):
-    try:
-        filt_clause = ""
-        params = {}
-        c_famille = _clean_filter(famille)
-        if c_famille:
-            filt_clause = "AND famille LIKE :p_famille"
-            params["p_famille"] = f"%{c_famille}%"
-
-        sql = f"""
-            SELECT TOP 100
-                article, famille, priorite,
-                consoJourMoy, consoJourPred, cvConso,
-                stockActuel, stockSecurite, r2Score
-            FROM ML_KPI18_RUPTURE_FORECAST WITH (NOLOCK)
-            WHERE run_date = (SELECT MAX(run_date) FROM ML_KPI18_RUPTURE_FORECAST WITH (NOLOCK))
-            {filt_clause}
-            ORDER BY priorite DESC, cvConso DESC
-        """
-        rows = _rows(sql, params)
-        return [
-            {
-                "article": r.article,
-                "famille": r.famille,
-                "priorite": r.priorite,
-                "consoJourMoy": _num(r.consoJourMoy),
-                "consoJourPred": _num(r.consoJourPred),
-                "cvConso": _num(r.cvConso),
-                "stockActuel": _num(r.stockActuel),
-                "stockSecurite": _num(r.stockSecurite),
-                "r2Score": _num(r.r2Score),
-            }
-            for r in rows
-        ]
-    except Exception:
-        return []
-
-
-@app.get("/api/ml/rfm-segments")
-def get_ml_rfm_segments():
-    try:
-        meta = _row("""
-            SELECT TOP 1 silhouette_score, inertia, nb_clusters
-            FROM ML_KPI22_RFM_SEGMENTS WITH (NOLOCK)
-            WHERE run_date = (SELECT MAX(run_date) FROM ML_KPI22_RFM_SEGMENTS WITH (NOLOCK))
-        """)
-        rows = _rows("""
-            SELECT TOP 500
-                recence_jours AS recence,
-                frequence_commandes AS frequence,
-                montant_total AS montant,
-                segment_label AS segment
-            FROM ML_KPI22_RFM_SEGMENTS WITH (NOLOCK)
-            WHERE run_date = (SELECT MAX(run_date) FROM ML_KPI22_RFM_SEGMENTS WITH (NOLOCK))
-        """)
-        return {
-            "silhouette": _num(meta.silhouette_score) if meta else 0,
-            "inertia": _num(meta.inertia) if meta else 0,
-            "segments": [
-                {
-                    "recence": _num(r.recence),
-                    "frequence": _num(r.frequence),
-                    "montant": _num(r.montant),
-                    "segment": r.segment,
-                }
-                for r in rows
-            ],
-        }
-    except Exception:
-        return {"silhouette": 0, "inertia": 0, "segments": []}
 
 
 @app.get("/api/dashboard/kpis")
@@ -886,63 +792,6 @@ def get_top_familles(
     ]
 
 
-@app.get("/api/ventes/ca-by-region")
-def get_ca_by_region(
-    year: int = None,
-    quarter: str = None,
-    month: str = None,
-    region: str = None,
-    famille: str = None,
-    segment: str = None,
-    depot: str = None,
-    source: str = None,
-):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=None, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
-        aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
-    )
-    year_clause = f"AND d.annee = {year}" if year else "AND d.annee = latest.latest_year"
-    sql = f"""
-        WITH latest AS (
-            SELECT COALESCE(MAX(d.annee), YEAR(GETDATE())) AS latest_year
-            FROM FAIT_LIGNES_VENTE f
-            JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
-            JOIN DIM_DATE d ON d.id_date = f.id_date
-            WHERE dom.DO_Domaine = 0
-        )
-        SELECT 
-            COALESCE(NULLIF(c.gouvernorat, ''), 'Autre') AS name,
-            SUM(f.DL_MontantHT)            AS ca,
-            COUNT(DISTINCT f.id_client)    AS clients,
-            COUNT(DISTINCT f.DO_Piece_hash) AS commandes
-        FROM FAIT_LIGNES_VENTE f
-        JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
-        LEFT JOIN DIM_CLIENT  c ON c.id_client  = f.id_client
-        LEFT JOIN DIM_DATE    d ON d.id_date    = f.id_date
-        LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
-        LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
-        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-        CROSS JOIN latest
-        WHERE dom.DO_Domaine = 0
-        AND {year_clause[4:] if year_clause.startswith('AND ') else year_clause}
-        {filt_sql}
-        GROUP BY COALESCE(NULLIF(c.gouvernorat, ''), 'Autre')
-        HAVING SUM(f.DL_MontantHT) > 0
-        ORDER BY ca DESC
-    """
-    params = {"year": year} if year else {}
-    params.update(filt_params)
-    return [
-        {
-            "name": r.name,
-            "ca": _num(r.ca),
-            "clients": _int(r.clients),
-            "commandes": _int(r.commandes),
-        }
-        for r in _rows(sql, params)
-    ]
-
 
 @app.get("/api/tresorerie/summary")
 def get_tresorerie_summary(
@@ -993,7 +842,7 @@ def get_tresorerie_summary(
     }
 
 
-@app.get("/api/tresorerie/impayes")
+
 def get_impayes(
     year: int = None,
     quarter: str = None,
@@ -1077,114 +926,6 @@ def get_impayes(
     ]
 
 
-@app.get("/api/tresorerie/impayes-fournisseurs")
-def get_impayes_fournisseurs(
-    year: int = None,
-    quarter: str = None,
-    month: str = None,
-    region: str = None,
-    famille: str = None,
-    segment: str = None,
-    depot: str = None,
-    source: str = None,
-):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
-        aliases={"date": "d", "client": "c", "segment": "s"}
-    )
-    sql = f"""
-        SELECT 
-            f.CT_Num_code,
-            f.CT_Intitule,
-            SUM(r.RT_Montant) AS montant_impaye,
-            MAX(COALESCE(r.delai_reel_jours, DATEDIFF(day, dt_pai.date_val, GETDATE()))) AS anciennete,
-            MAX(r.RT_NbJour) AS delai_contractuel
-        FROM FAIT_REGLEMENTS r
-        JOIN DIM_FOURNISSEUR f ON f.id_fournisseur = r.id_fournisseur
-        LEFT JOIN DIM_DATE dt_pai ON dt_pai.id_date = r.id_date_paiement
-        LEFT JOIN DIM_DATE d ON d.id_date = r.id_date_paiement
-        LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
-        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-        WHERE r.DR_Regle = 0
-        AND r.id_fournisseur IS NOT NULL
-        {filt_sql}
-        GROUP BY f.CT_Num_code, f.CT_Intitule
-        HAVING SUM(r.RT_Montant) > 0
-        ORDER BY montant_impaye DESC
-    """
-    return [
-        {
-            "fournisseur": r.CT_Intitule if r.CT_Intitule else f"Fournisseur {r.CT_Num_code}",
-            "montant": _num(r.montant_impaye),
-            "delaiEffectif": _int(r.anciennete),
-            "delaiContractuel": _int(r.delai_contractuel),
-            "etat": (
-                "Contentieux" if _int(r.anciennete) > 90
-                else "Partiel" if _int(r.anciennete) > 30
-                else "En cours"
-            ),
-        }
-        for r in _rows(sql, filt_params)
-    ]
-
-
-@app.get("/api/tresorerie/encaissements-by-mode")
-def get_encaissements_by_mode(
-    year: int = None,
-    quarter: str = None,
-    month: str = None,
-    region: str = None,
-    famille: str = None,
-    segment: str = None,
-    depot: str = None,
-    source: str = None,
-):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
-        aliases={"date": "d", "client": "c", "segment": "s"}
-    )
-    sql = f"""
-        WITH deduped AS (
-            SELECT
-                r.id_client,
-                r.id_fournisseur,
-                r.id_mode_reg,
-                r.DR_ModeReg,
-                r.DR_Regle,
-                r.RT_Rapproche,
-                r.RT_Montant
-            FROM FAIT_REGLEMENTS r
-            LEFT JOIN DIM_DATE d ON d.id_date = r.id_date_paiement
-            LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
-            LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-            WHERE 1=1
-            {filt_sql}
-        )
-        SELECT
-            COALESCE(m.libelle_mode_reg, CONCAT('Mode ', r.DR_ModeReg)) AS mode,
-            SUM(CASE WHEN r.id_client IS NOT NULL THEN r.RT_Montant ELSE 0 END) AS mag,
-            SUM(CASE WHEN r.id_fournisseur IS NOT NULL THEN r.RT_Montant ELSE 0 END) AS grt,
-            AVG(CASE WHEN r.RT_Rapproche = 1 THEN 100.0 ELSE 0.0 END) AS rapprochement
-        FROM deduped r
-        LEFT JOIN DIM_MODE_REGLEMENT m ON m.id_mode_reg = r.id_mode_reg
-        WHERE r.DR_Regle = 1
-        GROUP BY m.libelle_mode_reg, r.DR_ModeReg
-        ORDER BY
-            SUM(CASE WHEN r.id_client IS NOT NULL THEN r.RT_Montant ELSE 0 END)
-        + SUM(CASE WHEN r.id_fournisseur IS NOT NULL THEN r.RT_Montant ELSE 0 END)
-        DESC
-    """
-    return [
-        {
-            "mode": r.mode,
-            "mag": _num(r.mag),
-            "grt": _num(r.grt),
-            "rapprochement": round(_num(r.rapprochement)),
-        }
-        for r in _rows(sql, filt_params)
-    ]
 
 
 @app.get("/api/tresorerie/aging")
@@ -1232,7 +973,7 @@ def get_aging(
     ]
 
 
-@app.get("/api/produits/stock-alerts")
+
 def get_stock_alerts():
     sql = """
         SELECT 
@@ -1405,34 +1146,6 @@ def get_clients():
     ]
 
 
-@app.get("/api/acteurs/rfm")
-def get_acteurs_rfm():
-    sql = """
-        SELECT 
-            c.CT_Num_code,
-            c.CT_Intitule,
-            COALESCE(s.libelle_segment, 'Sans segment') AS segment,
-            c.rfm_recence_jours,
-            c.rfm_frequence,
-            c.rfm_montant_12m
-        FROM DIM_CLIENT c
-        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-        WHERE c.rfm_montant_12m IS NOT NULL
-        OR c.rfm_frequence IS NOT NULL
-        ORDER BY COALESCE(c.rfm_montant_12m, 0) DESC
-    """
-    return [
-        {
-            "code": str(r.CT_Num_code),
-            "name": r.CT_Intitule or f"Client {r.CT_Num_code}",
-            "segment": r.segment,
-            "frequence": _int(r.rfm_frequence),
-            "recence": _int(r.rfm_recence_jours, 999),
-            "montant": _num(r.rfm_montant_12m),
-        }
-        for r in _rows(sql)
-    ]
-
 
 @app.get("/api/acteurs/aging")
 def get_acteurs_aging():
@@ -1486,29 +1199,6 @@ def get_acteurs_fournisseurs():
         for r in _rows(sql)
     ]
 
-
-@app.get("/api/acteurs/livreurs")
-def get_acteurs_livreurs():
-    sql = """
-        SELECT 
-            cl.id_collab,
-            SUM(f.DL_MontantHT) AS montant_total,
-            COUNT(DISTINCT f.DO_Piece_hash) AS nb_commandes
-        FROM FAIT_LIGNES_VENTE f
-        JOIN DIM_CLIENT cl ON cl.id_client = f.id_client
-        WHERE cl.id_collab IS NOT NULL
-        GROUP BY cl.id_collab
-        ORDER BY montant_total DESC
-    """
-    return [
-        {
-            "code": str(r.id_collab),
-            "nom": f"Livreur {r.id_collab}",
-            "montantTotal": _num(r.montant_total),
-            "nbCommandes": _int(r.nb_commandes),
-        }
-        for r in _rows(sql)
-    ]
 
 
 @app.get("/api/acteurs/fournisseur-concentration")
@@ -1830,24 +1520,6 @@ def get_fiscalite_kpis():
     }
 
 
-@app.get("/api/fiscalite/journaux")
-def get_fiscalite_journaux():
-    sql = """
-        SELECT 
-            COALESCE(CONVERT(VARCHAR(30), j.JO_Num_code), 'Sans journal') AS journal,
-            SUM(CASE WHEN s.EC_Sens = 0 THEN ABS(e.EC_Montant) ELSE 0 END) AS debit,
-            SUM(CASE WHEN s.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END) AS credit
-        FROM FAIT_ECRITURES e
-        LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
-        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens_ecriture
-        GROUP BY j.JO_Num_code
-        ORDER BY
-            SUM(CASE WHEN s.EC_Sens = 0 THEN ABS(e.EC_Montant) ELSE 0 END)
-        + SUM(CASE WHEN s.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END)
-        DESC
-    """
-    return [{"journal": f"Journal {r.journal}", "debit": _num(r.debit), "credit": _num(r.credit)} for r in _rows(sql)]
-
 
 @app.get("/api/fiscalite/tva-by-month")
 def get_fiscalite_tva_by_month():
@@ -1876,40 +1548,6 @@ def get_fiscalite_tva_by_month():
     ]
 
 
-@app.get("/api/fiscalite/ecritures")
-def get_fiscalite_ecritures():
-    sql = """
-        SELECT 
-            FORMAT(d.date_val, 'yyyy-MM-dd') AS date_val,
-            e.EC_No,
-            COALESCE(CONVERT(VARCHAR(30), j.JO_Num_code), '') AS journal_code,
-            e.CG_Num,
-            e.EC_Montant,
-            s.EC_Sens AS sens
-        FROM FAIT_ECRITURES e
-        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
-        LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
-        LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
-        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens_ecriture
-        WHERE tl.type_ligne IN (1, 2)
-        AND e.EC_No IS NOT NULL
-        AND e.EC_Montant IS NOT NULL
-        AND e.EC_Montant <> 0
-        ORDER BY e.id_ecriture DESC
-    """
-    return [
-        {
-            "date": _date_str(r.date_val) if r.date_val else "",
-            "numPiece": f"EC-{r.EC_No}" if r.EC_No else "",
-            "journal": f"Journal {r.journal_code}" if r.journal_code else "—",
-            "compte": str(r.CG_Num) if r.CG_Num else "—",
-            "libelle": f"Écriture {r.EC_No}" if r.EC_No else "—",
-            "debit": _num(r.EC_Montant) if _int(r.sens) == 0 else 0,
-            "credit": _num(r.EC_Montant) if _int(r.sens) == 1 else 0,
-            "solde": _num(r.EC_Montant) * (1 if _int(r.sens) == 0 else -1),
-        }
-        for r in _rows(sql)
-    ]
 
 @app.get("/api/fiscalite/anomalies")
 def get_fiscalite_anomalies():
@@ -1952,30 +1590,7 @@ def get_fiscalite_anomalies():
         for r in _rows(sql)
     ]
 
-@app.get("/api/fiscalite/balance-by-month")
-def get_fiscalite_balance_by_month():
-    sql = """
-        SELECT
-            d.mois AS month_num,
-            SUM(CASE WHEN s.EC_Sens = 0 THEN ABS(e.EC_Montant) ELSE 0 END) AS debit,
-            SUM(CASE WHEN s.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END) AS credit
-        FROM FAIT_ECRITURES e
-        JOIN DIM_DATE d ON d.id_date = e.id_date
-        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
-        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens_ecriture
-        WHERE tl.type_ligne IN (1, 2)
-        GROUP BY d.mois
-        ORDER BY d.mois
-    """
-    return [
-        {
-            "month": MONTHS[r.month_num - 1],
-            "debit": _num(r.debit),
-            "credit": _num(r.credit),
-            "ecart": _num(r.debit) - _num(r.credit),
-        }
-        for r in _rows(sql)
-    ]
+
 
 
 
