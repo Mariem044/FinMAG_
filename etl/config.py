@@ -13,4 +13,11 @@ GRT_ENGINE = create_engine(os.environ["GRT_CONN"] + "?Encrypt=no&TrustServerCert
 
 # Paramètres ETL
 DIM_DATE_START = datetime.strptime(os.environ.get("DIM_DATE_START", "2020-01-01"), "%Y-%m-%d").date()
-DIM_DATE_END   = datetime.strptime(os.environ.get("DIM_DATE_END",   "2025-12-31"), "%Y-%m-%d").date()
+DIM_DATE_END   = datetime.strptime(os.environ.get("DIM_DATE_END",   "2026-12-31"), "%Y-%m-%d").date()
+
+# Paramètres supplémentaires
+SEUIL_TENSION_STOCK = float(os.environ.get("SEUIL_TENSION_STOCK", "0.5"))
+AUDIT_TABLE_NAME = os.environ.get("ETL_AUDIT_TABLE", "ETL_AUDIT")
+CHUNK_SIZE = int(os.environ.get("ETL_CHUNK_SIZE", "5000"))
+ERROR_MSG_MAX_LEN = int(os.environ.get("ETL_ERROR_MSG_MAX_LEN", "500"))
+hash_key = None  # pas utilisé dans etl/ directement

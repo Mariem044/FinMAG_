@@ -102,7 +102,7 @@ export const Sidebar = memo(function Sidebar() {
           })}
         </nav>
 
-        {/* Bas : Paramètres + Aide + Déconnexion */}
+        {/* Bas : Paramètres + Déconnexion */}
         <div className="border-t border-border px-3 py-3 space-y-0.5">
           {bottomItems.map((item) => {
             const active = path === item.to;

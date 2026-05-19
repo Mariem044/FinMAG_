@@ -41,4 +41,8 @@ def add_fact_ecritures_calcs(df):
     denom = df["AS_QteSto"] - df["AS_QteRes"]
     df["ratio_tension"]  = (df["AS_QteRes"] / denom).where(denom > 0, 0).clip(0, 1)
     df["en_rupture"]     = (df["AS_QteSto"] <= df["AS_QteMini"]).astype("int16")
+    df["alerte_tension"] = (
+        (df["AS_QteSto"] > df["AS_QteMini"]) & 
+        (df["ratio_tension"] > 0.5)
+    ).astype("int16")
     return df

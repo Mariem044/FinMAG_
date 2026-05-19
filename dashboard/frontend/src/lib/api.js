@@ -9,42 +9,34 @@ const TIMEOUT_MS = Number(
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_TIMEOUT_MS) || 8000,
 );
 
-const pendingRequests = new Map();
-
 function url(path) {
   return `${BASE}${path}`;
 }
 
+// fetchWithTimeout : fait un appel HTTP avec un timeout de sécurité.
+// On n'utilise PLUS de cache global (pendingRequests) car il bloquait
+// les re-fetches quand un filtre changeait en plein chargement.
 async function fetchWithTimeout(path, options = {}) {
-  const requestUrl = url(path);
-  if (pendingRequests.has(requestUrl)) {
-    return pendingRequests.get(requestUrl);
-  }
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  const request = (async () => {
-    try {
-      const res = await fetch(requestUrl, {
-        headers: { Accept: "application/json" },
-        ...options,
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`API error ${res.status}${body ? `: ${body}` : ""}`);
-      }
-      return res.json();
-    } finally {
-      clearTimeout(timeout);
-      pendingRequests.delete(requestUrl);
+  try {
+    const res = await fetch(url(path), {
+      headers: { Accept: "application/json" },
+      ...options,
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`API error ${res.status}${body ? `: ${body}` : ""}`);
     }
-  })();
-
-  pendingRequests.set(requestUrl, request);
-  return request;
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
+// get : construit l'URL en ajoutant automatiquement les filtres globaux.
+// Si l'URL contient déjà un paramètre (ex: ?year=2026), il n'est PAS ajouté en double.
 function get(path) {
   try {
     const filters = useFilters.getState();
@@ -65,6 +57,8 @@ function get(path) {
 
     const urlObj = new URL(path, window.location.origin);
     Object.entries(filterParams).forEach(([k, v]) => {
+      // N'ajoute le param que s'il n'existe PAS déjà dans l'URL
+      // (evite le doublon ?year=2026&year=2026)
       if (!urlObj.searchParams.has(k)) {
         urlObj.searchParams.append(k, v);
       }

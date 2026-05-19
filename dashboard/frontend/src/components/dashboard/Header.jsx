@@ -1,4 +1,4 @@
-import { Menu, LogOut, ChevronDown } from "lucide-react";
+import { Menu, LogOut, ChevronDown, Sun } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useSidebar } from "@/store/useSidebar";
 import { useAuth } from "@/store/useAuth";

@@ -50,16 +50,17 @@ def create_all_tables(drop_existing=False):
             CREATE TABLE DIM_BANQUE (
                 id_banque      INT IDENTITY(1,1) PRIMARY KEY,
                 EB_Abrege_code NVARCHAR(50) NOT NULL UNIQUE,
-                EB_Banque      INT NULL,
+                EB_Banque      NVARCHAR(100) NULL,
                 source         SMALLINT NOT NULL DEFAULT 1
             )
         """,
         "DIM_SEGMENT": """
             CREATE TABLE DIM_SEGMENT (
-                id_segment    INT IDENTITY(1,1) PRIMARY KEY,
-                cbIndice      SMALLINT NOT NULL UNIQUE,
-                cbIndice_code INT NOT NULL,
-                CT_PrixTTC    SMALLINT NOT NULL DEFAULT 0
+                id_segment      INT IDENTITY(1,1) PRIMARY KEY,
+                cbIndice        SMALLINT NOT NULL UNIQUE,
+                cbIndice_code   INT NOT NULL,
+                CT_PrixTTC      SMALLINT NOT NULL DEFAULT 0,
+                libelle_segment NVARCHAR(100) NULL
             )
         """,
         "DIM_COLLABORATEUR": """
@@ -103,8 +104,8 @@ def create_all_tables(drop_existing=False):
                 CT_Num_code             NVARCHAR(50) NOT NULL UNIQUE,
                 CT_Intitule             NVARCHAR(100) NULL,
                 CT_Sommeil              SMALLINT NOT NULL DEFAULT 0,
-                id_segment              INT NULL REFERENCES DIM_SEGMENT(id_segment),
-                id_collab               INT NULL REFERENCES DIM_COLLABORATEUR(id_collab),
+                id_segment              INT NULL,
+                id_collab               INT NULL,
                 CT_Encours              NUMERIC(18,4) NULL,
                 CT_SvCA                 NUMERIC(18,4) NULL,
                 CT_SoldeActuel          NUMERIC(18,4) NULL,
@@ -117,7 +118,11 @@ def create_all_tables(drop_existing=False):
                 CT_MoyenneDelaiPayement NUMERIC(18,4) NULL,
                 CT_MoyenneDelaiImpaye   NUMERIC(18,4) NULL,
                 CT_Ville                NVARCHAR(50) NULL,
-                CT_CodeRegion           NVARCHAR(50) NULL
+                CT_CodeRegion           NVARCHAR(50) NULL,
+                gouvernorat             NVARCHAR(50) NULL,
+                rfm_recence_jours       INT NULL,
+                rfm_frequence           INT NULL,
+                rfm_montant_12m         NUMERIC(18,4) NULL
             )
         """,
         "DIM_ARTICLE": """
@@ -126,8 +131,8 @@ def create_all_tables(drop_existing=False):
                 AR_Ref_code    NVARCHAR(50) NOT NULL UNIQUE,
                 AR_Ref         NVARCHAR(50) NULL,
                 AR_Design      NVARCHAR(200) NULL,
-                id_famille     INT NULL REFERENCES DIM_FAMILLE(id_famille),
-                id_fournisseur INT NULL REFERENCES DIM_FOURNISSEUR(id_fournisseur),
+                id_famille     INT NULL,
+                id_fournisseur INT NULL,
                 FA_Intitule    NVARCHAR(100) NULL,
                 AR_Sommeil     SMALLINT NOT NULL DEFAULT 0,
                 AR_PrixAch     NUMERIC(18,4) NULL,
@@ -147,15 +152,15 @@ def create_all_tables(drop_existing=False):
                 id_caisse      INT IDENTITY(1,1) PRIMARY KEY,
                 CA_Numero_code NVARCHAR(50) NOT NULL UNIQUE,
                 CA_Type        SMALLINT NULL,
-                id_journal     INT NULL REFERENCES DIM_JOURNAL(id_journal)
+                id_journal     INT NULL
             )
         """,
         "FAIT_LIGNES_VENTE": """
             CREATE TABLE FAIT_LIGNES_VENTE (
                 id_ligne        INT IDENTITY(1,1) PRIMARY KEY,
-                id_date         INT NULL REFERENCES DIM_DATE(id_date),
-                id_client       INT NULL REFERENCES DIM_CLIENT(id_client),
-                id_article      INT NULL REFERENCES DIM_ARTICLE(id_article),
+                id_date         INT NULL,
+                id_client       INT NULL,
+                id_article      INT NULL,
                 DO_Domaine      SMALLINT NULL,
                 DO_Type         SMALLINT NULL,
                 DL_Qte          NUMERIC(18,4) NULL,
@@ -178,11 +183,11 @@ def create_all_tables(drop_existing=False):
         "FAIT_REGLEMENTS": """
             CREATE TABLE FAIT_REGLEMENTS (
                 id_reglement     INT IDENTITY(1,1) PRIMARY KEY,
-                id_date_paiement INT NULL REFERENCES DIM_DATE(id_date),
-                id_date_echeance INT NULL REFERENCES DIM_DATE(id_date),
-                id_client        INT NULL REFERENCES DIM_CLIENT(id_client),
-                id_fournisseur   INT NULL REFERENCES DIM_FOURNISSEUR(id_fournisseur),
-                id_banque        INT NULL REFERENCES DIM_BANQUE(id_banque),
+                id_date_paiement INT NULL,
+                id_date_echeance INT NULL,
+                id_client        INT NULL,
+                id_fournisseur   INT NULL,
+                id_banque        INT NULL,
                 RT_Mode          SMALLINT NULL,
                 RT_Etat          SMALLINT NULL,
                 DR_Regle         SMALLINT NULL,
@@ -203,16 +208,16 @@ def create_all_tables(drop_existing=False):
         "FAIT_ECRITURES": """
             CREATE TABLE FAIT_ECRITURES (
                 id_ecriture        INT IDENTITY(1,1) PRIMARY KEY,
-                id_date            INT NULL REFERENCES DIM_DATE(id_date),
+                id_date            INT NULL,
                 grain              SMALLINT NULL,
-                id_journal         INT NULL REFERENCES DIM_JOURNAL(id_journal),
-                id_banque          INT NULL REFERENCES DIM_BANQUE(id_banque),
-                id_client          INT NULL REFERENCES DIM_CLIENT(id_client),
-                id_fournisseur     INT NULL REFERENCES DIM_FOURNISSEUR(id_fournisseur),
-                id_article         INT NULL REFERENCES DIM_ARTICLE(id_article),
-                id_depot           INT NULL REFERENCES DIM_DEPOT(id_depot),
-                id_type_mvt_caisse INT NULL REFERENCES DIM_TYPE_MVT_CAISSE(id_type_mvt),
-                id_caisse          INT NULL REFERENCES DIM_CAISSE(id_caisse),
+                id_journal         INT NULL,
+                id_banque          INT NULL,
+                id_client          INT NULL,
+                id_fournisseur     INT NULL,
+                id_article         INT NULL,
+                id_depot           INT NULL,
+                id_type_mvt_caisse INT NULL,
+                id_caisse          INT NULL,
                 EC_Sens            SMALLINT NULL,
                 EC_Montant         NUMERIC(18,4) NULL,
                 EC_TauxTVA         NUMERIC(18,4) NULL,

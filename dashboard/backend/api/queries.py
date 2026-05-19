@@ -371,20 +371,25 @@ def run_ml_endpoint():
 def get_ml_forecast_ca():
     try:
         rows = _rows("""
-            SELECT TOP 50
+            SELECT TOP 200
                 CONVERT(VARCHAR(10), ds, 23) AS ds,
-                yhat, yhat_lower, yhat_upper, is_historical
+                model_name,
+                yhat, yhat_lower, yhat_upper, is_historical,
+                mape, mae
             FROM ML_KPI05_CA_FORECAST WITH (NOLOCK)
             WHERE run_date = (SELECT MAX(run_date) FROM ML_KPI05_CA_FORECAST WITH (NOLOCK))
-            ORDER BY ds
+            ORDER BY model_name, ds
         """)
         return [
             {
                 "ds": r.ds,
+                "model_name": r.model_name,
                 "yhat": _num(r.yhat),
                 "yhat_lower": _num(r.yhat_lower),
                 "yhat_upper": _num(r.yhat_upper),
                 "is_historical": int(r.is_historical),
+                "mape": _num(getattr(r, 'mape', 0)),
+                "mae": _num(getattr(r, 'mae', 0)),
             }
             for r in rows
         ]
@@ -418,8 +423,7 @@ def get_dashboard_kpis(
             SELECT MAX(d.annee) AS annee
             FROM FAIT_LIGNES_VENTE f
             JOIN DIM_DATE d ON d.id_date = f.id_date
-            JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
-            WHERE dom.DO_Domaine = 0
+            WHERE f.DO_Domaine = 0
         """)
         year = year_res.annee if year_res else datetime.now().year
 
@@ -430,27 +434,24 @@ def get_dashboard_kpis(
             FROM (
                 SELECT d2.annee, d2.mois, COUNT(*) AS row_cnt
                 FROM FAIT_LIGNES_VENTE f2
-                JOIN DIM_DOMAINE dom2 ON dom2.id_domaine = f2.id_domaine
                 JOIN DIM_DATE d2 ON d2.id_date = f2.id_date
-                WHERE dom2.DO_Domaine = 0
+                WHERE f2.DO_Domaine = 0
                 GROUP BY d2.annee, d2.mois
             ) counts
         )
         SELECT
             MAX(CASE WHEN cnt.row_cnt >= ms.avg_rows * 0.5 THEN d.mois ELSE 0 END) AS latest_month
         FROM FAIT_LIGNES_VENTE f
-        JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
         JOIN DIM_DATE d ON d.id_date = f.id_date
         CROSS JOIN monthly_stats ms
         JOIN (
             SELECT d2.annee, d2.mois, COUNT(*) AS row_cnt
             FROM FAIT_LIGNES_VENTE f2
-            JOIN DIM_DOMAINE dom2 ON dom2.id_domaine = f2.id_domaine
             JOIN DIM_DATE d2 ON d2.id_date = f2.id_date
-            WHERE dom2.DO_Domaine = 0
+            WHERE f2.DO_Domaine = 0
             GROUP BY d2.annee, d2.mois
         ) cnt ON cnt.annee = d.annee AND cnt.mois = d.mois
-        WHERE dom.DO_Domaine = 0
+        WHERE f.DO_Domaine = 0
         AND d.annee = :year
     """, {"year": year})
     
@@ -464,10 +465,10 @@ def get_dashboard_kpis(
                 AND d.mois <= :latest_month
                 THEN f.DL_MontantHT ELSE 0 END) AS ca_total_n1,
             COUNT(DISTINCT CASE WHEN d.annee = :latest_year AND f.DO_Piece_hash IS NOT NULL THEN
-                CONCAT(f.DO_Piece_hash, '-', COALESCE(f.id_type_doc, 0))
+                CONCAT(f.DO_Piece_hash, '-', COALESCE(f.DO_Type, 0))
             END) AS nb_commandes,
             COUNT(DISTINCT CASE WHEN d.annee = :latest_year - 1 AND d.mois <= :latest_month AND f.DO_Piece_hash IS NOT NULL THEN
-                CONCAT(f.DO_Piece_hash, '-', COALESCE(f.id_type_doc, 0))
+                CONCAT(f.DO_Piece_hash, '-', COALESCE(f.DO_Type, 0))
             END) AS nb_commandes_n1,
             COUNT(DISTINCT CASE WHEN d.annee = :latest_year THEN f.id_client END) AS nb_clients_actifs,
             COUNT(DISTINCT CASE WHEN d.annee = :latest_year - 1 AND d.mois <= :latest_month THEN f.id_client END) AS nb_clients_actifs_n1,
@@ -516,13 +517,12 @@ def get_dashboard_kpis(
                             AND f.DL_MontantHT > (f.DL_Qte * f.DL_CMUP) THEN 1 END) AS nb_lignes_avec_cout_n1,
             :latest_year AS computed_year
         FROM FAIT_LIGNES_VENTE f
-        JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
         LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
         LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
         LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
         LEFT JOIN DIM_CLIENT c ON c.id_client = f.id_client
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-        WHERE dom.DO_Domaine = 0
+        WHERE f.DO_Domaine = 0
         AND d.annee IN (:latest_year, :latest_year - 1)
         {filt_sql}
     """
@@ -651,13 +651,12 @@ def get_ca_by_month(
                 SUM(CASE WHEN f.DL_CMUP IS NOT NULL AND f.DL_CMUP > 0 AND f.DL_Qte IS NOT NULL AND f.DL_MontantHT > (f.DL_Qte * f.DL_CMUP) THEN f.DL_MontantHT - (f.DL_Qte * f.DL_CMUP) ELSE NULL END) AS marge_brute,
                 COUNT(*) AS row_cnt
             FROM FAIT_LIGNES_VENTE f
-            JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
             JOIN DIM_DATE d ON d.id_date = f.id_date
             LEFT JOIN DIM_CLIENT c ON c.id_client = f.id_client
             LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
             LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
             LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-            WHERE dom.DO_Domaine = 0
+            WHERE f.DO_Domaine = 0
             {year_filter}
             {filt_sql}
             GROUP BY d.annee, d.mois
@@ -773,13 +772,12 @@ def get_top_familles(
             COALESCE(NULLIF(fa.FA_Intitule, ''), 'Sans famille') AS name,
             SUM(f.DL_MontantHT) AS ca
         FROM FAIT_LIGNES_VENTE f
-        JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
         LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
         LEFT JOIN DIM_CLIENT c ON c.id_client = f.id_client
         LEFT JOIN DIM_ARTICLE a  ON a.id_article  = f.id_article
         LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-        WHERE dom.DO_Domaine = 0
+        WHERE f.DO_Domaine = 0
         AND fa.FA_Intitule IS NOT NULL
         AND fa.FA_Intitule <> ''
         {filt_sql}
@@ -1042,13 +1040,12 @@ def get_articles(
                 COALESCE(SUM(DL_Qte), 0) AS qte_vendue,
                 COALESCE(SUM(DL_MontantHT), 0) AS ca
             FROM FAIT_LIGNES_VENTE f
-            JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
             LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
             LEFT JOIN DIM_CLIENT c ON c.id_client = f.id_client
             LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
             LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
             LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
-            WHERE dom.DO_Domaine = 0
+            WHERE f.DO_Domaine = 0
             {filt_sql}
             GROUP BY f.id_article
         ),
@@ -1061,10 +1058,8 @@ def get_articles(
                 MAX(e.ratio_tension) AS ratio_tension,
                 SUM(e.AS_MontSto)   AS valeur_stock
             FROM FAIT_ECRITURES e
-            JOIN DIM_TYPE_LIGNE tl
-            ON tl.id_type_ligne = e.id_type_ligne
-            AND tl.type_ligne = 4
-            WHERE e.AS_QteSto IS NOT NULL
+            WHERE e.grain = 4
+            AND e.AS_QteSto IS NOT NULL
             GROUP BY e.id_article
         )
         SELECT 
@@ -1110,27 +1105,28 @@ def get_articles(
 
 @app.get("/api/acteurs/clients")
 def get_clients():
+    # On prend TOUS les clients de DIM_CLIENT (même sans commandes)
+    # LEFT JOIN sur les ventes pour avoir les KPIs s'ils existent
     sql = """
         SELECT 
             c.CT_Num_code,
             COALESCE(c.CT_Intitule, CONVERT(VARCHAR(30), c.CT_Num_code)) AS nom,
             COALESCE(s.libelle_segment, 'Sans segment') AS segment,
-            SUM(v.DL_MontantHT) AS ca_total,
+            COALESCE(SUM(v.DL_MontantHT), 0) AS ca_total,
             COUNT(DISTINCT v.DO_Piece_hash) AS nb_commandes,
             FORMAT(MAX(d.date_val), 'yyyy-MM-dd') AS derniere_commande,
             c.CT_SoldeActuel AS solde_impaye,
             c.CT_Sommeil AS sommeil
         FROM DIM_CLIENT c
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-        LEFT JOIN FAIT_LIGNES_VENTE v ON v.id_client = c.id_client
-        LEFT JOIN DIM_DOMAINE dom ON dom.id_domaine = v.id_domaine
+        LEFT JOIN FAIT_LIGNES_VENTE v ON v.id_client = c.id_client AND v.DO_Domaine = 0
         LEFT JOIN DIM_DATE d ON d.id_date = v.id_date
-        WHERE (dom.DO_Domaine = 0 OR dom.DO_Domaine IS NULL)
-        GROUP BY c.CT_Num_code, s.libelle_segment, c.CT_SoldeActuel, c.CT_Sommeil, c.CT_Intitule
+        GROUP BY c.CT_Num_code, c.CT_Intitule, s.libelle_segment, c.CT_SoldeActuel, c.CT_Sommeil
         ORDER BY ca_total DESC
     """
     return [
         {
+            # code = str(CT_Num_code) — doit être IDENTIQUE à clientCode dans /aging
             "code": str(r.CT_Num_code),
             "nom": r.nom,
             "region": "",
@@ -1140,7 +1136,7 @@ def get_clients():
             "soldeImpaye": _num(r.solde_impaye),
             "segment": r.segment,
             "actif": _int(r.sommeil) == 0,
-            "nouveau": _int(r.nb_commandes) == 1,  
+            "nouveau": _int(r.nb_commandes) == 1,
         }
         for r in _rows(sql)
     ]
@@ -1151,7 +1147,8 @@ def get_clients():
 def get_acteurs_aging():
     sql = """
         SELECT 
-            COALESCE(CONVERT(VARCHAR(30), c.CT_Num_code), 'Client') AS client,
+            c.CT_Num_code,
+            COALESCE(c.CT_Intitule, CONVERT(VARCHAR(30), c.CT_Num_code)) AS client_nom,
             SUM(CASE WHEN r.bucket_impaye = 0 THEN r.RT_Montant ELSE 0 END) AS b0,
             SUM(CASE WHEN r.bucket_impaye = 1 THEN r.RT_Montant ELSE 0 END) AS b1,
             SUM(CASE WHEN r.bucket_impaye = 2 THEN r.RT_Montant ELSE 0 END) AS b2,
@@ -1160,13 +1157,14 @@ def get_acteurs_aging():
         LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
         WHERE r.id_client IS NOT NULL
         AND r.DR_Regle = 0
-        GROUP BY c.CT_Num_code
+        GROUP BY c.CT_Num_code, c.CT_Intitule
         ORDER BY b3 DESC
     """
     return [
         {
-            "clientCode": str(r.client),
-            "client": f"C{r.client}",
+            # clientCode = str(CT_Num_code) pour matcher avec clients.code dans le frontend
+            "clientCode": str(r.CT_Num_code),
+            "client": r.client_nom,
             "0-30j": _num(r.b0),
             "31-60j": _num(r.b1),
             "61-90j": _num(r.b2),
@@ -1203,62 +1201,33 @@ def get_acteurs_fournisseurs():
 
 @app.get("/api/acteurs/fournisseur-concentration")
 def get_fournisseur_concentration():
+    # Concentration basée sur DIM_FOURNISSEUR + DIM_ARTICLE (catalogue)
+    # On évite FAIT_LIGNES_VENTE DO_Domaine=1 qui peut être vide selon la source
     sql = """
-        WITH achats AS (
-            SELECT
-                f.id_fournisseur,
-                f.CT_Num_code,
-                f.CT_Intitule,
-                SUM(flv.DL_MontantHT) AS montant_achat,
-                COUNT(DISTINCT flv.id_article) AS nb_articles_achetes
-            FROM FAIT_LIGNES_VENTE flv
-            JOIN DIM_DOMAINE dom ON dom.id_domaine = flv.id_domaine
-            JOIN DIM_ARTICLE a ON a.id_article = flv.id_article
-            JOIN DIM_FOURNISSEUR f ON f.id_fournisseur = a.id_fournisseur
-            WHERE dom.DO_Domaine = 1
-            GROUP BY f.id_fournisseur, f.CT_Num_code, f.CT_Intitule
-        ),
-        total AS (
-            SELECT SUM(montant_achat) AS total_achats
-            FROM achats
-        ),
-        hhi_threshold AS (
-            SELECT DISTINCT
-                POWER(
-                    PERCENTILE_CONT(0.8) WITHIN GROUP (ORDER BY montant_achat) OVER ()
-                    / NULLIF(total_achats, 0),
-                2) AS seuil
-            FROM achats
-            CROSS JOIN total
-        )
         SELECT
-            a.CT_Num_code,
-            a.CT_Intitule,
-            a.montant_achat,
-            a.nb_articles_achetes,
-            COALESCE(art_count.nb_articles_catalogue, 0) AS nb_articles_catalogue,
-            POWER(a.montant_achat / NULLIF(t.total_achats, 0), 2) AS hhi_contribution,
-            h.seuil AS hhi_threshold
-        FROM achats a
-        CROSS JOIN total t
-        CROSS JOIN hhi_threshold h
-        LEFT JOIN (
-            SELECT id_fournisseur, COUNT(*) AS nb_articles_catalogue
-            FROM DIM_ARTICLE
-            GROUP BY id_fournisseur
-        ) art_count ON art_count.id_fournisseur = a.id_fournisseur
-        ORDER BY a.montant_achat DESC
+            f.CT_Num_code,
+            f.CT_Intitule,
+            f.CT_Encours             AS montant_achat,
+            COUNT(a.id_article)      AS nb_articles
+        FROM DIM_FOURNISSEUR f
+        LEFT JOIN DIM_ARTICLE a ON a.id_fournisseur = f.id_fournisseur
+        GROUP BY f.CT_Num_code, f.CT_Intitule, f.CT_Encours
+        HAVING COUNT(a.id_article) > 0
+        ORDER BY f.CT_Encours DESC
     """
+    rows = list(_rows(sql))
+    total = sum(_num(r.montant_achat) for r in rows)
     return [
         {
             "fournisseur": r.CT_Intitule if r.CT_Intitule else f"Fournisseur {r.CT_Num_code}",
-            "nbArticles": _int(r.nb_articles_catalogue),
-            "nbArticlesAchetes": _int(r.nb_articles_achetes),
+            "nbArticles": _int(r.nb_articles),
+            "nbArticlesAchetes": _int(r.nb_articles),
             "montantAchat": _num(r.montant_achat),
-            "hhi": round(_num(r.hhi_contribution), 4),
-            "risqueConcentration": _num(r.hhi_contribution) > _num(r.hhi_threshold),
+            # HHI = part au carré — mesure la concentration (plus c'est élevé, plus c'est risqué)
+            "hhi": round((_num(r.montant_achat) / total) ** 2, 4) if total > 0 else 0,
+            "risqueConcentration": (_num(r.montant_achat) / total > 0.3) if total > 0 else False,
         }
-        for r in _rows(sql)
+        for r in rows
     ]
 
 
@@ -1415,6 +1384,7 @@ def get_caisses():
         for r in _rows(sql)
     ]
 
+
 @app.get("/api/caisse/flux-daily")
 def get_caisse_flux_daily():
     sql = """
@@ -1424,8 +1394,7 @@ def get_caisse_flux_daily():
             SUM(COALESCE(e.MC_Debit, 0))  AS debit
         FROM FAIT_ECRITURES e
         LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
-        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
-        WHERE tl.type_ligne = 3
+        WHERE e.grain = 3
         AND d.date_val IS NOT NULL
         GROUP BY d.date_val
         ORDER BY d.date_val DESC
@@ -1455,9 +1424,8 @@ def get_caisse_mouvements_by_type():
             COALESCE(tm.libelle_type_mvt, CONCAT('Mouvement ', tm.MC_TypeMvt)) AS name,
             SUM(ABS(COALESCE(e.MC_Credit, 0)) + ABS(COALESCE(e.MC_Debit, 0))) AS value
         FROM FAIT_ECRITURES e
-        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
         LEFT JOIN DIM_TYPE_MVT_CAISSE tm ON tm.id_type_mvt = e.id_type_mvt_caisse
-        WHERE tl.type_ligne = 3
+        WHERE e.grain = 3
         GROUP BY tm.libelle_type_mvt, tm.MC_TypeMvt
         ORDER BY SUM(ABS(COALESCE(e.MC_Credit, 0)) + ABS(COALESCE(e.MC_Debit, 0))) DESC
     """
@@ -1480,32 +1448,29 @@ def get_fiscalite_kpis():
     row = _row(
         """
         SELECT
-            SUM(CASE WHEN tl.type_ligne IN (1, 2) THEN 1 ELSE 0 END) AS nb_ecritures,
-            SUM(CASE WHEN tl.type_ligne = 2 AND t.type_tva = 1 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS tva_collectee,
-            SUM(CASE WHEN tl.type_ligne = 2 AND t.type_tva = 2 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS tva_deductible,
+            SUM(CASE WHEN e.grain IN (1, 2) THEN 1 ELSE 0 END) AS nb_ecritures,
+            SUM(CASE WHEN e.grain = 2 AND j.JO_Type = 0 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS tva_collectee,
+            SUM(CASE WHEN e.grain = 2 AND j.JO_Type = 1 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS tva_deductible,
             SUM(CASE
-                WHEN tl.type_ligne = 1
+                WHEN e.grain = 1
                 AND ABS(COALESCE(e.EC_Montant, 0)) >= (
-    SELECT AVG(ABS(EC_Montant)) + STDEV(ABS(EC_Montant))
-    FROM FAIT_ECRITURES
-    WHERE EC_Montant IS NOT NULL
-)
+                    SELECT AVG(ABS(EC_Montant)) + STDEV(ABS(EC_Montant))
+                    FROM FAIT_ECRITURES
+                    WHERE EC_Montant IS NOT NULL
+                )
                 THEN 1 ELSE 0
             END) AS anomalies
         FROM FAIT_ECRITURES e
-        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
-        LEFT JOIN DIM_TYPE_TVA t ON t.id_type_tva = e.id_type_tva
+        LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
         """
     )
     debit_credit = _row(
         """
         SELECT
-            SUM(CASE WHEN s.EC_Sens = 0 THEN ABS(e.EC_Montant) ELSE 0 END) AS debit,
-            SUM(CASE WHEN s.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END) AS credit
+            SUM(CASE WHEN e.EC_Sens = 0 THEN ABS(e.EC_Montant) ELSE 0 END) AS debit,
+            SUM(CASE WHEN e.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END) AS credit
         FROM FAIT_ECRITURES e
-        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
-        LEFT JOIN DIM_SENS_ECRITURE s ON s.id_sens = e.id_sens_ecriture
-        WHERE tl.type_ligne IN (1, 2)
+        WHERE e.grain IN (1, 2)
         """
     )
     debit = _num(debit_credit.debit)
@@ -1520,19 +1485,17 @@ def get_fiscalite_kpis():
     }
 
 
-
 @app.get("/api/fiscalite/tva-by-month")
 def get_fiscalite_tva_by_month():
     sql = """
         SELECT
             d.mois AS month_num,
-            SUM(CASE WHEN tl.type_ligne = 2 AND t.type_tva = 1 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS collectee,
-            SUM(CASE WHEN tl.type_ligne = 2 AND t.type_tva = 2 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS deductible
+            SUM(CASE WHEN e.grain = 2 AND j.JO_Type = 0 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS collectee,
+            SUM(CASE WHEN e.grain = 2 AND j.JO_Type = 1 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS deductible
         FROM FAIT_ECRITURES e
         JOIN DIM_DATE d ON d.id_date = e.id_date
-        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
-        LEFT JOIN DIM_TYPE_TVA t ON t.id_type_tva = e.id_type_tva
-        WHERE tl.type_ligne = 2
+        LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
+        WHERE e.grain = 2
         AND e.RT_Montant01 IS NOT NULL
         GROUP BY d.mois
         ORDER BY d.mois
@@ -1546,7 +1509,6 @@ def get_fiscalite_tva_by_month():
         }
         for r in _rows(sql)
     ]
-
 
 
 @app.get("/api/fiscalite/anomalies")
@@ -1573,10 +1535,9 @@ def get_fiscalite_anomalies():
         FROM FAIT_ECRITURES e
         LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
         LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
-        JOIN DIM_TYPE_LIGNE tl ON tl.id_type_ligne = e.id_type_ligne
         CROSS JOIN stats
         WHERE e.EC_Montant IS NOT NULL
-        AND tl.type_ligne IN (1, 2)
+        AND e.grain IN (1, 2)
         ORDER BY montant DESC
     """
     return [
@@ -1684,9 +1645,8 @@ def get_assistant_summary():
                 WITH latest AS (
                     SELECT MAX(d.annee) AS latest_year
                     FROM FAIT_LIGNES_VENTE f
-                    JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
                     JOIN DIM_DATE d ON d.id_date = f.id_date
-                    WHERE dom.DO_Domaine = 0
+                    WHERE f.DO_Domaine = 0
                 )
                 SELECT SUM(f.DL_MontantHT) AS ca_total,
                     COUNT(DISTINCT f.DO_Piece_hash) AS nb_commandes,
@@ -1702,11 +1662,10 @@ def get_assistant_summary():
                         THEN f.DL_MontantHT
                         ELSE 0 END) AS ca_avec_cout
                 FROM FAIT_LIGNES_VENTE f
-                JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
                 LEFT JOIN DIM_DATE d ON d.id_date = f.id_date
                 LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
                 CROSS JOIN latest
-                WHERE dom.DO_Domaine = 0 AND d.annee = latest.latest_year
+                WHERE f.DO_Domaine = 0 AND d.annee = latest.latest_year
             """)
             ca = _num(kpi_row.ca_total)
             ca_avec_cout = _num(kpi_row.ca_avec_cout) if kpi_row.ca_avec_cout is not None else 0
@@ -1755,8 +1714,7 @@ def get_assistant_summary():
                     WITH sales AS (
                         SELECT id_article, COALESCE(SUM(DL_MontantHT),0) AS ca
                         FROM FAIT_LIGNES_VENTE f
-                        JOIN DIM_DOMAINE dom ON dom.id_domaine=f.id_domaine
-                        WHERE dom.DO_Domaine=0 GROUP BY id_article
+                        WHERE f.DO_Domaine=0 GROUP BY id_article
                     ),
                     stock AS (
                         SELECT e.id_article, MAX(e.AS_QteSto) AS stock, MAX(e.dsi_jours) AS dsi_jours

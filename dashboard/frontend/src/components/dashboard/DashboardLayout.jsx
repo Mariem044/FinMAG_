@@ -5,7 +5,7 @@ import { FiltersBar } from "./FiltersBar";
 import { useLocation } from "@tanstack/react-router";
 
 // Pages sans barre de filtres
-const NO_FILTER_PAGES = ["/parametres", "/aide", "/predictions"];
+const NO_FILTER_PAGES = ["/parametres", "/predictions"];
 
 export function DashboardLayout() {
   const location = useLocation();

@@ -1,155 +1,180 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
-import { useParametres } from "@/store/useParametres";
+import { useState, useMemo } from "react";
 import { api } from "@/lib/api";
 import { useApiResource } from "@/hooks/useApiResource";
+import { useTheme } from "@/store/useTheme";
+import { Database, Play, RefreshCw, CheckCircle, XCircle, Clock, Sun, Moon } from "lucide-react";
+
 
 export const Route = createFileRoute("/parametres")({
   component: ParametresPage,
 });
 
-function ParametresPage() {
-  const { langue, setLangue, devise, setDevise, locale } = useParametres();
+// Clés retournées par /api/etl/status → counts
+const ETL_COUNT_KEYS = [
+  { key: "clients",    label: "Clients" },
+  { key: "articles",   label: "Articles" },
+  { key: "ventes",     label: "Lignes ventes" },
+  { key: "reglements", label: "Règlements" },
+  { key: "ecritures",  label: "Écritures" },
+];
 
-  const [draft, setDraft] = useState({ langue, devise });
-  const [saved, setSaved] = useState(false);
+function StatusBadge({ status }) {
+  if (!status) return null;
+  const isOk = status === "success" || status === "ok" || status === "completed";
+  const isErr = status === "error" || status === "failed";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+        isOk ? "bg-green-500/15 text-green-400"
+             : isErr ? "bg-red-500/15 text-red-400"
+             : "bg-orange-500/15 text-orange-400"
+      }`}
+    >
+      {isOk ? <CheckCircle size={11} /> : isErr ? <XCircle size={11} /> : <Clock size={11} />}
+      {status}
+    </span>
+  );
+}
+
+function ParametresPage() {
+  const { isDark, toggle } = useTheme();
   const [refreshKey, setRefreshKey] = useState(0);
   const [etlAction, setEtlAction] = useState("");
 
-  const {
-    data: etlStatus,
-    loading: etlLoading,
-    error: etlError,
-  } = useApiResource(api.etl.status, { running: false, lastRun: null, counts: {} }, [refreshKey]);
-
-  function handleSave() {
-    setLangue(draft.langue);
-    setDevise(draft.devise);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
-
-  function handleCancel() {
-    setDraft({ langue, devise });
-  }
+  // useMemo pour que useApiResource re-fetch quand refreshKey change
+  const etlStatusFn = useMemo(() => api.etl.status, [refreshKey]);
+  const { data: etlStatus, loading: etlLoading } = useApiResource(
+    etlStatusFn,
+    { running: false, lastRun: null, counts: {}, lastError: null }
+  );
 
   async function handleRunEtl() {
     setEtlAction("Démarrage en cours...");
     try {
       const result = await api.etl.run();
-      setEtlAction(result.started ? "ETL démarré avec succès" : "ETL déjà en cours d'exécution");
-      setRefreshKey((v) => v + 1);
+      setEtlAction(
+        result.started
+          ? "✓ ETL démarré avec succès"
+          : "⚠ ETL déjà en cours d'exécution"
+      );
+      // Rafraîchir le statut après 2s
+      setTimeout(() => setRefreshKey((v) => v + 1), 2000);
     } catch {
-      setEtlAction("Erreur lors du démarrage de l'ETL");
+      setEtlAction("✗ Erreur lors du démarrage de l'ETL");
     }
   }
 
+  const lastRun = etlStatus?.lastRun;
+  const counts  = etlStatus?.counts || {};
+
   return (
-    <div className="space-y-6">
-      <div className="max-w-2xl">
-        <h1 className="text-3xl font-bold text-foreground mb-6">Paramètres</h1>
+    <div className="space-y-6 max-w-2xl">
+      <h1 className="text-3xl font-bold text-foreground">Paramètres</h1>
 
-        <div className="bg-card border border-border rounded-xl p-6 space-y-6">
-          {/* Paramètres généraux */}
-          <section>
-            <h2 className="text-lg font-semibold text-foreground mb-4">Général</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Langue
-                </label>
-                <select
-                  value={draft.langue}
-                  onChange={(e) => setDraft({ ...draft, langue: e.target.value })}
-                  className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-foreground focus:border-primary outline-none"
-                >
-                  <option>Français</option>
-                  <option>Arabe</option>
-                  <option>Anglais</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Devise
-                </label>
-                <select
-                  value={draft.devise}
-                  onChange={(e) => setDraft({ ...draft, devise: e.target.value })}
-                  className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-foreground focus:border-primary outline-none"
-                >
-                  <option>TND - Dinar Tunisien</option>
-                  <option>EUR - Euro</option>
-                  <option>USD - Dollar</option>
-                </select>
-              </div>
-            </div>
-          </section>
+      {/* ── Apparence ── */}
+      <div className="bg-card border border-border rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-foreground mb-4">Apparence</h2>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-foreground">Thème</p>
+            <p className="text-xs text-text-dim mt-0.5">Choisir entre le mode clair et sombre</p>
+          </div>
+          <button
+            onClick={toggle}
+            className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg text-foreground hover:bg-secondary transition-colors text-sm"
+          >
+            {isDark ? <Sun size={15} /> : <Moon size={15} />}
+            {isDark ? "Mode clair" : "Mode sombre"}
+          </button>
+        </div>
+      </div>
 
-          {/* ETL */}
-          <section className="border-t border-border pt-5">
-            <h2 className="text-lg font-semibold text-foreground mb-4">Pipeline ETL</h2>
-            <div className="rounded-lg border border-border bg-secondary/30 p-4 space-y-3">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                {["clients", "articles", "ventes", "reglements"].map((key) => (
-                  <div key={key}>
-                    <p className="text-text-dim uppercase text-[10px]">{key}</p>
-                    <p className="text-foreground font-semibold">
-                      {(etlStatus.counts?.[key] ?? 0).toLocaleString(locale())}
-                    </p>
-                  </div>
-                ))}
-              </div>
-              <div className="text-sm text-text-dim">
-                {etlError
-                  ? "Service ETL non disponible"
-                  : etlLoading
-                    ? "Chargement..."
-                    : etlStatus.lastRun
-                      ? `Dernier run : ${etlStatus.lastRun.status} — ${etlStatus.lastRun.date}`
-                      : "Aucun run enregistré"}
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-text-dim">{etlAction}</span>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setRefreshKey((v) => v + 1)}
-                    className="px-3 py-2 border border-border rounded-lg text-foreground hover:bg-secondary transition-colors text-sm"
-                  >
-                    Rafraîchir
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleRunEtl}
-                    disabled={etlStatus.running}
-                    className="px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors text-sm"
-                  >
-                    {etlStatus.running ? "ETL en cours..." : "Lancer l'ETL"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </section>
+      {/* ── Pipeline ETL ── */}
+      <div className="bg-card border border-border rounded-xl p-6 space-y-5">
+        <div className="flex items-center gap-2">
+          <Database size={18} className="text-primary" />
+          <h2 className="text-lg font-semibold text-foreground">Pipeline ETL</h2>
+          {etlStatus?.running && (
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 animate-pulse">
+              En cours…
+            </span>
+          )}
+        </div>
 
-          {/* Boutons Save/Cancel */}
-          <div className="flex items-center justify-between pt-4">
-            {saved ? (
-              <span className="text-sm text-green-400 font-medium">Paramètres sauvegardés ✓</span>
+        {/* Dernier run */}
+        <div className="rounded-lg border border-border bg-secondary/30 p-4 space-y-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-text-dim font-medium">Dernier run</span>
+            {etlLoading ? (
+              <span className="text-text-dim text-xs">Chargement…</span>
+            ) : lastRun ? (
+              <div className="flex items-center gap-2">
+                <StatusBadge status={lastRun.status} />
+                <span className="text-foreground text-xs font-mono">
+                  {/* Affiche la date et durée si disponibles */}
+                  {lastRun.date
+                    ? new Date(lastRun.date).toLocaleString("fr-TN")
+                    : "—"}
+                  {lastRun.durationSeconds
+                    ? ` — ${lastRun.durationSeconds}s`
+                    : ""}
+                </span>
+              </div>
             ) : (
-              <span />
+              <span className="text-text-dim text-xs italic">Aucun run enregistré</span>
             )}
-            <div className="flex gap-3">
+          </div>
+
+          {/* Erreur éventuelle */}
+          {(etlStatus?.lastError || lastRun?.error) && (
+            <div className="text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-2 font-mono break-all">
+              {etlStatus?.lastError || lastRun?.error}
+            </div>
+          )}
+
+          {/* Compteurs */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-1">
+            {ETL_COUNT_KEYS.map(({ key, label }) => (
+              <div key={key} className="text-center bg-background rounded-lg p-2 border border-border/50">
+                <p className="text-text-dim uppercase text-[9px] tracking-wider font-semibold mb-1">
+                  {label}
+                </p>
+                <p className="text-foreground font-bold text-sm">
+                  {etlLoading
+                    ? "…"
+                    : (counts[key] ?? 0).toLocaleString("fr-TN")}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <span className={`text-xs font-medium ${
+              etlAction.startsWith("✓") ? "text-green-400"
+              : etlAction.startsWith("✗") ? "text-red-400"
+              : "text-text-dim"
+            }`}>
+              {etlAction}
+            </span>
+            <div className="flex gap-2">
               <button
-                onClick={handleCancel}
-                className="px-4 py-2 border border-border rounded-lg text-foreground hover:bg-secondary transition-colors"
+                type="button"
+                onClick={() => setRefreshKey((v) => v + 1)}
+                className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-foreground hover:bg-secondary transition-colors text-sm"
               >
-                Annuler
+                <RefreshCw size={13} />
+                Rafraîchir
               </button>
               <button
-                onClick={handleSave}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                type="button"
+                onClick={handleRunEtl}
+                disabled={etlStatus?.running}
+                className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors text-sm font-semibold"
               >
-                Sauvegarder
+                <Play size={13} />
+                {etlStatus?.running ? "ETL en cours…" : "Lancer l'ETL"}
               </button>
             </div>
           </div>

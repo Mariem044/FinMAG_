@@ -52,9 +52,8 @@ def _load_monthly_ca() -> pd.DataFrame:
             DATEFROMPARTS(d.annee, d.mois, 1) AS ds,
             SUM(f.DL_MontantHT)               AS y
         FROM FAIT_LIGNES_VENTE f
-        JOIN DIM_DOMAINE dom ON dom.id_domaine = f.id_domaine
         JOIN DIM_DATE    d   ON d.id_date      = f.id_date
-        WHERE dom.DO_Domaine = 0
+        WHERE f.DO_Domaine = 0
         GROUP BY d.annee, d.mois
         HAVING COUNT(*) > 10
         ORDER BY ds

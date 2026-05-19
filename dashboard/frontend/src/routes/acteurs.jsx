@@ -52,11 +52,23 @@ function EmptyState({ message = "Aucune donnée pour ce filtre" }) {
 }
 
 function ActeursPage() {
-  const { segment, depot } = useFilters();
-  const { data: clients } = useApiResource(api.acteurs.clients, []);
-  const { data: agingRows } = useApiResource(api.acteurs.aging, []);
-  const { data: fournisseurs } = useApiResource(api.acteurs.fournisseurs, []);
-  const { data: concentrationFournisseur } = useApiResource(api.acteurs.fournisseurConcentration, []);
+  const { year, segment, depot } = useFilters();
+
+  // useMemo est OBLIGATOIRE ici :
+  // useApiResource re-fetch seulement quand fetcherFn change de référence.
+  // Sans useMemo, la fonction est recréée à chaque render MAIS avec la même identité
+  // (non-stable), ce qui causerait une boucle infinie.
+  // Avec useMemo([year]), la fonction change seulement quand year change.
+  // Le filtre segment/depot est appliqué côté JS dans filteredClients ci-dessous.
+  const clientsFn = useMemo(() => api.acteurs.clients, [year]);
+  const agingFn   = useMemo(() => api.acteurs.aging,   [year]);
+  const fournisseursFn = useMemo(() => api.acteurs.fournisseurs, [year]);
+  const concentrationFn = useMemo(() => api.acteurs.fournisseurConcentration, [year]);
+
+  const { data: clients } = useApiResource(clientsFn, []);
+  const { data: agingRows } = useApiResource(agingFn, []);
+  const { data: fournisseurs } = useApiResource(fournisseursFn, []);
+  const { data: concentrationFournisseur } = useApiResource(concentrationFn, []);
   const chartH = useChartHeight();
 
   // Filtre des clients selon segment et dépôt

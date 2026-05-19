@@ -52,6 +52,9 @@ def run_pipeline():
         # B2. DIM_SEGMENT
         logger.info("[DIM_SEGMENT] Extraction...")
         df_seg = extract.extract_dim_segment()
+        df_seg["libelle_segment"] = df_seg["cbIndice"].map({
+            1: "DÉTAILLANTS", 2: "SEMI-GROS", 3: "HORECA", 4: "GROSSISTES", 5: "DISTRIBUTEUR"
+        })
         df_seg["cbIndice_code"] = df_seg["cbIndice"].astype(int)
         df_seg = df_seg.drop_duplicates(subset=["cbIndice"])
         load.load_dimension(df_seg, "DIM_SEGMENT")
@@ -191,6 +194,7 @@ def run_pipeline():
         )
         df_reg["id_banque"] = df_reg["BQ_ABREGE"].map(lookups["DIM_BANQUE"])
         df_reg["date_extraction"] = today
+        df_reg["RT_Rapproche"] = pd.to_numeric(df_reg.get("RT_Rapproche"), errors="coerce").fillna(0).astype("int16")
         load.load_fact(df_reg, "FAIT_REGLEMENTS")
 
         # C3. FAIT_ECRITURES (4 grains)
