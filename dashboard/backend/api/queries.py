@@ -9,9 +9,10 @@ from typing import List
 from pathlib import Path
 from datetime import datetime
 
-# Add potential backend paths to sys.path to resolve 'ml' module imports
+# Add potential backend paths to sys.path to resolve 'ml' and 'etl' module imports
 current_dir = os.path.abspath(os.path.dirname(__file__))
 possible_paths = [
+    os.path.join(current_dir, "..", "..", ".."),                  # FINMAG root to import 'etl'
     os.path.join(current_dir, "..", "..", "dashboard", "backend"), # from etl/api
     os.path.join(current_dir, ".."),                              # from dashboard/backend/api
     os.path.join(os.getcwd(), "dashboard", "backend"),             # from root

@@ -4,17 +4,11 @@ from etl.config import MAG_ENGINE, GRT_ENGINE
 
 
 def _read(engine, sql):
-    """Exécute une requête SQL et retourne un DataFrame."""
     with engine.connect() as conn:
         return pd.read_sql(text(sql), conn)
 
 
-# --------------------------------------------------
-# 1. DIMENSIONS DE BASE
-# --------------------------------------------------
-
 def extract_exercices_fiscaux():
-    """Récupère les années d'exercices comptables."""
     sql = "SELECT D_DebutExo01, D_FinExo01, D_DebutExo02, D_FinExo02, D_DebutExo03, D_FinExo03, D_DebutExo04, D_FinExo04, D_DebutExo05, D_FinExo05 FROM P_DOSSIER"
     try:
         df = _read(MAG_ENGINE, sql)
@@ -55,7 +49,8 @@ def extract_dim_client_grt():
     # Vérifier si la colonne a une faute de frappe Sage (CT_EchustTroisMois)
     check_sql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'F_COMPTET' AND COLUMN_NAME = 'CT_EchustTroisMois'"
     with GRT_ENGINE.connect() as conn:
-        has_typo = conn.execute(text(check_sql)).scalar() > 0
+        result = conn.execute(text(check_sql)).scalar()
+        has_typo = result is not None and result > 0
 
     col_3m = "CT_EchustTroisMois AS CT_EchusTroisMois" if has_typo else "CT_EchusTroisMois"
     sql = f"""
@@ -79,14 +74,12 @@ def extract_dim_banque_grt():
 def extract_dim_caisse_mag():
     check_sql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'F_CAISSE' AND COLUMN_NAME = 'CA_Type'"
     with MAG_ENGINE.connect() as conn:
-        has_ca_type = conn.execute(text(check_sql)).scalar() > 0
+        result = conn.execute(text(check_sql)).scalar()
+        has_ca_type = result is not None and result > 0
     col_type = "CA_Type" if has_ca_type else "NULL AS CA_Type"
     return _read(MAG_ENGINE, f"SELECT CA_No, JO_Num, DE_No, CO_No, {col_type} FROM F_CAISSE")
 
 
-# --------------------------------------------------
-# 2. TABLES DE FAITS
-# --------------------------------------------------
 
 def extract_fait_lignes_achat():
     sql = """
@@ -143,7 +136,8 @@ def extract_docentete_dates():
 def extract_fait_reglech():
     check_sql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'F_REGLECH'"
     with GRT_ENGINE.connect() as conn:
-        has_table = conn.execute(text(check_sql)).scalar() > 0
+        result = conn.execute(text(check_sql)).scalar()
+        has_table = result is not None and result > 0
     if not has_table:
         return pd.DataFrame(columns=["DO_Piece", "RC_Montant"])
     return _read(GRT_ENGINE, "SELECT DO_Piece, SUM(RC_Montant) AS RC_Montant FROM F_REGLECH GROUP BY DO_Piece")
@@ -163,6 +157,9 @@ def extract_fait_reglements_fournisseurs():
 
 def extract_docregl_grt():
     return _read(GRT_ENGINE, "SELECT DO_Piece, DR_Montant, DR_EtatRegle AS DR_Regle, DR_ModeReg FROM F_DOCREGL")
+
+def extract_docregl_mag():
+    return _read(MAG_ENGINE, "SELECT DO_Piece, N_Reglement FROM F_DOCREGL WHERE N_Reglement IS NOT NULL")
 
 def extract_fait_mvtcaisse():
     sql = """

@@ -12,7 +12,6 @@ logger = get_logger(__name__)
 
 
 def _build_lookup(table_name, natural_col, surrogate_col):
-    """Charge un dictionnaire {cle_naturelle: id_surrogate} depuis le data warehouse."""
     query = f"SELECT [{surrogate_col}], [{natural_col}] FROM [{table_name}]"
     df = pd.read_sql(query, DW_ENGINE)
     if table_name == "DIM_DATE" and not df.empty:
@@ -25,16 +24,14 @@ def run_pipeline():
 
     run_id = audit.start_run("full")
 
-    ddl.create_all_tables(drop_existing=True)  # Recrée les tables avec le nouveau schéma
+    ddl.create_all_tables(drop_existing=True)  
 
     today = datetime.now(timezone.utc).date()
     lookups = {}
 
 
     try:
-        # --------------------------------------------------
-        # STEP A: DIM_DATE
-        # --------------------------------------------------
+       
         logger.info("[DIM_DATE] Génération de la plage de dates...")
         date_range = pd.date_range(start=DIM_DATE_START, end=DIM_DATE_END, freq="D")
         df_date = pd.DataFrame({"date_val": date_range})
@@ -42,10 +39,7 @@ def run_pipeline():
         load.load_dimension(df_date, "DIM_DATE")
         lookups["DIM_DATE"] = _build_lookup("DIM_DATE", "date_val", "id_date")
 
-        # --------------------------------------------------
-        # STEP B: DIMENSIONS DYNAMIQUES
-        # --------------------------------------------------
-
+       
         # B1. DIM_TYPE_MVT_CAISSE
         logger.info("[DIM_TYPE_MVT_CAISSE] Extraction...")
         df_mvt = extract.extract_dim_type_mvt_caisse()
@@ -154,10 +148,6 @@ def run_pipeline():
         load.load_dimension(df_caisse, "DIM_CAISSE")
         lookups["DIM_CAISSE"] = _build_lookup("DIM_CAISSE", "CA_Numero_code", "id_caisse")
 
-        # --------------------------------------------------
-        # STEP C: TABLES DE FAITS
-        # --------------------------------------------------
-
         # C1. FAIT_LIGNES_VENTE
         logger.info("[FAIT_LIGNES_VENTE] Extraction ventes + achats...")
         df_vente = extract.extract_fait_lignes_vente()
@@ -179,13 +169,16 @@ def run_pipeline():
         df_rf = extract.extract_fait_reglements_fournisseurs()
         df_rf["_acteur"] = "FOURNISSEUR"
         df_doc_dates = extract.extract_docentete_dates()[["DO_Type", "DO_Piece", "DO_Date"]].drop_duplicates(subset=["DO_Type", "DO_Piece"])
-        df_docregl = extract.extract_docregl_grt().drop_duplicates(subset=["DO_Piece"])
+        df_docregl_grt = extract.extract_docregl_grt().drop_duplicates(subset=["DO_Piece"])
+        df_docregl_mag = extract.extract_docregl_mag().drop_duplicates(subset=["DO_Piece"])
+        df_docregl = pd.merge(df_docregl_grt, df_docregl_mag, on="DO_Piece", how="left")
         df_regt = extract.extract_reglementt().rename(columns={"RT_NbJour": "RT_NbJour_contrat"})
         df_regt["N_Reglement"] = pd.to_numeric(df_regt["N_Reglement"], errors="coerce")
         df_reg = pd.concat([df_rc, df_rf], ignore_index=True)
         df_reg = pd.merge(df_reg, df_doc_dates, on=["DO_Type", "DO_Piece"], how="left")
         df_reg = pd.merge(df_reg, df_docregl, on="DO_Piece", how="left")
-        df_reg["N_Reglement"] = pd.to_numeric(df_reg.get("N_Reglement"), errors="coerce")
+        n_reg = df_reg.get("N_Reglement")
+        df_reg["N_Reglement"] = pd.to_numeric(n_reg, errors="coerce") if n_reg is not None else None
         df_reg = pd.merge(df_reg, df_regt, on=["CT_Num", "N_Reglement"], how="left")
         df_reg["RT_NbJour"] = df_reg["RT_NbJour_contrat"]
         df_reg = transform.add_fact_reglements_calcs(df_reg)
@@ -202,7 +195,7 @@ def run_pipeline():
         df_reg["RT_Rapproche"] = pd.to_numeric(df_reg.get("RT_Rapproche"), errors="coerce").fillna(0).astype("int16")
         load.load_fact(df_reg, "FAIT_REGLEMENTS")
 
-        # C3. FAIT_ECRITURES (4 grains)
+        # C3. FAIT_ECRITURES 
         logger.info("[FAIT_ECRITURES] Construction de la table de faits multi-grain...")
 
         # Grain 1 : Écritures comptables
@@ -266,9 +259,7 @@ def run_pipeline():
         df_fe = pd.concat([df_g1, df_g2, df_g3, df_g4], ignore_index=True)
         load.load_fact(df_fe, "FAIT_ECRITURES")
 
-        # --------------------------------------------------
-        # STEP D: CALCULS POST-CHARGEMENT (KPIs stock)
-        # --------------------------------------------------
+      
         logger.info("[POST-LOAD] Calcul des KPIs stock...")
 
         dsi_sql = """

@@ -13,7 +13,7 @@ def table_exists(table_name):
     """
     with DW_ENGINE.connect() as conn:
         result = conn.execute(text(sql), {"tbl": table_name}).scalar()
-    return result > 0
+    return result is not None and result > 0
 
 
 def create_all_tables(drop_existing=False):
