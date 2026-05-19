@@ -41,22 +41,3 @@ def add_fact_reglements_calcs(df):
         df["bucket_impaye"] = None
         
     return df
-
-
-def add_fact_ecritures_calcs(df):
-    """Calcule les ratios de stock et les alertes de rupture."""
-    if df.empty:
-        return df
-    df = df.copy()
-    for col in ["AS_QteSto", "AS_QteRes", "AS_QteMini"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-    df["qte_disponible"] = df["AS_QteSto"] - df["AS_QteRes"]
-    denom = df["AS_QteSto"] - df["AS_QteRes"]
-    df["ratio_tension"]  = (df["AS_QteRes"] / denom).where(denom > 0, 0).clip(0, 1)
-    df["en_rupture"]     = (df["AS_QteSto"] <= df["AS_QteMini"]).astype("int16")
-    df["alerte_tension"] = (
-        (df["AS_QteSto"] > df["AS_QteMini"]) & 
-        (df["ratio_tension"] > 0.5)
-    ).astype("int16")
-    return df

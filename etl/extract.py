@@ -3,45 +3,10 @@ from sqlalchemy import text
 from etl.config import MAG_ENGINE, GRT_ENGINE
 
 
-import re
-
-_SAFE_COL_RE = re.compile(r'^[\w.]+$')
-
-
 def _read(engine, sql):
     with engine.connect() as conn:
         return pd.read_sql(text(sql), conn)
 
-
-def _delta_filter(column: str, last_run) -> tuple[str, dict]:
-    """Retourne une clause WHERE AND et ses paramètres pour un chargement delta."""
-    if not _SAFE_COL_RE.match(column):
-        raise ValueError(f"Nom de colonne non sûr : {column!r}")
-    if last_run is None:
-        return "", {}
-    return f" AND {column} >= :last_run", {"last_run": last_run}
-
-
-def _validate_columns(df: "pd.DataFrame", required: list[str], context: str) -> None:
-    """Lève ValueError si des colonnes obligatoires sont absentes du DataFrame."""
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError(f"[{context}] missing columns: {missing}")
-
-
-def extract_exercices_fiscaux():
-    sql = "SELECT D_DebutExo01, D_FinExo01, D_DebutExo02, D_FinExo02, D_DebutExo03, D_FinExo03, D_DebutExo04, D_FinExo04, D_DebutExo05, D_FinExo05 FROM P_DOSSIER"
-    try:
-        df = _read(MAG_ENGINE, sql)
-        exos = []
-        for i in range(1, 6):
-            debut = df.iloc[0].get(f"D_DebutExo0{i}")
-            fin   = df.iloc[0].get(f"D_FinExo0{i}")
-            if pd.notna(debut) and pd.notna(fin):
-                exos.append((pd.Timestamp(debut).date(), pd.Timestamp(fin).date()))
-        return exos
-    except Exception:
-        return []
 
 def extract_dim_segment():
     return _read(MAG_ENGINE, "SELECT cbIndice, CT_PrixTTC, CT_Intitule AS libelle_segment FROM P_CATTARIF WHERE cbIndice BETWEEN 1 AND 5 AND CT_Intitule IS NOT NULL AND CT_Intitule <> ''")
@@ -172,15 +137,6 @@ def extract_reglementt():
 def extract_docentete_dates():
     return _read(MAG_ENGINE, "SELECT DO_Domaine, DO_Type, DO_Piece, DO_Date FROM F_DOCENTETE")
 
-def extract_fait_reglech():
-    check_sql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'F_REGLECH'"
-    with GRT_ENGINE.connect() as conn:
-        result = conn.execute(text(check_sql)).scalar()
-        has_table = result is not None and result > 0
-    if not has_table:
-        return pd.DataFrame(columns=["DO_Piece", "RC_Montant"])
-    return _read(GRT_ENGINE, "SELECT DO_Piece, SUM(RC_Montant) AS RC_Montant FROM F_REGLECH GROUP BY DO_Piece")
-
 def extract_fait_reglements_clients():
     sql = """
         SELECT rc.RT_Num, rc.CT_Num, rc.DO_Type, rc.DO_Piece, rc.RT_Date, rc.RT_Mode, rc.RT_Montant, rc.RT_Etat, rc.BQ_Num, rc.BQ_ABREGE, rc.RT_Rapproche, rc.RT_Echeance AS LB_EcheanceReg, lb.LB_Ligne, br.BR_Num, lb.LB_MontantReg, lb.LB_NbJour, lb.LB_Agios, br.BR_TotalReglement, br.BR_Rapproch, NULL AS BR_TauxAgios, NULL AS BR_TMM
@@ -216,15 +172,3 @@ def extract_dim_type_mvt_caisse():
         GROUP BY mc.MC_TypeMvt
     """
     return _read(GRT_ENGINE, sql)
-
-def extract_sales_history_365d():
-    sql = """
-        SELECT dl.AR_Ref, SUM(dl.DL_Qte) AS qte_vendue_365j
-        FROM F_DOCLIGNE dl
-        WHERE dl.DO_Domaine = 0 AND dl.DO_Type IN (6, 7) AND dl.DO_Date >= DATEADD(DAY, -365, CAST(GETDATE() AS DATE)) AND dl.DL_Qte IS NOT NULL
-        GROUP BY dl.AR_Ref
-    """
-    try:
-        return _read(MAG_ENGINE, sql)
-    except Exception:
-        return pd.DataFrame(columns=["AR_Ref", "qte_vendue_365j"])

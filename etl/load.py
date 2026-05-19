@@ -1,33 +1,9 @@
-import hashlib
 import pandas as pd
 from sqlalchemy import text
-from etl.config import DW_ENGINE, CHUNK_SIZE, ERROR_MSG_MAX_LEN
+from etl.config import DW_ENGINE, CHUNK_SIZE
 from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
-
-
-def _to_python(value):
-    """Convertit un scalaire pandas/numpy en type Python natif (None si NA)."""
-    if value is None:
-        return None
-    try:
-        if pd.isna(value):
-            return None
-    except (TypeError, ValueError):
-        pass
-    if hasattr(value, "item"):
-        return value.item()
-    return value
-
-
-def _sha256_row(row: "pd.Series") -> bytes:
-    """Retourne un hash SHA-256 de 32 octets, stable et déterministe."""
-    h = hashlib.sha256()
-    for v in row:
-        h.update(str(_to_python(v)).encode())
-        h.update(b"\x00")
-    return h.digest()
 
 
 def get_table_columns(table):

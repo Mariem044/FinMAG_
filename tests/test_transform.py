@@ -7,7 +7,7 @@ os.environ.setdefault("GRT_CONN", "sqlite:///:memory:")
 import pandas as pd
 
 from etl.config import hash_key
-from etl.transform import add_fact_ecritures_calcs, add_fact_reglements_calcs
+from etl.transform import add_fact_reglements_calcs
 
 
 def test_hash_key_basic():
@@ -38,18 +38,3 @@ def test_add_fact_reglements_calcs():
     assert result["delai_reel_jours"].iloc[0] == 43
     assert result["ecart_delai"].iloc[0] == 13
 
-
-def test_add_fact_ecritures_calcs():
-    df = pd.DataFrame(
-        {
-            "AS_QteSto": [100],
-            "AS_QteRes": [90],
-            "AS_QteMini": [10],
-        }
-    )
-
-    result = add_fact_ecritures_calcs(df)
-
-    assert result["qte_disponible"].iloc[0] == 10
-    assert result["en_rupture"].iloc[0] == 0
-    assert result["alerte_tension"].iloc[0] == 1
