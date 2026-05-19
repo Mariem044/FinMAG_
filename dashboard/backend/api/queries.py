@@ -185,6 +185,11 @@ def _build_dynamic_filters(
                 clauses.append(f"AND {aliases['client']}.gouvernorat = :p_depot_region")
                 params["p_depot_region"] = depot_region
 
+    c_banque = _clean_filter(banque)
+    if c_banque and aliases.get("banque") and c_banque.lower() not in ["tous", "toutes"]:
+        clauses.append(f"AND {aliases['banque']}.EB_Abrege_code = :p_banque")
+        params["p_banque"] = c_banque
+
     c_statut = _clean_filter(statutArticle)
     if c_statut and aliases.get("article"):
         if "actif" in c_statut.lower():
@@ -1068,11 +1073,12 @@ def get_banque_rapprochement(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
     source: Optional[str] = None,
+    banque: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
-        aliases={"date": "d", "client": "c", "segment": "s"}
+        segment=segment, depot=depot, source=source, banque=banque,
+        aliases={"date": "d", "client": "c", "segment": "s", "banque": "b"}
     )
     sql = f"""
         WITH deduped AS (
@@ -1091,6 +1097,7 @@ def get_banque_rapprochement(
             LEFT JOIN DIM_DATE d ON d.id_date = COALESCE(r.id_date_paiement, r.id_date_echeance)
             LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
             LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+            LEFT JOIN DIM_BANQUE b ON b.id_banque = r.id_banque
             WHERE r.RT_Num IS NOT NULL
             {filt_sql}
             GROUP BY r.RT_Num
@@ -1139,14 +1146,16 @@ def get_banque_rapprochement_breakdown(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
     source: Optional[str] = None,
+    banque: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
-        aliases={"date": "d", "client": "c", "segment": "s"}
+        segment=segment, depot=depot, source=source, banque=banque,
+        aliases={"date": "d", "client": "c", "segment": "s", "banque": "b"}
     )
     sql = f"""
         SELECT 
+            COALESCE(b.EB_Abrege_code, 'Non spécifiée') AS banque,
             CASE r.RT_Mode
                 WHEN 1 THEN 'Espèce'
                 WHEN 2 THEN 'Chèque'
@@ -1160,19 +1169,37 @@ def get_banque_rapprochement_breakdown(
         LEFT JOIN DIM_DATE d ON d.id_date = COALESCE(r.id_date_paiement, r.id_date_echeance)
         LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+        LEFT JOIN DIM_BANQUE b ON b.id_banque = r.id_banque
         WHERE COALESCE(r.RT_Rapproche, 0) = 0 AND COALESCE(r.DR_Regle, 0) = 0
         {filt_sql}
-        GROUP BY r.RT_Mode
+        GROUP BY b.EB_Abrege_code, r.RT_Mode
     """
     totals = {"Chèque": 0.0, "Traite": 0.0, "Virement": 0.0}
+    bank_data = {}
     for r in _rows(sql, filt_params):
+        bank_name = r.banque or "Non spécifiée"
         mode_label = r.libelle_mode_reg or ""
+        
+        # Determine mode
+        mode_key = None
         if "Ch" in mode_label or "ch" in mode_label or "Chéque" in mode_label:
-            totals["Chèque"] += _num(r.total_montant)
+            mode_key = "Chèque"
         elif "Trait" in mode_label or "trait" in mode_label or "LCR" in mode_label:
-            totals["Traite"] += _num(r.total_montant)
+            mode_key = "Traite"
         elif "Vir" in mode_label or "vir" in mode_label:
-            totals["Virement"] += _num(r.total_montant)
+            mode_key = "Virement"
+            
+        val = _num(r.total_montant)
+        if mode_key:
+            totals[mode_key] += val
+            
+        # Group by bank
+        if bank_name not in bank_data:
+            bank_data[bank_name] = {"banque": bank_name, "Chèque": 0.0, "Traite": 0.0, "Virement": 0.0}
+        if mode_key:
+            bank_data[bank_name][mode_key] += val
+            
+    banques_list = list(bank_data.values())
 
     sql_tx = f"""
         SELECT TOP 25
@@ -1191,6 +1218,7 @@ def get_banque_rapprochement_breakdown(
         LEFT JOIN DIM_DATE d ON d.id_date = COALESCE(r.id_date_paiement, r.id_date_echeance)
         LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+        LEFT JOIN DIM_BANQUE b ON b.id_banque = r.id_banque
         WHERE COALESCE(r.RT_Rapproche, 0) = 0 AND COALESCE(r.DR_Regle, 0) = 0
         {filt_sql}
         ORDER BY COALESCE(r.RT_Montant, 0) DESC
@@ -1217,6 +1245,7 @@ def get_banque_rapprochement_breakdown(
 
     return {
         "totals": totals,
+        "banques": banques_list,
         "transactions": transactions
     }
 

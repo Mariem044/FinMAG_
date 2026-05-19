@@ -79,6 +79,9 @@ function FinancePage() {
   }, [rapprochementApi]);
 
   const banqueMode = useMemo(() => {
+    if (breakdownApi?.banques && breakdownApi.banques.length > 0) {
+      return breakdownApi.banques;
+    }
     const totals = breakdownApi?.totals ?? { Chèque: 0, Traite: 0, Virement: 0 };
     return activeBanques.map((b) => {
       const row = { banque: b };
@@ -94,13 +97,13 @@ function FinancePage() {
         {kpiLoading ? (<><KPICardSkeleton /><KPICardSkeleton /></>) : (
           <>
             <KPICard label="Solde Caisse Total"
-              value={`${(soldeTotal / 1000).toFixed(0)} K DT`}
-              subtitle={depot !== "Tous" ? depot : `${filteredCaisses.length} caisses`}
-              icon={Banknote} />
+               value={`${(soldeTotal / 1000).toFixed(0)} K DT`}
+               subtitle={depot !== "Tous" ? depot : `${filteredCaisses.length} caisses`}
+               icon={Banknote} />
             <KPICard label="Taux Rapprochement"
-              value={`${currentTaux}%`}
-              subtitle={banque !== "Toutes" ? banque : "4 banques"}
-              icon={CheckCircle} />
+               value={`${currentTaux}%`}
+               subtitle={banque !== "Toutes" ? banque : `${banqueMode.length} banque(s)`}
+               icon={CheckCircle} />
           </>
         )}
       </div>
