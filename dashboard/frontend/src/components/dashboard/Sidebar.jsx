@@ -132,7 +132,6 @@ export const Sidebar = memo(function Sidebar() {
             Déconnexion
           </button>
 
-          <p className="text-[10px] text-[#444] px-3 pt-1">FinMAG v1.0 — PFE 2026</p>
         </div>
       </aside>
     </>
