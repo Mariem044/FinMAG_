@@ -23,6 +23,7 @@ function StatusBadge({ status }) {
   if (!status) return null;
   const isOk = status === "success" || status === "ok" || status === "completed";
   const isErr = status === "error" || status === "failed";
+  const label = isOk ? "Réussi" : isErr ? "Erreur" : "En cours";
   return (
     <span
       className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
@@ -32,7 +33,7 @@ function StatusBadge({ status }) {
       }`}
     >
       {isOk ? <CheckCircle size={11} /> : isErr ? <XCircle size={11} /> : <Clock size={11} />}
-      {status}
+      {label}
     </span>
   );
 }
@@ -102,10 +103,10 @@ function ParametresPage() {
           )}
         </div>
 
-        {/* Dernier run */}
+        {/* Dernière exécution */}
         <div className="rounded-lg border border-border bg-secondary/30 p-4 space-y-3">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-text-dim font-medium">Dernier run</span>
+            <span className="text-text-dim font-medium">Dernière exécution</span>
             {etlLoading ? (
               <span className="text-text-dim text-xs">Chargement…</span>
             ) : lastRun ? (
@@ -122,7 +123,7 @@ function ParametresPage() {
                 </span>
               </div>
             ) : (
-              <span className="text-text-dim text-xs italic">Aucun run enregistré</span>
+              <span className="text-text-dim text-xs italic">Aucune exécution enregistrée</span>
             )}
           </div>
 

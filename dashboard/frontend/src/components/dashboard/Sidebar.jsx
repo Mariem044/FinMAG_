@@ -14,10 +14,10 @@ import {
 } from "lucide-react";
 
 const navItems = [
-  { to: "/", label: "CA & Produits", icon: LayoutDashboard },
-  { to: "/finance", label: "Finance & Caisse", icon: Landmark },
+  { to: "/", label: "CA et produits", icon: LayoutDashboard },
+  { to: "/finance", label: "Finance et caisse", icon: Landmark },
   { to: "/comptabilite", label: "Comptabilité", icon: BookOpen },
-  { to: "/predictions", label: "Prédictions ML", icon: Brain },
+  { to: "/predictions", label: "Prévisions", icon: Brain },
 ];
 
 const bottomItems = [
@@ -54,9 +54,6 @@ export const Sidebar = memo(function Sidebar() {
             <h1 className="text-[22px] leading-none font-extrabold text-foreground tracking-tight">
               FinMAG
             </h1>
-            <p className="text-[10px] text-text-dim font-semibold tracking-[0.18em] uppercase mt-1">
-              MAG Distribution Analytics
-            </p>
           </div>
           <button
             onClick={() => setOpen(false)}

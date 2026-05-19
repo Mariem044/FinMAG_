@@ -70,7 +70,7 @@ function PredictionsStudioPage() {
   });
 
   const formattedLastRun = useMemo(() => {
-    if (!mlStatus?.lastRun?.date) return "Aucun run enregistré";
+    if (!mlStatus?.lastRun?.date) return "Aucune exécution enregistrée";
     try {
       const dt = new Date(mlStatus.lastRun.date);
       return dt.toLocaleString("fr-TN", {
@@ -102,7 +102,7 @@ function PredictionsStudioPage() {
     setTrainingLogs([]);
 
     // Trigger real background ML pipeline under the hood
-    api.ml.run().catch((e) => console.error("Failed to run background DWH sync:", e));
+    api.ml.run().catch((e) => console.error("Erreur lors de la synchronisation DWH en arrière-plan :", e));
 
     const baseTime = new Date();
     const formatTime = (secondsOffset) => {
@@ -111,20 +111,20 @@ function PredictionsStudioPage() {
     };
 
     const logs = [
-      { t: formatTime(0), m: "Initializing FinMAG ML Orchestrator (time-series sync)...", type: "info" },
-      { t: formatTime(1), m: "Loading historical transactions from FAIT_LIGNES_VENTE (69 monthly rows)...", type: "info" },
-      { t: formatTime(2), m: "[ARIMA Engine] Preparing auto-regressive integrations order (1, 1, 1)...", type: "info" },
-      { t: formatTime(3), m: "[ARIMA Engine] Training ARIMA(1,1,1) model. Convergence achieved [OK]", type: "process" },
-      { t: formatTime(5), m: "[ARIMA Engine] ARIMA Back-test: MAE = 2.45M | MAPE = 12.8% [OK]", type: "success" },
-      { t: formatTime(6), m: "[SARIMA Engine] Initializing Seasonal order (1, 1, 1)x(1, 1, 1, 12)...", type: "info" },
-      { t: formatTime(8), m: "[SARIMA Engine] Fitting SARIMA model to capture Ramadan and cycles...", type: "process" },
-      { t: formatTime(10), m: "[SARIMA Engine] SARIMA Back-test: MAE = 1.98M | MAPE = 9.4% [OK]", type: "success" },
-      { t: formatTime(11), m: "[PROPHET Engine] Training Facebook Prophet with Multiplicative Seasonality...", type: "info" },
-      { t: formatTime(13), m: "[PROPHET Engine] Fitting Prophet: Changepoint prior scale = 0.15...", type: "process" },
-      { t: formatTime(15), m: "[PROPHET Engine] Prophet Back-test: MAE = 2.66M | MAPE = 18.4% [OK]", type: "success" },
-      { t: formatTime(16), m: "Writing consolidated prediction blocks to ML_CA_FORECAST...", type: "info" },
-      { t: formatTime(17), m: "Persisting models: statsmodels & prophet binaries saved to ml/models/ [OK]", type: "success" },
-      { t: formatTime(18), m: "PIPELINE COMPLETED SUCCESSFULLY. ARIMA, SARIMA, PROPHET: OK.", type: "done" }
+      { t: formatTime(0), m: "Initialisation de l'orchestrateur prédictif FinMAG...", type: "info" },
+      { t: formatTime(1), m: "Chargement de l'historique depuis FAIT_LIGNES_VENTE (69 mois)...", type: "info" },
+      { t: formatTime(2), m: "[ARIMA] Préparation de l'ordre autorégressif (1, 1, 1)...", type: "info" },
+      { t: formatTime(3), m: "[ARIMA] Entraînement du modèle ARIMA(1,1,1). Convergence atteinte [OK]", type: "process" },
+      { t: formatTime(5), m: "[ARIMA] Test rétrospectif : MAE = 2.45M | MAPE = 12.8% [OK]", type: "success" },
+      { t: formatTime(6), m: "[SARIMA] Initialisation de l'ordre saisonnier (1, 1, 1)x(1, 1, 1, 12)...", type: "info" },
+      { t: formatTime(8), m: "[SARIMA] Ajustement du modèle pour capter Ramadan et les cycles...", type: "process" },
+      { t: formatTime(10), m: "[SARIMA] Test rétrospectif : MAE = 1.98M | MAPE = 9.4% [OK]", type: "success" },
+      { t: formatTime(11), m: "[PROPHET] Entraînement avec saisonnalité multiplicative...", type: "info" },
+      { t: formatTime(13), m: "[PROPHET] Ajustement du modèle : sensibilité aux ruptures = 0.15...", type: "process" },
+      { t: formatTime(15), m: "[PROPHET] Test rétrospectif : MAE = 2.66M | MAPE = 18.4% [OK]", type: "success" },
+      { t: formatTime(16), m: "Écriture des prévisions consolidées dans ML_CA_FORECAST...", type: "info" },
+      { t: formatTime(17), m: "Sauvegarde des modèles dans ml/models/ [OK]", type: "success" },
+      { t: formatTime(18), m: "PIPELINE TERMINÉ AVEC SUCCÈS. ARIMA, SARIMA, PROPHET : OK.", type: "done" }
     ];
 
     let currentLogIndex = 0;
@@ -273,7 +273,7 @@ function PredictionsStudioPage() {
           <div className="space-y-3">
             <h4 className="text-[13px] font-semibold text-foreground tracking-wide flex items-center gap-1.5">
               <RefreshCw className="h-4 w-4 text-indigo-400" />
-              ML Orchestrator
+              Orchestrateur prédictif
             </h4>
             <p className="text-[10.5px] text-text-dim leading-relaxed">
               Les 3 modèles temporels (ARIMA, SARIMA, PROPHET) tournent de façon périodique sur le DWH. Vous pouvez forcer un réentraînement de validation.
@@ -281,14 +281,14 @@ function PredictionsStudioPage() {
             
             <div className="bg-background/40 border border-border/20 rounded-xl p-3 space-y-2 text-[11px]">
               <div className="flex justify-between items-center">
-                <span className="text-text-dim">Dernier run:</span>
+                <span className="text-text-dim">Dernière exécution :</span>
                 <span className="font-semibold text-foreground flex items-center gap-1">
                   <Clock size={11} className="text-text-dim" />
                   {formattedLastRun}
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-text-dim">Status:</span>
+                <span className="text-text-dim">Statut :</span>
                 {isTraining ? (
                   <span className="font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.2 rounded text-[9px] animate-pulse">
                     En cours...
@@ -321,7 +321,7 @@ function PredictionsStudioPage() {
           <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-2">
             <div className="flex items-center gap-1.5">
               <Terminal size={12} className="text-text-dim" />
-              <span className="text-[9px] uppercase font-bold tracking-wider text-text-dim font-mono">Console Output</span>
+              <span className="text-[9px] uppercase font-bold tracking-wider text-text-dim font-mono">Journal d'exécution</span>
             </div>
             <div className="flex gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-border/45" />
@@ -364,7 +364,7 @@ function PredictionsStudioPage() {
         {[
           { id: "sarima", label: "Modèle SARIMA (Saisonnier)", icon: Activity },
           { id: "arima", label: "Modèle ARIMA (Auto-Régressif)", icon: TrendingUp },
-          { id: "prophet", label: "Modèle PROPHET (Additive)", icon: Brain },
+          { id: "prophet", label: "Modèle PROPHET (Additif)", icon: Brain },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -381,7 +381,7 @@ function PredictionsStudioPage() {
         ))}
       </div>
 
-      {/* 4. Tab contents */}
+      {/* 4. Contenu des onglets */}
       <div className="space-y-4">
         
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -399,14 +399,14 @@ function PredictionsStudioPage() {
                 <SimpleGauge
                   pct={activeMetrics.pctMape}
                   color={activeTab === "sarima" ? "#10b981" : activeTab === "arima" ? "#3b82f6" : "#8b5cf6"}
-                  label="Backtest MAPE"
+                  label="Erreur MAPE"
                   value={activeMetrics.mape}
                   subtext="Précision moyenne"
                 />
                 <SimpleGauge
                   pct={activeMetrics.pctMae}
                   color="#6366f1"
-                  label="Abs. MAE"
+                  label="MAE absolue"
                   value={activeMetrics.mae}
                   subtext="Marge d'erreur"
                 />
@@ -414,12 +414,12 @@ function PredictionsStudioPage() {
             </div>
           </div>
 
-          {/* Right Forecast Area Chart */}
+          {/* Courbe de prévision */}
           <div className="lg:col-span-2">
             <ChartCard
               loading={caLoading}
               skeleton="line"
-              title={`Prévisions de Ventes : Réel vs ${activeTab.toUpperCase()}`}
+              title={`Prévisions des ventes : réel et ${activeTab.toUpperCase()}`}
             >
               <div className="p-3 bg-background border border-border/30 rounded-xl mb-3 flex items-center justify-between text-[9px] uppercase tracking-wider text-text-dim">
                 <div className="flex gap-3">
@@ -460,7 +460,7 @@ function PredictionsStudioPage() {
                       stroke="none"
                       fill={activeTab === "sarima" ? "#10b981" : activeTab === "arima" ? "#3b82f6" : "#8b5cf6"}
                       fillOpacity={0.03}
-                      name="Borne Haute"
+                      name="Borne haute"
                     />
                     <Area
                       type="monotone"
@@ -468,7 +468,7 @@ function PredictionsStudioPage() {
                       stroke="none"
                       fill={activeTab === "sarima" ? "#10b981" : activeTab === "arima" ? "#3b82f6" : "#8b5cf6"}
                       fillOpacity={0.03}
-                      name="Borne Basse"
+                      name="Borne basse"
                     />
                     <Area
                       type="monotone"
@@ -492,10 +492,10 @@ function PredictionsStudioPage() {
           <div className="flex items-center justify-between border-b border-border/20 pb-2">
             <h4 className="text-[12px] font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
               <Brain size={14} className="text-indigo-400" />
-              Cockpit de Comparaison des Algorithmes
+              Comparaison des algorithmes
             </h4>
             <span className="text-[9px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 rounded font-bold font-mono">
-              SUITE ML ACTIVE
+              MODULE ACTIF
             </span>
           </div>
 
@@ -504,11 +504,10 @@ function PredictionsStudioPage() {
               <thead>
                 <tr className="text-text-dim border-b border-border/20 font-semibold">
                   <th className="pb-2">Modèle</th>
-                  <th className="pb-2">Type d'Algorithme</th>
+                  <th className="pb-2">Type d'algorithme</th>
                   <th className="pb-2 text-center">MAPE (Erreur %)</th>
                   <th className="pb-2 text-center">MAE (Marge Absolue)</th>
                   <th className="pb-2 text-center">Statut</th>
-                  <th className="pb-2 text-right">Avantage Clé</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/10">
@@ -522,7 +521,6 @@ function PredictionsStudioPage() {
                       RECOMMANDÉ
                     </span>
                   </td>
-                  <td className="py-3 text-right text-text-dim">Capture parfaitement le Ramadan et la saisonnalité annuelle</td>
                 </tr>
                 <tr className="hover:bg-surface/10 transition-colors">
                   <td className="py-3 font-bold text-blue-400">ARIMA</td>
@@ -534,11 +532,10 @@ function PredictionsStudioPage() {
                       ACTIF
                     </span>
                   </td>
-                  <td className="py-3 text-right text-text-dim">Très robuste pour les tendances stables à court-moyen terme</td>
                 </tr>
                 <tr className="hover:bg-surface/10 transition-colors">
                   <td className="py-3 font-bold text-purple-400">PROPHET</td>
-                  <td className="py-3 text-text-dim font-mono">Régression Courbe Additive</td>
+                  <td className="py-3 text-text-dim font-mono">Régression additive non linéaire</td>
                   <td className="py-3 text-center font-bold text-purple-400">{comparisonMetrics.prophet.mape}</td>
                   <td className="py-3 text-center text-text-dim">{comparisonMetrics.prophet.mae}</td>
                   <td className="py-3 text-center">
@@ -546,7 +543,6 @@ function PredictionsStudioPage() {
                       ACTIF
                     </span>
                   </td>
-                  <td className="py-3 text-right text-text-dim">Grande résilience aux valeurs aberrantes et ruptures de tendance</td>
                 </tr>
               </tbody>
             </table>

@@ -87,13 +87,13 @@ function ComptabilitePage() {
             <KPICard
               label="Créances Impayées"
               value={formatTND(Math.round(summary.impayes))}
-              subtitle={`dont ${formatTND(gt90)} > 90j (Aging)`}
+              subtitle={`dont ${formatTND(gt90)} de plus de 90 jours`}
               icon={AlertCircle}
             />
             <KPICard
-              label="TVA Collectée YTD"
+              label="TVA collectée depuis janvier"
               value={formatTND(fiscKpis?.tva_collectee || 0)}
-              subtitle={`vs ${formatTND(fiscKpis?.tva_deductible || 0)} déductible`}
+              subtitle={`${formatTND(fiscKpis?.tva_deductible || 0)} déductible`}
               icon={Receipt}
             />
             <KPICard
@@ -118,7 +118,7 @@ function ComptabilitePage() {
         <div className="flex-1 h-px bg-border/30" />
       </div>
       <div className="grid grid-cols-1 gap-4">
-        <ChartCard loading={chartsLoading} skeleton="bar" title="Vieillissement des créances — Aging">
+        <ChartCard loading={chartsLoading} skeleton="bar" title="Répartition des créances par ancienneté">
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={safeAgingData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
@@ -127,10 +127,10 @@ function ComptabilitePage() {
                 tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
               <Tooltip content={<CustomTooltip />} />
               <Legend wrapperStyle={{ fontSize: 11, color: "#888" }} />
-              <Bar dataKey="0-30j" stackId="age" fill="#22c55e" name="0-30j" />
-              <Bar dataKey="31-60j" stackId="age" fill="#f97316" name="31-60j" />
-              <Bar dataKey="61-90j" stackId="age" fill="#a855f7" name="61-90j" />
-              <Bar dataKey=">90j" stackId="age" fill="#ef4444" name=">90j" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="0-30j" stackId="age" fill="#22c55e" name="0 à 30 jours" />
+              <Bar dataKey="31-60j" stackId="age" fill="#f97316" name="31 à 60 jours" />
+              <Bar dataKey="61-90j" stackId="age" fill="#a855f7" name="61 à 90 jours" />
+              <Bar dataKey=">90j" stackId="age" fill="#ef4444" name="Plus de 90 jours" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -142,7 +142,7 @@ function ComptabilitePage() {
         <div className="flex-1 h-px bg-border/30" />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ChartCard loading={chartsLoading} skeleton="bar" title="TVA collectée vs déductible">
+        <ChartCard loading={chartsLoading} skeleton="bar" title="TVA collectée et TVA déductible">
           <ResponsiveContainer width="100%" height={chartH}>
             <ComposedChart data={tvaData}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />

@@ -63,7 +63,7 @@ function OverviewPage() {
   const kpiLoading = kpisLoading;
   const chartsLoading = caLoading || famillesLoading || articlesLoading;
 
-  // Stock KPIs
+  // Indicateurs de stock
   const valeurStock = useMemo(
     () => articles.reduce((s, a) => s + (a.stock || 0) * (a.prixMoyen || 0), 0),
     [articles]
@@ -152,7 +152,7 @@ function OverviewPage() {
           loading={chartsLoading}
           skeleton="line"
           key={`ca-month-${year}`}
-          title="Évolution mensuelle du CA : Réel vs N-1"
+          title="Évolution mensuelle du CA réel et N-1"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <AreaChart data={caByMonth}>
@@ -191,7 +191,7 @@ function OverviewPage() {
           loading={chartsLoading}
           skeleton="bar"
           key={`top-familles-${year}`}
-          title="Top 5 familles par CA"
+          title="Principales familles par CA"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={topFamillesClean} layout="vertical">
@@ -219,7 +219,7 @@ function OverviewPage() {
       {/* ── Section label ── */}
       <div className="flex items-center gap-3">
         <span className="text-[11px] font-bold uppercase tracking-widest text-text-dim">
-          Stock & Produits
+          Stocks et produits
         </span>
         <div className="flex-1 h-px bg-border/30" />
       </div>
@@ -230,17 +230,17 @@ function OverviewPage() {
           loading={chartsLoading}
           skeleton="scatter"
           key={`rotation-${year}`}
-          title="Rotation Stocks — DSI vs CA par article"
+          title="Rotation des stocks par article"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
               <XAxis
                 dataKey="dsi"
-                name="DSI (j)"
+                name="Jours de stock"
                 tick={{ fill: "#666", fontSize: 10 }}
                 axisLine={false}
-                label={{ value: "DSI (jours)", position: "insideBottom", offset: -10, fill: "#555", fontSize: 10 }}
+                label={{ value: "Jours de stock", position: "insideBottom", offset: -10, fill: "#555", fontSize: 10 }}
               />
               <YAxis
                 dataKey="ca"
@@ -255,7 +255,7 @@ function OverviewPage() {
                 x={dsiMoyen}
                 stroke="#444"
                 strokeDasharray="4 4"
-                label={{ value: "DSI moy.", fill: "#555", fontSize: 9, position: "top" }}
+                label={{ value: "Moyenne", fill: "#555", fontSize: 9, position: "top" }}
               />
               <Scatter
                 data={dsiScatter}
@@ -281,13 +281,13 @@ function OverviewPage() {
           </ResponsiveContainer>
           <div className="flex gap-4 text-[9.5px] text-text-dim mt-1 justify-end">
             <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Star / Fast
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Forte rotation
             </span>
             <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Normal
+              <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Rotation normale
             </span>
             <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Sleeping / Slow
+              <span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Rotation lente
             </span>
           </div>
         </ChartCard>

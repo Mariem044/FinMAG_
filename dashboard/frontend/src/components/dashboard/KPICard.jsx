@@ -23,7 +23,7 @@ export const KPICard = memo(function KPICard({ label, value, trend, subtitle, ic
 
   const trendAriaLabel =
     hasTrend
-      ? `${isPositive ? "Up" : "Down"} ${trendAbs}% compared to prior year`
+      ? `${isPositive ? "Hausse" : "Baisse"} de ${trendAbs}% par rapport à N-1`
       : undefined;
 
   const sparklineId = label ? label.replace(/[^a-zA-Z0-9]/g, '-') : Math.random().toString(36).substring(7);
@@ -89,11 +89,11 @@ export const KPICard = memo(function KPICard({ label, value, trend, subtitle, ic
 
               <span aria-hidden="true" className="font-semibold">
                 {isPositive ? "+" : ""}
-                {safeTrend.toFixed(1)}% vs N-1
+                {safeTrend.toFixed(1)}% par rapport à N-1
               </span>
 
               <span className="sr-only">
-                {isPositive ? "Up" : "Down"} {trendAbs}% vs prior year
+                {isPositive ? "Hausse" : "Baisse"} de {trendAbs}% par rapport à N-1
               </span>
             </div>
           )}

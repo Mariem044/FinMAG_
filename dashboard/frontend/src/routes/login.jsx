@@ -38,7 +38,7 @@ function LoginPage() {
           <div className="text-center">
             <h1 className="text-xl font-bold text-foreground">Bienvenue</h1>
             <p className="text-sm text-text-dim mt-1">
-              Dashboard analytique MAG Distribution
+              Tableau de bord analytique MAG Distribution
             </p>
           </div>
 
@@ -47,12 +47,9 @@ function LoginPage() {
             onClick={handleEnter}
             className="w-full py-3 rounded-lg bg-primary text-white font-semibold text-sm hover:bg-primary/90 transition-colors"
           >
-            Entrer en tant qu'admin
+            Entrer en tant qu'administrateur
           </button>
 
-          <p className="text-center text-xs text-text-dim">
-            MAG Distribution — Projet PFE 2026
-          </p>
         </div>
       </div>
     </div>

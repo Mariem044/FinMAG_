@@ -5,11 +5,11 @@ import { CustomTooltip } from "@/components/dashboard/CustomTooltip";
 import { Banknote, CheckCircle } from "lucide-react";
 import {
   BarChart, Bar, ComposedChart, LineChart, Line,
-  PieChart, Pie, Cell,
+  Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, ReferenceLine,
 } from "recharts";
-import { CHART_COLORS } from "@/lib/dashboardConstants";
+import { CHART_COLORS, formatTND } from "@/lib/dashboardConstants";
 import { useFilters } from "@/store/useFilters";
 import { useMemo } from "react";
 import { api } from "@/lib/api";
@@ -72,6 +72,21 @@ function FinancePage() {
 
   const activeBanques = useMemo(() => (banque === "Toutes" ? ALL_BANQUES : [banque]), [banque]);
   const activeModes = useMemo(() => (modeBanque === "Tous" ? ALL_MODES : [modeBanque]), [modeBanque]);
+  const natureChartData = useMemo(
+    () => {
+      let cumul = 0;
+      return natureMvt.map((item, index) => {
+        cumul += Number(item.value) || 0;
+        return {
+        ...item,
+        label: (item.name || "").length > 14 ? `${(item.name || "").slice(0, 14)}...` : item.name,
+        cumul: Math.min(100, Number(cumul.toFixed(1))),
+        fill: CHART_COLORS[index % CHART_COLORS.length],
+      };
+      });
+    },
+    [natureMvt]
+  );
 
   const currentTaux = useMemo(() => {
     if (!rapprochementApi.length) return 0;
@@ -96,11 +111,11 @@ function FinancePage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {kpiLoading ? (<><KPICardSkeleton /><KPICardSkeleton /></>) : (
           <>
-            <KPICard label="Solde Caisse Total"
+            <KPICard label="Solde total de caisse"
                value={`${(soldeTotal / 1000).toFixed(0)} K DT`}
                subtitle={depot !== "Tous" ? depot : `${filteredCaisses.length} caisses`}
                icon={Banknote} />
-            <KPICard label="Taux Rapprochement"
+            <KPICard label="Taux de rapprochement"
                value={`${currentTaux}%`}
                subtitle={banque !== "Toutes" ? banque : `${banqueMode.length} banque(s)`}
                icon={CheckCircle} />
@@ -135,35 +150,67 @@ function FinancePage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard loading={chartsLoading} skeleton="pie" title="Mouvements caisse par nature">
-          <div className="grid grid-cols-2 gap-2 h-[280px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={natureMvt} dataKey="value" nameKey="name"
-                  cx="50%" cy="50%" innerRadius={45} outerRadius={85}
-                  label={({ percent }) => `${((percent ?? 0) * 100).toFixed(0)}%`} fontSize={10}>
-                  {natureMvt.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-                </Pie>
-                <Tooltip content={<CustomTooltip />} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="overflow-auto py-2">
-              {natureMvt.map((n, i) => (
-                <div key={i} className="flex items-center gap-2 mb-2">
-                  <span className="w-2 h-2 rounded-full flex-shrink-0"
-                    style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-foreground truncate">{n.name}</div>
-                    <div className="h-1 bg-surface-hover rounded-full mt-0.5 overflow-hidden">
-                      <div className="h-full rounded-full"
-                        style={{ width: `${n.value}%`, background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                    </div>
-                  </div>
-                  <span className="text-[11px] text-text-dim">{n.value}%</span>
+        <ChartCard loading={chartsLoading} skeleton="line" title="Courbe des mouvements de caisse par nature">
+          <div className="h-[280px]">
+            {natureChartData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-text-dim italic text-xs">
+                Aucune donnée disponible
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart
+                  data={natureChartData}
+                  margin={{ top: 8, right: 12, bottom: 10, left: 0 }}
+                >
+                  <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: "#666", fontSize: 9 }}
+                    axisLine={false}
+                    interval={0}
+                    angle={-20}
+                    textAnchor="end"
+                    height={50}
+                  />
+                  <YAxis yAxisId="left" domain={[0, 100]} tick={{ fill: "#666", fontSize: 10 }} axisLine={false}
+                    tickFormatter={(v) => `${v}%`} />
+                  <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fill: "#888", fontSize: 10 }}
+                    axisLine={false} tickFormatter={(v) => `${v}%`} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: "#888" }} />
+                  <Bar yAxisId="left" dataKey="value" name="Part par nature" radius={[4, 4, 0, 0]} barSize={22}>
+                    {natureChartData.map((item) => (
+                      <Cell key={item.name} fill={item.fill} />
+                    ))}
+                  </Bar>
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="cumul"
+                    name="Courbe cumulée"
+                    stroke="#f59e0b"
+                    strokeWidth={2.5}
+                    dot={{ r: 3, fill: "#f59e0b", strokeWidth: 0 }}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+          {natureChartData.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+              {natureChartData.slice(0, 4).map((n) => (
+                <div key={n.name} className="flex items-center justify-between gap-2 rounded-lg bg-background/40 border border-border/20 px-3 py-2">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: n.fill }} />
+                    <span className="text-[10.5px] text-foreground truncate">{n.name}</span>
+                  </span>
+                  <span className="text-[10.5px] text-text-dim tabular-nums whitespace-nowrap">
+                    {n.value}% · {formatTND(n.amount)}
+                  </span>
                 </div>
               ))}
             </div>
-          </div>
+          )}
         </ChartCard>
       </div>
 
@@ -174,7 +221,7 @@ function FinancePage() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <ChartCard loading={chartsLoading} skeleton="bar"
-          title={`Bordereaux${banque !== "Toutes" ? ` — ${banque}` : " par banque"}`}>
+          title={banque !== "Toutes" ? `Bordereaux ${banque}` : "Bordereaux par banque"}>
           <ResponsiveContainer width="100%" height={chartH}>
             <BarChart data={banqueMode}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />

@@ -5,10 +5,10 @@ import { useAuth } from "@/store/useAuth";
 import { useState, useRef, useEffect } from "react";
 
 const pageNames = {
-  "/": "CA & Produits",
-  "/finance": "Finance & Caisse",
+  "/": "CA et produits",
+  "/finance": "Finance et caisse",
   "/comptabilite": "Comptabilité",
-  "/predictions": "Prédictions ML",
+  "/predictions": "Prévisions",
   "/parametres": "Paramètres",
 };
 
