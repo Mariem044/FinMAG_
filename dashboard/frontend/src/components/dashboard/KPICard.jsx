@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { TrendingUp, TrendingDown } from "lucide-react";
+import { CHART_THEME } from "@/lib/dashboardConstants";
 
 function generateSparklinePath(data, width, height) {
   const min = Math.min(...data);
@@ -14,19 +15,29 @@ function generateSparklinePath(data, width, height) {
     .join(" ");
 }
 
-export const KPICard = memo(function KPICard({ label, value, trend, subtitle, icon: Icon, sparkline }) {
+export const KPICard = memo(function KPICard({
+  label,
+  value,
+  trend,
+  subtitle,
+  icon: Icon,
+  sparkline,
+}) {
   const hasTrend = Number.isFinite(trend);
   const safeTrend = hasTrend ? trend : 0;
-  const isPositive = hasTrend ? safeTrend >= 0 : (sparkline && sparkline[sparkline.length - 1] >= sparkline[0]);
+  const isPositive = hasTrend
+    ? safeTrend >= 0
+    : sparkline && sparkline[sparkline.length - 1] >= sparkline[0];
   const trendDirection = isPositive ? "up" : "down";
   const trendAbs = Math.abs(safeTrend).toFixed(1);
 
-  const trendAriaLabel =
-    hasTrend
-      ? `${isPositive ? "Hausse" : "Baisse"} de ${trendAbs}% par rapport à N-1`
-      : undefined;
+  const trendAriaLabel = hasTrend
+    ? `${isPositive ? "Hausse" : "Baisse"} de ${trendAbs}% par rapport à N-1`
+    : undefined;
 
-  const sparklineId = label ? label.replace(/[^a-zA-Z0-9]/g, '-') : Math.random().toString(36).substring(7);
+  const sparklineId = label
+    ? label.replace(/[^a-zA-Z0-9]/g, "-")
+    : Math.random().toString(36).substring(7);
 
   return (
     <article
@@ -62,7 +73,9 @@ export const KPICard = memo(function KPICard({ label, value, trend, subtitle, ic
           </div>
 
           {subtitle && (
-            <p className="text-[10px] text-muted-foreground mt-1 truncate">{subtitle}</p>
+            <p className="text-[10px] text-muted-foreground mt-1 truncate">
+              {subtitle}
+            </p>
           )}
 
           {hasTrend && (
@@ -93,7 +106,8 @@ export const KPICard = memo(function KPICard({ label, value, trend, subtitle, ic
               </span>
 
               <span className="sr-only">
-                {isPositive ? "Hausse" : "Baisse"} de {trendAbs}% par rapport à N-1
+                {isPositive ? "Hausse" : "Baisse"} de {trendAbs}% par rapport à
+                N-1
               </span>
             </div>
           )}
@@ -113,17 +127,39 @@ export const KPICard = memo(function KPICard({ label, value, trend, subtitle, ic
 
       {sparkline && sparkline.length > 1 && (
         <div className="w-full h-8 mt-2 relative overflow-hidden rounded opacity-80 group-hover:opacity-100 transition-opacity duration-300 z-10">
-          <svg className="w-full h-full" viewBox="0 0 100 30" preserveAspectRatio="none">
+          <svg
+            className="w-full h-full"
+            viewBox="0 0 100 30"
+            preserveAspectRatio="none"
+          >
             <defs>
-              <linearGradient id={`gradient-${sparklineId}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={isPositive ? '#10b981' : '#ef4444'} stopOpacity="0.25" />
-                <stop offset="100%" stopColor={isPositive ? '#10b981' : '#ef4444'} stopOpacity="0.0" />
+              <linearGradient
+                id={`gradient-${sparklineId}`}
+                x1="0"
+                y1="0"
+                x2="0"
+                y2="1"
+              >
+                <stop
+                  offset="0%"
+                  stopColor={
+                    isPositive ? CHART_THEME.positive : CHART_THEME.negative
+                  }
+                  stopOpacity="0.25"
+                />
+                <stop
+                  offset="100%"
+                  stopColor={
+                    isPositive ? CHART_THEME.positive : CHART_THEME.negative
+                  }
+                  stopOpacity="0.0"
+                />
               </linearGradient>
             </defs>
             <path
               d={generateSparklinePath(sparkline, 100, 30)}
               fill="none"
-              stroke={isPositive ? '#10b981' : '#ef4444'}
+              stroke={isPositive ? CHART_THEME.positive : CHART_THEME.negative}
               strokeWidth="1.5"
               strokeLinecap="round"
               strokeLinejoin="round"

@@ -44,7 +44,7 @@ def extract_exercices_fiscaux():
         return []
 
 def extract_dim_segment():
-    return _read(MAG_ENGINE, "SELECT cbIndice, CT_PrixTTC FROM P_CATTARIF WHERE cbIndice BETWEEN 1 AND 5")
+    return _read(MAG_ENGINE, "SELECT cbIndice, CT_PrixTTC, CT_Intitule AS libelle_segment FROM P_CATTARIF WHERE cbIndice BETWEEN 1 AND 5 AND CT_Intitule IS NOT NULL AND CT_Intitule <> ''")
 
 def extract_dim_collaborateur():
     return _read(MAG_ENGINE, "SELECT CO_No, CO_Fonction, CO_Sommeil FROM F_COLLABORATEUR")

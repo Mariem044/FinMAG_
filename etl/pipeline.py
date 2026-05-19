@@ -51,9 +51,6 @@ def run_pipeline():
         # B2. DIM_SEGMENT
         logger.info("[DIM_SEGMENT] Extraction...")
         df_seg = extract.extract_dim_segment()
-        df_seg["libelle_segment"] = df_seg["cbIndice"].map({
-            1: "DÉTAILLANTS", 2: "SEMI-GROS", 3: "HORECA", 4: "GROSSISTES", 5: "DISTRIBUTEUR"
-        })
         df_seg["cbIndice_code"] = df_seg["cbIndice"].astype(int)
         df_seg = df_seg.drop_duplicates(subset=["cbIndice"])
         load.load_dimension(df_seg, "DIM_SEGMENT")

@@ -11,24 +11,30 @@ export function FiltersBar() {
 
   // Charger les années disponibles depuis l'API
   useEffect(() => {
-    api.filters()
+    api
+      .filters()
       .then((data) => {
         if (data?.years && data.years.length > 0) {
           setYears(data.years);
           const maxYear = Math.max(...data.years);
-          if (!data.years.includes(filters.year) || filters.year === new Date().getFullYear()) {
+          if (
+            !data.years.includes(filters.year) ||
+            filters.year === new Date().getFullYear()
+          ) {
             filters.setYear(maxYear);
           }
         }
       })
       .catch((err) => {
         console.error("Erreur de chargement des filtres :", err);
-        setYears([2026, 2025, 2024, 2023]);
+        setYears([new Date().getFullYear()]);
       });
   }, []);
 
-  const defaultYear = years.length > 0 ? Math.max(...years) : new Date().getFullYear();
-  const isFilterActive = filters.quarter !== "Tous" || filters.year !== defaultYear;
+  const defaultYear =
+    years.length > 0 ? Math.max(...years) : new Date().getFullYear();
+  const isFilterActive =
+    filters.quarter !== "Tous" || filters.year !== defaultYear;
 
   const handleReset = () => {
     filters.setQuarter("Tous");
@@ -44,7 +50,9 @@ export function FiltersBar() {
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-primary/10 border border-primary/20 text-primary">
           <Calendar size={13} className="animate-slow-pulse" />
-          <span className="text-[10px] font-bold uppercase tracking-wider">Filtres Temporels</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider">
+            Filtres Temporels
+          </span>
         </div>
       </div>
 
@@ -52,7 +60,9 @@ export function FiltersBar() {
       <div className="flex flex-wrap items-center gap-4 sm:gap-6">
         {/* Choix de l'Année */}
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-text-dim font-bold uppercase tracking-wider">Année</span>
+          <span className="text-[11px] text-text-dim font-bold uppercase tracking-wider">
+            Année
+          </span>
           <div className="relative">
             <select
               value={filters.year}
@@ -60,7 +70,11 @@ export function FiltersBar() {
               className="appearance-none bg-surface border border-border/60 hover:border-primary/50 text-[11px] font-bold text-foreground pl-3 pr-8 py-1.5 rounded-xl outline-none cursor-pointer transition-all duration-300 hover:shadow-md hover:shadow-primary/5 min-w-[80px]"
             >
               {years.map((y) => (
-                <option key={y} value={y} className="bg-popover text-foreground">
+                <option
+                  key={y}
+                  value={y}
+                  className="bg-popover text-foreground"
+                >
                   {y}
                 </option>
               ))}
@@ -73,7 +87,9 @@ export function FiltersBar() {
 
         {/* Choix du Trimestre (Pills) */}
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-text-dim font-bold uppercase tracking-wider">Période</span>
+          <span className="text-[11px] text-text-dim font-bold uppercase tracking-wider">
+            Période
+          </span>
           <div className="flex bg-surface/50 border border-border/60 rounded-xl p-0.5 shadow-inner">
             {QUARTERS.map((q) => {
               const active = filters.quarter === q;
