@@ -4,7 +4,9 @@ from sqlalchemy import text
 
 from etl.config import DW_ENGINE, DIM_DATE_START, DIM_DATE_END
 from etl.utils.logger import get_logger
+from etl.utils import audit
 from etl import ddl, extract, transform, load
+
 
 logger = get_logger(__name__)
 
@@ -21,10 +23,13 @@ def _build_lookup(table_name, natural_col, surrogate_col):
 def run_pipeline():
     logger.info("=== ETL PIPELINE STARTED ===")
 
+    run_id = audit.start_run("full")
+
     ddl.create_all_tables(drop_existing=True)  # Recrée les tables avec le nouveau schéma
 
     today = datetime.now(timezone.utc).date()
     lookups = {}
+
 
     try:
         # --------------------------------------------------
@@ -305,10 +310,13 @@ def run_pipeline():
             conn.execute(text(kpi_sql))
 
         logger.info("=== ETL PIPELINE COMPLETED SUCCESSFULLY ===")
+        audit.end_run(run_id, "SUCCESS")
 
     except Exception as e:
         logger.error(f"Pipeline failed: {e}", exc_info=True)
+        audit.end_run(run_id, "FAILED", error_msg=str(e))
         raise
+
 
 
 if __name__ == "__main__":
