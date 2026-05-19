@@ -23,8 +23,38 @@ def get_last_run_info():
         return None, "full"
 
 
+def _ensure_audit_table_exists():
+    sql_check = """
+        SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_NAME = 'ETL_AUDIT' AND TABLE_TYPE = 'BASE TABLE'
+    """
+    sql_create = """
+        CREATE TABLE ETL_AUDIT (
+            run_id           INT IDENTITY(1,1) PRIMARY KEY,
+            run_date         DATETIME NOT NULL DEFAULT GETUTCDATE(),
+            mode             VARCHAR(10) NOT NULL,
+            table_name       VARCHAR(100) NOT NULL,
+            rows_inserted    INT NOT NULL DEFAULT 0,
+            rows_updated     INT NOT NULL DEFAULT 0,
+            duration_seconds INT NOT NULL DEFAULT 0,
+            status           VARCHAR(20) NOT NULL,
+            error_msg        NVARCHAR(500) NULL
+        )
+    """
+    try:
+        with DW_ENGINE.connect() as conn:
+            exists = conn.execute(text(sql_check)).scalar()
+        if not exists or exists == 0:
+            with DW_ENGINE.begin() as conn:
+                conn.execute(text(sql_create))
+            logger.info("Table ETL_AUDIT créée avec succès.")
+    except Exception as e:
+        logger.error(f"Erreur lors de la vérification/création de la table ETL_AUDIT : {e}")
+
+
 def start_run(mode):
     """Insère un enregistrement RUNNING dans la table audit et retourne son ID."""
+    _ensure_audit_table_exists()
     with DW_ENGINE.begin() as conn:
         result = conn.execute(
             text(

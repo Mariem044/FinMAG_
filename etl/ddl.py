@@ -249,6 +249,8 @@ def create_all_tables(drop_existing=False):
                 libelle_mode_reg NVARCHAR(50) NULL
             )
         """,
+        "ETL_AUDIT": """
+            CREATE TABLE ETL_AUDIT (
                 run_id           INT IDENTITY(1,1) PRIMARY KEY,
                 run_date         DATETIME NOT NULL DEFAULT GETUTCDATE(),
                 mode             VARCHAR(10) NOT NULL,
@@ -264,7 +266,7 @@ def create_all_tables(drop_existing=False):
 
     with DW_ENGINE.begin() as conn:
         for table_name, ddl_sql in tables.items():
-            if not drop_existing and table_exists(table_name):
+            if (not drop_existing or table_name == "ETL_AUDIT") and table_exists(table_name):
                 logger.info(f"  [SKIP] {table_name} existe déjà")
                 continue
             try:
@@ -287,7 +289,7 @@ def _drop_all_tables():
         "DIM_CAISSE", "DIM_ARTICLE", "DIM_CLIENT", "DIM_DEPOT",
         "DIM_FAMILLE", "DIM_FOURNISSEUR", "DIM_JOURNAL", "DIM_COLLABORATEUR",
         "DIM_SEGMENT", "DIM_BANQUE", "DIM_TYPE_MVT_CAISSE",
-        "DIM_DATE", "ETL_AUDIT",
+        "DIM_MODE_REGLEMENT", "DIM_DATE",
     ]
 
     with DW_ENGINE.begin() as conn:
