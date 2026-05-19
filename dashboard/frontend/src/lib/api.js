@@ -126,8 +126,4 @@ export const api = {
     tvaByMonth: () => get("/api/fiscalite/tva-by-month"),
     anomalies: () => get("/api/fiscalite/anomalies"),
   },
-
-  search: (query) => get(`/api/search?q=${encodeURIComponent(query)}`),
-  notifications: () => get("/api/notifications"),
-  assistantSummary: () => get("/api/assistant/summary"),
 };

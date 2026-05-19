@@ -171,14 +171,17 @@ def run_pipeline():
         df_doc_dates = extract.extract_docentete_dates()[["DO_Type", "DO_Piece", "DO_Date"]].drop_duplicates(subset=["DO_Type", "DO_Piece"])
         df_docregl_grt = extract.extract_docregl_grt().drop_duplicates(subset=["DO_Piece"])
         df_docregl_mag = extract.extract_docregl_mag().drop_duplicates(subset=["DO_Piece"])
-        df_docregl = pd.merge(df_docregl_grt, df_docregl_mag, on="DO_Piece", how="left")
+        df_docregl = pd.merge(df_docregl_grt, df_docregl_mag, on="DO_Piece", how="outer")
         df_regt = extract.extract_reglementt().rename(columns={"RT_NbJour": "RT_NbJour_contrat"})
         df_regt["N_Reglement"] = pd.to_numeric(df_regt["N_Reglement"], errors="coerce")
         df_reg = pd.concat([df_rc, df_rf], ignore_index=True)
         df_reg = pd.merge(df_reg, df_doc_dates, on=["DO_Type", "DO_Piece"], how="left")
         df_reg = pd.merge(df_reg, df_docregl, on="DO_Piece", how="left")
         n_reg = df_reg.get("N_Reglement")
-        df_reg["N_Reglement"] = pd.to_numeric(n_reg, errors="coerce") if n_reg is not None else None
+        if n_reg is not None:
+            df_reg["N_Reglement"] = pd.to_numeric(n_reg, errors="coerce")
+        else:
+            df_reg["N_Reglement"] = pd.Series(dtype="float64")
         df_reg = pd.merge(df_reg, df_regt, on=["CT_Num", "N_Reglement"], how="left")
         df_reg["RT_NbJour"] = df_reg["RT_NbJour_contrat"]
         df_reg = transform.add_fact_reglements_calcs(df_reg)

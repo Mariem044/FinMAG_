@@ -24,16 +24,24 @@ const ALL_MODES = ["Chèque", "Traite", "Virement"];
 const priorityColor = { Chèque: "#3b82f6", Traite: "#ef4444", Virement: "#22c55e" };
 
 function FinancePage() {
-  const { depot, banque, modeBanque, getActiveMonthIndexes } = useFilters();
+  const { year, quarter, month, depot, banque, modeBanque, getActiveMonthIndexes } = useFilters();
   const chartH = useChartHeight();
   const activeIdx = getActiveMonthIndexes();
 
-  const { data: caissesData, loading: caissesLoading } = useApiResource(api.caisse.caisses, []);
-  const { data: fluxData, loading: fluxLoading } = useApiResource(api.caisse.fluxDaily, []);
-  const { data: natureMvt, loading: natureLoading } = useApiResource(api.caisse.mouvementsByType, []);
-  const { data: rapprochementApi, loading: rapprochLoading } = useApiResource(api.banque.rapprochement, []);
-  const { data: breakdownApi, loading: breakdownLoading } = useApiResource(
-    api.banque.rapprochementBreakdown,
+  // Wrap each fetcher in useMemo so its reference changes when filters change.
+  // useApiResource watches the function reference: new ref → new fetch.
+  const fetchCaisses      = useMemo(() => api.caisse.caisses,               [year, quarter, month, depot]);
+  const fetchFlux         = useMemo(() => api.caisse.fluxDaily,             [year, quarter, month, depot]);
+  const fetchNature       = useMemo(() => api.caisse.mouvementsByType,      [year, quarter, month, depot]);
+  const fetchRapproch     = useMemo(() => api.banque.rapprochement,         [year, quarter, month]);
+  const fetchBreakdown    = useMemo(() => api.banque.rapprochementBreakdown,[year, quarter, month]);
+
+  const { data: caissesData, loading: caissesLoading }   = useApiResource(fetchCaisses,   []);
+  const { data: fluxData,    loading: fluxLoading }       = useApiResource(fetchFlux,      []);
+  const { data: natureMvt,   loading: natureLoading }     = useApiResource(fetchNature,    []);
+  const { data: rapprochementApi, loading: rapprochLoading } = useApiResource(fetchRapproch, []);
+  const { data: breakdownApi,     loading: breakdownLoading } = useApiResource(
+    fetchBreakdown,
     { totals: { Chèque: 0, Traite: 0, Virement: 0 }, transactions: [] }
   );
 

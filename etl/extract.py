@@ -156,10 +156,10 @@ def extract_fait_reglements_fournisseurs():
     return _read(GRT_ENGINE, "SELECT RT_Num, CT_Num, DO_Type, DO_Piece, RT_Date, RT_Mode, RT_Montant, RT_Etat, BQ_Num FROM F_ReglementFournisseur WHERE RT_Montant IS NOT NULL")
 
 def extract_docregl_grt():
-    return _read(GRT_ENGINE, "SELECT DO_Piece, DR_Montant, DR_EtatRegle AS DR_Regle, DR_ModeReg FROM F_DOCREGL")
+    return _read(GRT_ENGINE, "SELECT DO_Piece, DR_Montant, DR_ModeReg FROM F_DOCREGL")
 
 def extract_docregl_mag():
-    return _read(MAG_ENGINE, "SELECT DO_Piece, N_Reglement FROM F_DOCREGL WHERE N_Reglement IS NOT NULL")
+    return _read(MAG_ENGINE, "SELECT DO_Piece, N_Reglement, DR_Regle FROM F_DOCREGL")
 
 def extract_fait_mvtcaisse():
     sql = """
