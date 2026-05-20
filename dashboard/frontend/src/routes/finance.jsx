@@ -128,10 +128,11 @@ function FinancePage() {
 
   const alignedFlux = useMemo(() => {
     if (fluxData.length === 0) return [];
+    if (caissesLoading) return [];
     const lastRawCumul = fluxData[fluxData.length - 1]?.cumul ?? 0;
     const offset = soldeTotal - lastRawCumul;
     return fluxData.map((d) => ({ ...d, cumul: d.cumul + offset }));
-  }, [soldeTotal, fluxData]);
+  }, [soldeTotal, fluxData, caissesLoading]);
 
   const filteredFlux = useMemo(() => {
     const ratio = activeIdx.length / 12;

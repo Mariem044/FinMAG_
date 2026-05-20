@@ -310,6 +310,7 @@ function ComptabilitePage() {
               <XAxis
                 dataKey="date"
                 name="Date"
+                type="category"
                 tick={{ fill: CHART_THEME.axis, fontSize: 9 }}
                 axisLine={false}
                 angle={-30}

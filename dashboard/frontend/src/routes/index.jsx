@@ -333,7 +333,7 @@ function OverviewPage() {
                     articles.reduce((s, a) => s + a.ca, 0) /
                     Math.max(articles.length, 1);
                   const isStar = payload.dsi < dsiMoyen && payload.ca > avgCa;
-                  const isSlow = payload.dsi >= dsiMoyen && payload.ca <= avgCa;
+                  const isSlow = payload.dsi > 60 && payload.ca <= avgCa;
                   return (
                     <circle
                       cx={cx}

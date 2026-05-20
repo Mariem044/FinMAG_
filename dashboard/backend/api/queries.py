@@ -488,8 +488,7 @@ def get_dashboard_kpis(
                         AND f.DL_CMUP IS NOT NULL
                         AND f.DL_CMUP > 0
                         AND f.DL_Qte IS NOT NULL
-                        AND f.DL_MontantHT > (f.DL_Qte * f.DL_CMUP)
-                THEN f.DL_MontantHT - (f.DL_Qte * f.DL_CMUP)
+                        AND f.DL_Qte IS NOT NULL                THEN f.DL_MontantHT - (f.DL_Qte * f.DL_CMUP)
                 ELSE NULL
             END) AS marge_brute,
             SUM(CASE WHEN d.annee = :latest_year
@@ -509,8 +508,7 @@ def get_dashboard_kpis(
                         AND f.DL_CMUP IS NOT NULL
                         AND f.DL_CMUP > 0
                         AND f.DL_Qte IS NOT NULL
-                        AND f.DL_MontantHT > (f.DL_Qte * f.DL_CMUP)
-                THEN f.DL_MontantHT - (f.DL_Qte * f.DL_CMUP)
+                        AND f.DL_Qte IS NOT NULL                THEN f.DL_MontantHT - (f.DL_Qte * f.DL_CMUP)
                 ELSE NULL
             END) AS marge_brute_n1,
             SUM(CASE WHEN d.annee = :latest_year - 1
@@ -569,11 +567,10 @@ def get_dashboard_kpis(
     raw_marge = row.marge_brute
     ca_avec_cout = _num(getattr(row, 'ca_avec_cout', 0))
     nb_avec_cout = _int(getattr(row, 'nb_lignes_avec_cout', 0))
-    marge_brute_pct = (
-        (float(raw_marge) / ca_avec_cout * 100)
-        if (ca_avec_cout > 0 and raw_marge is not None and nb_avec_cout > 0)
-        else None
-    )
+    if ca_avec_cout > 0 and raw_marge is not None:
+        marge_brute_pct = round(float(raw_marge) / ca_avec_cout * 100, 2)
+    else:
+        marge_brute_pct = None
     
     raw_marge_n1 = row.marge_brute_n1
     ca_avec_cout_n1 = _num(getattr(row, 'ca_avec_cout_n1', 0))

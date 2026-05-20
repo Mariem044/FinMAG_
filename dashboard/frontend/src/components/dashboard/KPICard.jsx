@@ -61,7 +61,7 @@ export const KPICard = memo(function KPICard({
 
           <div className="relative">
             <p
-              className="text-lg md:text-xl lg:text-2xl font-bold text-foreground leading-tight truncate group-hover:scale-105 transition-transform duration-300 origin-left"
+              className="text-base md:text-lg lg:text-xl font-bold text-foreground leading-tight truncate group-hover:scale-105 transition-transform duration-300 origin-left"
               aria-hidden="true"
             >
               {value}
