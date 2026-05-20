@@ -16,11 +16,7 @@ def get_last_error():
     return _ML_LAST_ERROR
 
 def run_all(only=None, skip=None):
-    from ml import ca_forecast
-
-    modules = {
-        "05": ca_forecast,
-    }
+    modules = {}
 
     if only:
         modules = {k: v for k, v in modules.items() if k in only}

@@ -1,6 +1,5 @@
 import warnings
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime
 import pandas as pd
 import numpy as np
 from sqlalchemy import text
@@ -21,8 +20,8 @@ IF OBJECT_ID('ML_KPI05_CA_FORECAST', 'U') IS NOT NULL
             SELECT 1 FROM sys.columns c
             JOIN sys.types t ON c.user_type_id = t.user_type_id
             WHERE c.object_id = OBJECT_ID('ML_KPI05_CA_FORECAST')
-              AND c.name = 'run_date'
-              AND t.name = 'date'
+AND c.name = 'run_date'
+                AND t.name = 'date'
         )
     )
     DROP TABLE ML_KPI05_CA_FORECAST;
@@ -63,12 +62,15 @@ def _load_monthly_ca() -> pd.DataFrame:
     df["ds"] = pd.to_datetime(df["ds"])
     df["y"]  = pd.to_numeric(df["y"], errors="coerce")
     df = df.dropna().sort_values("ds").reset_index(drop=True)
-    logger.info(f"[KPI-05] Loaded {len(df)} monthly observations "
+    if df.empty:
+        logger.warning(" No monthly CA observations found")
+        return df
+    logger.info(f" Loaded {len(df)} monthly observations "
                 f"({df['ds'].min().date()} -> {df['ds'].max().date()})")
     return df
 
 def _forecast_seasonal_fallback(df: pd.DataFrame, horizon: int, model_name: str) -> pd.DataFrame:
-    logger.info(f"[KPI-05] Running Seasonal Decomposition Fallback for {model_name}...")
+    logger.info(f" Running Seasonal Decomposition Fallback for {model_name}...")
     n_obs = len(df)
     t = np.arange(n_obs)
     y = df["y"].values.astype(float)
@@ -125,7 +127,7 @@ def _forecast_seasonal_fallback(df: pd.DataFrame, horizon: int, model_name: str)
     return result
 
 def _forecast_trend_fallback(df: pd.DataFrame, horizon: int, model_name: str) -> pd.DataFrame:
-    logger.info(f"[KPI-05] Running Linear Trend Fallback for {model_name}...")
+    logger.info(f" Running Linear Trend Fallback for {model_name}...")
     n_obs = len(df)
     t = np.arange(n_obs)
     y = df["y"].values.astype(float)
@@ -161,7 +163,7 @@ def _forecast_trend_fallback(df: pd.DataFrame, horizon: int, model_name: str) ->
     return result
 
 def _forecast_arima(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
-    logger.info("[KPI-05] Training ARIMA model...")
+    logger.info(" Training ARIMA model...")
     df_ts = df.set_index("ds").copy()
     df_ts = df_ts.asfreq("MS")
     y = df_ts["y"].ffill().fillna(0)
@@ -198,14 +200,14 @@ def _forecast_arima(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
         
         result = pd.concat([hist_df, future_df], ignore_index=True)
         result["model_name"] = "ARIMA"
-        logger.info("[KPI-05] ARIMA model finished successfully.")
+        logger.info(" ARIMA model finished successfully.")
         return result
     except Exception as e:
-        logger.error(f"[KPI-05] ARIMA fitting failed: {e}. Using trend fallback.")
+        logger.error(f" ARIMA fitting failed: {e}. Using trend fallback.")
         return _forecast_trend_fallback(df, horizon, "ARIMA")
 
 def _forecast_sarima(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
-    logger.info("[KPI-05] Training SARIMA model...")
+    logger.info(" Training SARIMA model...")
     df_ts = df.set_index("ds").copy()
     df_ts = df_ts.asfreq("MS")
     y = df_ts["y"].ffill().fillna(0)
@@ -213,7 +215,7 @@ def _forecast_sarima(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
     try:
         from statsmodels.tsa.statespace.sarimax import SARIMAX
         if len(y) < 24:
-            logger.warning("[KPI-05] Series too short for SARIMA(12). Using seasonal period 3.")
+            logger.warning(" Series too short for SARIMA(12). Using seasonal period 3.")
             model = SARIMAX(y, order=(1, 1, 1), seasonal_order=(1, 1, 1, 3), enforce_stationarity=False, enforce_invertibility=False)
         else:
             model = SARIMAX(y, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12), enforce_stationarity=False, enforce_invertibility=False)
@@ -247,14 +249,14 @@ def _forecast_sarima(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
         
         result = pd.concat([hist_df, future_df], ignore_index=True)
         result["model_name"] = "SARIMA"
-        logger.info("[KPI-05] SARIMA model finished successfully.")
+        logger.info(" SARIMA model finished successfully.")
         return result
     except Exception as e:
-        logger.error(f"[KPI-05] SARIMA fitting failed: {e}. Using seasonal fallback.")
+        logger.error(f" SARIMA fitting failed: {e}. Using seasonal fallback.")
         return _forecast_seasonal_fallback(df, horizon, "SARIMA")
 
 def _forecast_prophet(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
-    logger.info("[KPI-05] Training Prophet model...")
+    logger.info(" Training Prophet model...")
     try:
         from prophet import Prophet
         
@@ -280,13 +282,17 @@ def _forecast_prophet(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
         result["yhat_lower"] = result["yhat_lower"].clip(lower=0)
         result["yhat_upper"] = result["yhat_upper"].clip(lower=0)
         result["model_name"] = "PROPHET"
-        logger.info("[KPI-05] Prophet model finished successfully.")
+        logger.info(" Prophet model finished successfully.")
         return result
     except Exception as e:
-        logger.error(f"[KPI-05] Prophet training failed: {e}. Using seasonal fallback.")
+        logger.error(f" Prophet training failed: {e}. Using seasonal fallback.")
         return _forecast_seasonal_fallback(df, horizon, "PROPHET")
 
 def _save_forecast(forecast: pd.DataFrame) -> None:
+    if forecast.empty:
+        logger.warning(" Empty forecast, keeping existing ML_KPI05_CA_FORECAST data")
+        return
+
     now_ts = datetime.now()
     with DW_ENGINE.begin() as conn:
         conn.execute(text("DELETE FROM ML_KPI05_CA_FORECAST"))
@@ -316,7 +322,7 @@ def _save_forecast(forecast: pd.DataFrame) -> None:
         cursor.executemany(sql, rows)
         cursor.close()
 
-    logger.info(f"[KPI-05] {len(rows)} rows saved to ML_KPI05_CA_FORECAST")
+    logger.info(f" {len(rows)} rows saved to ML_KPI05_CA_FORECAST")
 
 def _evaluate(df_hist: pd.DataFrame, forecast: pd.DataFrame) -> tuple[float, float]:
     hist_fc = forecast[forecast["is_historical"] == 1].copy()
@@ -325,17 +331,21 @@ def _evaluate(df_hist: pd.DataFrame, forecast: pd.DataFrame) -> tuple[float, flo
         return 0.0, 0.0
     merged = merged.tail(3)
     mae  = float((merged["y"] - merged["yhat"]).abs().mean())
-    mape = float(((merged["y"] - merged["yhat"]).abs() / merged["y"]).mean() * 100)
+    non_zero = merged[merged["y"] != 0]
+    mape = 0.0 if non_zero.empty else float(((non_zero["y"] - non_zero["yhat"]).abs() / non_zero["y"]).mean() * 100)
     model_name = forecast["model_name"].iloc[0] if "model_name" in forecast.columns else "UNKNOWN"
-    logger.info(f"[KPI-05] {model_name} Back-test (last 3 months) - MAE: {mae:,.0f} | MAPE: {mape:.1f}%")
+    logger.info(f" {model_name} In-sample validation (last 3 months) - MAE: {mae:,.0f} | MAPE: {mape:.1f}%")
     return mae, mape
 
 def run(horizon: int = 12) -> pd.DataFrame:
     _ensure_table()
     df = _load_monthly_ca()
+    if df.empty:
+        logger.warning(" Forecast skipped because no CA history is available")
+        return pd.DataFrame(columns=["ds", "yhat", "yhat_lower", "yhat_upper", "is_historical", "model_name", "mae", "mape"])
 
     if len(df) < 12:
-        logger.warning("[KPI-05] Less than 12 months of data — forecast may be unreliable")
+        logger.warning(" Less than 12 months of data — forecast may be unreliable")
 
     # Train all 3 models!
     arima_fc = _forecast_arima(df, horizon)

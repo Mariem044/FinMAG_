@@ -22,15 +22,14 @@ def _build_lookup(table_name, natural_col, surrogate_col):
 def run_pipeline():
     logger.info("=== ETL PIPELINE STARTED ===")
 
-    run_id = audit.start_run("full")
-
-    ddl.create_all_tables(drop_existing=True)  
-
-    today = datetime.now(timezone.utc).date()
-    lookups = {}
-
-
+    run_id = None
     try:
+        run_id = audit.start_run("full")
+        ddl.create_all_tables(drop_existing=True)
+
+        today = datetime.now(timezone.utc).date()
+        lookups = {}
+
        
         logger.info("[DIM_DATE] Génération de la plage de dates...")
         date_range = pd.date_range(start=DIM_DATE_START, end=DIM_DATE_END, freq="D")
@@ -312,7 +311,8 @@ def run_pipeline():
 
     except Exception as e:
         logger.error(f"Pipeline failed: {e}", exc_info=True)
-        audit.end_run(run_id, "FAILED", error_msg=str(e))
+        if run_id is not None:
+            audit.end_run(run_id, "FAILED", error_msg=str(e))
         raise
 
 
