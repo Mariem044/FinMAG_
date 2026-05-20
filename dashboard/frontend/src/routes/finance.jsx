@@ -238,7 +238,8 @@ function FinancePage() {
         </span>
         <div className="flex-1 h-px bg-border/30" />
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="order-2 lg:col-span-3">
         <ChartCard
           loading={chartsLoading}
           skeleton="bar"
@@ -301,12 +302,14 @@ function FinancePage() {
             </ComposedChart>
           </ResponsiveContainer>
         </ChartCard>
+        </div>
 
-        <ChartCard
-          loading={chartsLoading}
-          skeleton="line"
-          title="Courbe des mouvements de caisse par nature"
-        >
+        <div className="order-1 lg:col-span-3">
+          <ChartCard
+            loading={chartsLoading}
+            skeleton="line"
+            title="Courbe des mouvements de caisse par nature"
+          >
           <div className="h-[280px]">
             {natureChartData.length === 0 ? (
               <div className="h-full flex items-center justify-center text-text-dim italic text-xs">
@@ -397,7 +400,8 @@ function FinancePage() {
               ))}
             </div>
           )}
-        </ChartCard>
+          </ChartCard>
+        </div>
       </div>
 
       {/* Section Banque */}
