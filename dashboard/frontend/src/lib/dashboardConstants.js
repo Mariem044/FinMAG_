@@ -13,17 +13,6 @@ export const MONTHS = [
   "Dec",
 ];
 
-export const FAMILLES = [
-  "Biscuits",
-  "Boissons",
-  "Conserves",
-  "Produits Laitiers",
-  "Confiserie",
-  "Epicerie",
-  "Huiles",
-  "Pates",
-];
-
 export const CHART_COLORS = [
   "var(--chart-blue)",
   "var(--chart-indigo)",
@@ -97,7 +86,3 @@ export const formatTND = (v = 0) => {
     }).format(Number(v || 0) * rate) + ` ${code}`
   );
 };
-
-export const formatNumber = (v = 0) =>
-  new Intl.NumberFormat("fr-TN").format(Number(v || 0));
-export const formatPercent = (v = 0) => Number(v || 0).toFixed(1) + "%";

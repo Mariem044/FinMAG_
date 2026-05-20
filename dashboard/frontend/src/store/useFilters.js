@@ -11,8 +11,6 @@ export const useFilters = create((set, get) => ({
   depot: "Tous",
   banque: "Toutes",
   modeBanque: "Tous",
-  modePaiement: "Tous",
-  source: "MAG_2020 + GRT_MAG",
 
   setYear: (year) => set({ year }),
   setQuarter: (quarter) => set({ quarter }),
@@ -23,8 +21,6 @@ export const useFilters = create((set, get) => ({
   setDepot: (depot) => set({ depot }),
   setBanque: (banque) => set({ banque }),
   setModeBanque: (modeBanque) => set({ modeBanque }),
-  setModePaiement: (modePaiement) => set({ modePaiement }),
-  setSource: (source) => set({ source }),
   resetAll: () =>
     set({
       year: new Date().getFullYear(),
@@ -36,8 +32,6 @@ export const useFilters = create((set, get) => ({
       depot: "Tous",
       banque: "Toutes",
       modeBanque: "Tous",
-      modePaiement: "Tous",
-      source: "MAG_2020 + GRT_MAG",
     }),
 
   getActiveMonthIndexes: () => {

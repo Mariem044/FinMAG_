@@ -38,30 +38,24 @@ export const Route = createFileRoute("/")({
   component: OverviewPage,
 });
 
-function rotationColor(dsi) {
-  if (dsi > BUSINESS_THRESHOLDS.stockDsiSlow) return CHART_THEME.negative;
-  if (dsi > BUSINESS_THRESHOLDS.stockDsiWarning) return CHART_THEME.warning;
-  return CHART_THEME.positive;
-}
-
 function OverviewPage() {
-  const { year, quarter, segment, depot, source } = useFilters();
+  const { year, quarter, segment, depot } = useFilters();
 
   const kpisFn = useMemo(
     () => () => api.dashboard.kpis(year),
-    [year, quarter, segment, depot, source],
+    [year, quarter, segment, depot],
   );
   const caByMonthFn = useMemo(
     () => () => api.dashboard.caByMonth(year),
-    [year, quarter, segment, depot, source],
+    [year, quarter, segment, depot],
   );
   const topFamillesFn = useMemo(
     () => () => api.dashboard.topFamilles(year),
-    [year, quarter, segment, depot, source],
+    [year, quarter, segment, depot],
   );
   const articlesFn = useMemo(
     () => () => api.dashboard.articles(year),
-    [year, quarter, segment, depot, source],
+    [year, quarter, segment, depot],
   );
 
   const { data: kpis, loading: kpisLoading } = useApiResource(kpisFn, {

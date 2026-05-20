@@ -103,30 +103,3 @@ def hash_key(value: Optional[str | int | float]) -> Optional[int]:
     digest = hashlib.sha256(normalized.encode("utf-8")).digest()
     return int.from_bytes(digest[:_HASH_BYTES], "big") & ((1 << (_HASH_BYTES * 8 - 1)) - 1)
 
-
-DW_TABLES_ORDER: list[str] = [
-    "DIM_DATE",
-    "DIM_DOMAINE",
-    "DIM_TYPE_DOC",
-    "DIM_MODE_REGLEMENT",
-    "DIM_ETAT_REGLEMENT",
-    "DIM_ETAT_DOCREGL",
-    "DIM_TYPE_LIGNE",
-    "DIM_SENS_ECRITURE",
-    "DIM_TYPE_TVA",
-    "DIM_TYPE_MVT_CAISSE",
-    "DIM_BANQUE",
-    "DIM_SEGMENT",
-    "DIM_COLLABORATEUR",
-    "DIM_JOURNAL",
-    "DIM_FOURNISSEUR",
-    "DIM_FAMILLE",
-    "DIM_CLIENT",
-    "DIM_ARTICLE",
-    "DIM_DEPOT",
-    "DIM_CAISSE",
-    "FAIT_LIGNES_VENTE",
-    "FAIT_REGLEMENTS",
-    "FAIT_ECRITURES",
-    "ETL_AUDIT",
-]

@@ -44,8 +44,7 @@ function get(path) {
 
     const keys = [
       "year", "quarter", "month", "region", "famille", "segment",
-      "depot", "banque", "modeBanque", "modePaiement", "source",
-      "horizonPrev", "statutArticle"
+      "depot", "banque"
     ];
 
     keys.forEach(key => {

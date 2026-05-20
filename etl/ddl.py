@@ -244,13 +244,6 @@ def create_all_tables(drop_existing=False):
                 date_extraction    DATE NOT NULL
             )
         """,
-        "DIM_MODE_REGLEMENT": """
-            CREATE TABLE DIM_MODE_REGLEMENT (
-                id_mode_reg      INT IDENTITY(1,1) PRIMARY KEY,
-                RT_Mode          SMALLINT NOT NULL UNIQUE,
-                libelle_mode_reg NVARCHAR(50) NULL
-            )
-        """,
         "ETL_AUDIT": """
             CREATE TABLE ETL_AUDIT (
                 run_id           INT IDENTITY(1,1) PRIMARY KEY,
@@ -291,7 +284,7 @@ def _drop_all_tables():
         "DIM_CAISSE", "DIM_ARTICLE", "DIM_CLIENT", "DIM_DEPOT",
         "DIM_FAMILLE", "DIM_FOURNISSEUR", "DIM_JOURNAL", "DIM_COLLABORATEUR",
         "DIM_SEGMENT", "DIM_BANQUE", "DIM_TYPE_MVT_CAISSE",
-        "DIM_MODE_REGLEMENT", "DIM_DATE",
+        "DIM_DATE",
     ]
 
     with DW_ENGINE.begin() as conn:

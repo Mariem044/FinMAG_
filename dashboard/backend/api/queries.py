@@ -124,8 +124,7 @@ def _parse_month(month_str: Optional[str]) -> int:
 
 def _build_dynamic_filters(
     year=None, quarter=None, month=None, region=None, famille=None,
-    segment=None, depot=None, banque=None, modeBanque=None, modePaiement=None,
-    source=None, horizonPrev=None, statutArticle=None,
+    segment=None, depot=None, banque=None,
     aliases=None
 ) -> tuple[str, dict]:
     if aliases is None:
@@ -190,13 +189,6 @@ def _build_dynamic_filters(
         clauses.append(f"AND {aliases['banque']}.EB_Abrege_code = :p_banque")
         params["p_banque"] = c_banque
 
-    c_statut = _clean_filter(statutArticle)
-    if c_statut and aliases.get("article"):
-        if "actif" in c_statut.lower():
-            clauses.append(f"AND {aliases['article']}.AR_Sommeil = 0")
-        elif "sommeil" in c_statut.lower():
-            clauses.append(f"AND {aliases['article']}.AR_Sommeil = 1")
-        
     return " ".join(clauses), params
 
 def _run_etl_background():
@@ -254,19 +246,11 @@ def get_dashboard_filters():
         if not years:
             years = [2026]
 
-
-        modes = [r.libelle_mode_reg.strip() for r in _rows("SELECT DISTINCT libelle_mode_reg FROM DIM_MODE_REGLEMENT WHERE libelle_mode_reg IS NOT NULL AND libelle_mode_reg <> '' ORDER BY libelle_mode_reg")]
-        if not modes:
-            modes = ["Tous"]
-        else:
-            modes = ["Tous"] + modes
-
         return {
             "depots": depots,
             "segments": segments,
             "familles": familles,
-            "years": years,
-            "modes_paiement": modes
+            "years": years
         }
     except Exception as exc:
         logging.error(f"Error fetching dynamic filters: {exc}")
@@ -274,8 +258,7 @@ def get_dashboard_filters():
             "depots": ["Tous", "Tunis Nord", "Tunis Sud", "Sfax", "Sousse", "Nabeul", "Bizerte", "Dépôt Central"],
             "segments": ["Tous", "DÉTAILLANTS", "SEMI-GROS", "HORECA", "GROSSISTES", "DISTRIBUTEUR"],
             "familles": ["Toutes", "Biscuits", "Boissons", "Conserves", "Produits Laitiers", "Confiserie", "Épicerie", "Huiles", "Pâtes"],
-            "years": [2026, 2025, 2024, 2023, 2022, 2021, 2020],
-            "modes_paiement": ["Tous", "Chèque", "Espèce", "RS", "Traite", "Virement"]
+            "years": [2026, 2025, 2024, 2023, 2022, 2021, 2020]
         }
 
 
@@ -419,12 +402,11 @@ def get_dashboard_kpis(
     famille: Optional[str] = None,
     segment: Optional[str] = None,
     depot: Optional[str] = None,
-    source: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=None, 
         quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
+        segment=segment, depot=depot,
         aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
     )
     
@@ -647,12 +629,11 @@ def get_ca_by_month(
     famille: Optional[str] = None,
     segment: Optional[str] = None,
     depot: Optional[str] = None,
-    source: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=None, 
         quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
+        segment=segment, depot=depot,
         aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
     )
     max_year_res = _row("""
@@ -804,11 +785,10 @@ def get_top_familles(
     famille: Optional[str] = None,
     segment: Optional[str] = None,
     depot: Optional[str] = None,
-    source: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
+        segment=segment, depot=depot,
         aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
     )
     sql = f"""
@@ -844,11 +824,10 @@ def get_tresorerie_summary(
     famille: Optional[str] = None,
     segment: Optional[str] = None,
     depot: Optional[str] = None,
-    source: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
+        segment=segment, depot=depot,
         aliases={"date": "d", "client": "c", "segment": "s"}
     )
     sql = f"""
@@ -903,11 +882,10 @@ def get_aging(
     famille: Optional[str] = None,
     segment: Optional[str] = None,
     depot: Optional[str] = None,
-    source: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
+        segment=segment, depot=depot,
         aliases={"date": "d", "client": "c", "segment": "s"}
     )
     sql = f"""
@@ -949,11 +927,10 @@ def get_articles(
     famille: Optional[str] = None,
     segment: Optional[str] = None,
     depot: Optional[str] = None,
-    source: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
+        segment=segment, depot=depot,
         aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
     )
     
@@ -1069,12 +1046,11 @@ def get_banque_rapprochement(
     famille: Optional[str] = None,
     segment: Optional[str] = None,
     depot: Optional[str] = None,
-    source: Optional[str] = None,
     banque: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source, banque=banque,
+        segment=segment, depot=depot, banque=banque,
         aliases={"date": "d", "client": "c", "segment": "s", "banque": "b"}
     )
     sql = f"""
@@ -1142,12 +1118,11 @@ def get_banque_rapprochement_breakdown(
     famille: Optional[str] = None,
     segment: Optional[str] = None,
     depot: Optional[str] = None,
-    source: Optional[str] = None,
     banque: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source, banque=banque,
+        segment=segment, depot=depot, banque=banque,
         aliases={"date": "d", "client": "c", "segment": "s", "banque": "b"}
     )
     sql = f"""
@@ -1256,11 +1231,10 @@ def get_caisses(
     famille: Optional[str] = None,
     segment: Optional[str] = None,
     depot: Optional[str] = None,
-    source: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=None, source=source,
+        segment=segment, depot=None,
         aliases={"date": "d"}
     )
     c_depot = _clean_filter(depot)
@@ -1326,11 +1300,10 @@ def get_caisse_flux_daily(
     famille: Optional[str] = None,
     segment: Optional[str] = None,
     depot: Optional[str] = None,
-    source: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=None, source=source,
+        segment=segment, depot=None,
         aliases={"date": "d"}
     )
     c_depot = _clean_filter(depot)
@@ -1387,11 +1360,10 @@ def get_caisse_mouvements_by_type(
     famille: Optional[str] = None,
     segment: Optional[str] = None,
     depot: Optional[str] = None,
-    source: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=None, source=source,
+        segment=segment, depot=None,
         aliases={"date": "d"}
     )
     c_depot = _clean_filter(depot)
@@ -1451,11 +1423,10 @@ def get_fiscalite_kpis(
     famille: Optional[str] = None,
     segment: Optional[str] = None,
     depot: Optional[str] = None,
-    source: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
+        segment=segment, depot=depot,
         aliases={"date": "d"}
     )
     sql_kpis = f"""
@@ -1525,11 +1496,10 @@ def get_fiscalite_tva_by_month(
     famille: Optional[str] = None,
     segment: Optional[str] = None,
     depot: Optional[str] = None,
-    source: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
+        segment=segment, depot=depot,
         aliases={"date": "d"}
     )
     sql = f"""
@@ -1566,11 +1536,10 @@ def get_fiscalite_anomalies(
     famille: Optional[str] = None,
     segment: Optional[str] = None,
     depot: Optional[str] = None,
-    source: Optional[str] = None,
 ):
     filt_sql, filt_params = _build_dynamic_filters(
         year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, source=source,
+        segment=segment, depot=depot,
         aliases={"date": "d"}
     )
     sql = f"""
