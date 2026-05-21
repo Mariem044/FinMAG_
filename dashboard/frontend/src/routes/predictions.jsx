@@ -425,14 +425,14 @@ function PredictionsStudioPage() {
                   color={activeColor}
                   label="Erreur MAPE"
                   value={activeMetrics.mape}
-                  subtext="Depuis ML_CA_FORECAST"
+                  subtext="Depuis ML_KPI05_CA_FORECAST"
                 />
                 <SimpleGauge
                   pct={activeMetrics.pctMae}
                   color={CHART_THEME.secondary}
                   label="MAE absolue"
                   value={activeMetrics.mae}
-                  subtext="Depuis ML_CA_FORECAST"
+                  subtext="Depuis ML_KPI05_CA_FORECAST"
                 />
               </div>
             </div>

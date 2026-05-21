@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
+import re
 import pandas as pd
 from sqlalchemy import text
 
-from etl.config import DW_ENGINE, DIM_DATE_START, DIM_DATE_END
+from etl.config import DW_ENGINE, DIM_DATE_START, DIM_DATE_END, ensure_dw_database_exists
 from etl.utils.logger import get_logger
 from etl.utils import audit
 from etl import ddl, extract, transform, load
@@ -19,11 +20,64 @@ def _build_lookup(table_name, natural_col, surrogate_col):
     return dict(zip(df[natural_col], df[surrogate_col]))
 
 
+def _clean_text_code(value):
+    if pd.isna(value):
+        return None
+    text = str(value).strip()
+    return text.upper() if text else None
+
+
+def _clean_bank_account(value):
+    if pd.isna(value):
+        return None
+    digits = re.sub(r"\D+", "", str(value))
+    return digits or None
+
+
+def _resolve_ville(row, ville_by_index, ville_by_code, ville_by_name):
+    raw_region = row.get("CT_CodeRegion")
+    if pd.notna(raw_region):
+        try:
+            key = int(float(raw_region))
+            if key in ville_by_index:
+                return ville_by_index[key]
+        except (TypeError, ValueError):
+            pass
+        code = _clean_text_code(raw_region)
+        if code in ville_by_code:
+            return ville_by_code[code]
+
+    ville = _clean_text_code(row.get("CT_Ville"))
+    return ville_by_name.get(ville)
+
+
+def _lookup_banque(row, lookup, fields):
+    for field in fields:
+        key = _clean_text_code(row.get(field))
+        if key and key in lookup:
+            return lookup[key]
+    return None
+
+
+def _lookup_banque_by_account(row, account_lookup, fields):
+    for field in fields:
+        account = _clean_bank_account(row.get(field))
+        if not account:
+            continue
+        if account in account_lookup:
+            return account_lookup[account]
+        for bank_account, bank_id in account_lookup.items():
+            if bank_account and (bank_account in account or account in bank_account):
+                return bank_id
+    return None
+
+
 def run_pipeline():
     logger.info("=== ETL PIPELINE STARTED ===")
 
     run_id = None
     try:
+        ensure_dw_database_exists()
         run_id = audit.start_run("full")
         ddl.create_all_tables(drop_existing=True)
 
@@ -54,6 +108,45 @@ def run_pipeline():
         df_seg = df_seg.drop_duplicates(subset=["cbIndice"])
         load.load_dimension(df_seg, "DIM_SEGMENT")
         lookups["DIM_SEGMENT"] = _build_lookup("DIM_SEGMENT", "cbIndice", "id_segment")
+
+        # B2bis. DIM_VILLE
+        logger.info("[DIM_VILLE] Extraction...")
+        df_ville = extract.extract_dim_ville()
+        df_ville["CbIndice"] = pd.to_numeric(df_ville["CbIndice"], errors="coerce").astype("Int64")
+        df_ville = df_ville.dropna(subset=["CbIndice"]).drop_duplicates(subset=["CbIndice"])
+        load.load_dimension(df_ville, "DIM_VILLE")
+        lookups["DIM_VILLE"] = _build_lookup("DIM_VILLE", "CbIndice", "id_ville")
+        ville_by_index = {
+            int(row.CbIndice): {
+                "id_ville": lookups["DIM_VILLE"].get(int(row.CbIndice)),
+                "gouvernorat": row.VI_Designation,
+            }
+            for row in df_ville.itertuples(index=False)
+        }
+        ville_by_code = {
+            _clean_text_code(row.VI_Code): {
+                "id_ville": lookups["DIM_VILLE"].get(int(row.CbIndice)),
+                "gouvernorat": row.VI_Designation,
+            }
+            for row in df_ville.itertuples(index=False)
+            if _clean_text_code(row.VI_Code)
+        }
+        ville_by_name = {
+            _clean_text_code(row.VI_Designation): {
+                "id_ville": lookups["DIM_VILLE"].get(int(row.CbIndice)),
+                "gouvernorat": row.VI_Designation,
+            }
+            for row in df_ville.itertuples(index=False)
+            if _clean_text_code(row.VI_Designation)
+        }
+
+        # B2ter. DIM_MODE_REGLEMENT
+        logger.info("[DIM_MODE_REGLEMENT] Extraction...")
+        df_mode = extract.extract_dim_mode_reglement()
+        df_mode["MR_Code"] = pd.to_numeric(df_mode["MR_Code"], errors="coerce").astype("Int64")
+        df_mode = df_mode.dropna(subset=["MR_Code"]).drop_duplicates(subset=["MR_Code"])
+        load.load_dimension(df_mode, "DIM_MODE_REGLEMENT")
+        lookups["DIM_MODE_REGLEMENT"] = _build_lookup("DIM_MODE_REGLEMENT", "MR_Code", "id_mode_reg")
 
         # B3. DIM_COLLABORATEUR
         logger.info("[DIM_COLLABORATEUR] Extraction...")
@@ -87,9 +180,19 @@ def run_pipeline():
         df_bq_grt["source"] = 2
         df_bq = pd.concat([df_bq_mag, df_bq_grt], ignore_index=True)
         df_bq = df_bq.rename(columns={"EB_Abrege": "EB_Abrege_code"})
+        df_bq["EB_Abrege_code"] = df_bq["EB_Abrege_code"].apply(_clean_text_code)
+        df_bq["EB_Compte_norm"] = df_bq.get("EB_Compte", pd.Series(dtype="object")).apply(_clean_bank_account)
+        df_bq["EB_Banque"] = df_bq["EB_Banque"].fillna(df_bq["EB_Abrege_code"])
+        df_bq = df_bq.dropna(subset=["EB_Abrege_code"])
         df_bq = df_bq.drop_duplicates(subset=["EB_Abrege_code"])
         load.load_dimension(df_bq, "DIM_BANQUE")
         lookups["DIM_BANQUE"] = _build_lookup("DIM_BANQUE", "EB_Abrege_code", "id_banque")
+        banque_account_lookup = {
+            row.EB_Compte_norm: lookups["DIM_BANQUE"].get(row.EB_Abrege_code)
+            for row in df_bq.itertuples(index=False)
+            if getattr(row, "EB_Compte_norm", None)
+            and lookups["DIM_BANQUE"].get(row.EB_Abrege_code)
+        }
 
         # B7. DIM_FAMILLE
         logger.info("[DIM_FAMILLE] Extraction...")
@@ -114,6 +217,13 @@ def run_pipeline():
         df_cli = df_cli.rename(columns={"CT_Num": "CT_Num_code"})
         df_cli["id_segment"] = df_cli["N_CatTarif"].map(lookups["DIM_SEGMENT"])
         df_cli["id_collab"] = df_cli["CO_No"].map(lookups["DIM_COLLABORATEUR"])
+        ville_refs = df_cli.apply(
+            lambda row: _resolve_ville(row, ville_by_index, ville_by_code, ville_by_name),
+            axis=1,
+        )
+        df_cli["id_ville"] = ville_refs.apply(lambda item: item["id_ville"] if item else None)
+        df_cli["gouvernorat"] = ville_refs.apply(lambda item: item["gouvernorat"] if item else None)
+        df_cli["gouvernorat"] = df_cli["gouvernorat"].fillna(df_cli["CT_Ville"])
         df_cli = df_cli.drop_duplicates(subset=["CT_Num_code"])
         load.load_dimension(df_cli, "DIM_CLIENT")
         lookups["DIM_CLIENT"] = _build_lookup("DIM_CLIENT", "CT_Num_code", "id_client")
@@ -167,14 +277,21 @@ def run_pipeline():
         df_rf = extract.extract_fait_reglements_fournisseurs()
         df_rf["_acteur"] = "FOURNISSEUR"
         df_doc_dates = extract.extract_docentete_dates()[["DO_Type", "DO_Piece", "DO_Date"]].drop_duplicates(subset=["DO_Type", "DO_Piece"])
-        df_docregl_grt = extract.extract_docregl_grt().drop_duplicates(subset=["DO_Piece"])
-        df_docregl_mag = extract.extract_docregl_mag().drop_duplicates(subset=["DO_Piece"])
-        df_docregl = pd.merge(df_docregl_grt, df_docregl_mag, on="DO_Piece", how="outer")
+        doc_keys = ["DO_Type", "DO_Piece"]
+        df_docregl_grt = extract.extract_docregl_grt().drop_duplicates(subset=doc_keys)
+        df_docregl_mag = extract.extract_docregl_mag().drop_duplicates(subset=doc_keys)
+        df_docregl = pd.merge(
+            df_docregl_grt,
+            df_docregl_mag,
+            on=doc_keys,
+            how="outer",
+            suffixes=("_grt", "_mag"),
+        )
         df_regt = extract.extract_reglementt().rename(columns={"RT_NbJour": "RT_NbJour_contrat"})
         df_regt["N_Reglement"] = pd.to_numeric(df_regt["N_Reglement"], errors="coerce")
         df_reg = pd.concat([df_rc, df_rf], ignore_index=True)
         df_reg = pd.merge(df_reg, df_doc_dates, on=["DO_Type", "DO_Piece"], how="left")
-        df_reg = pd.merge(df_reg, df_docregl, on="DO_Piece", how="left")
+        df_reg = pd.merge(df_reg, df_docregl, on=doc_keys, how="left")
         n_reg = df_reg.get("N_Reglement")
         if n_reg is not None:
             df_reg["N_Reglement"] = pd.to_numeric(n_reg, errors="coerce")
@@ -191,12 +308,31 @@ def run_pipeline():
         df_reg["id_fournisseur"] = df_reg.apply(
             lambda r: lookups["DIM_FOURNISSEUR"].get(r["CT_Num"]) if r["_acteur"] == "FOURNISSEUR" else None, axis=1
         )
+        df_reg["DR_Regle"] = pd.to_numeric(df_reg.get("DR_Regle"), errors="coerce").fillna(0).astype("int16")
         df_reg["id_banque"] = df_reg.apply(
-            lambda r: lookups["DIM_BANQUE"].get(r.get("BQ_ABREGE"))
+            lambda r: (
+                _lookup_banque(
+                    r,
+                    lookups["DIM_BANQUE"],
+                    ["BQ_ABREGE", "BQ_ABREGE_BR", "BQ_ABREGE_DOCREGL"],
+                )
+                or _lookup_banque_by_account(
+                    r,
+                    banque_account_lookup,
+                    ["BR_CompteBanque", "BQ_Num"],
+                )
+            )
             if r.get("_acteur") == "CLIENT"
-            else lookups["DIM_BANQUE"].get(r.get("BQ_Num")),
+            else (
+                _lookup_banque(r, lookups["DIM_BANQUE"], ["BQ_Num"])
+                or _lookup_banque_by_account(r, banque_account_lookup, ["BQ_Num"])
+            ),
             axis=1,
         )
+        mode_code = pd.to_numeric(df_reg["RT_Mode"], errors="coerce")
+        if "DR_ModeReg" in df_reg.columns:
+            mode_code = mode_code.fillna(pd.to_numeric(df_reg["DR_ModeReg"], errors="coerce"))
+        df_reg["id_mode_reg"] = mode_code.map(lookups["DIM_MODE_REGLEMENT"])
         df_reg["date_extraction"] = today
         df_reg["RT_Rapproche"] = pd.to_numeric(df_reg.get("RT_Rapproche"), errors="coerce").fillna(0).astype("int16")
         load.load_fact(df_reg, "FAIT_REGLEMENTS")

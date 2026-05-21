@@ -1,6 +1,8 @@
 import threading
 import logging
 
+from ml import ca_forecast
+
 logger = logging.getLogger("ml.runner")
 
 _ML_RUN_LOCK = threading.Lock()
@@ -16,7 +18,9 @@ def get_last_error():
     return _ML_LAST_ERROR
 
 def run_all(only=None, skip=None):
-    modules = {}
+    modules = {
+        "05": ca_forecast,
+    }
 
     if only:
         modules = {k: v for k, v in modules.items() if k in only}
@@ -26,7 +30,7 @@ def run_all(only=None, skip=None):
     results = {}
     for kpi_id, mod in modules.items():
         try:
-            logger.info(f"Running ML KPI-{kpi_id} (ARIMA, SARIMA, PROPHET)...")
+            logger.info(f"Running ML KPI-{kpi_id} CA forecast (ARIMA, SARIMA, PROPHET)...")
             mod.run()
             results[kpi_id] = "OK"
         except Exception as exc:
@@ -45,7 +49,7 @@ def run_all_background():
     def _run():
         global _ML_IS_RUNNING, _ML_LAST_ERROR
         try:
-            logger.info("Starting Statistical pipelines in background...")
+            logger.info("Starting ML KPI-05 pipeline in background...")
             run_all()
         except Exception as exc:
             _ML_LAST_ERROR = str(exc)
@@ -53,7 +57,7 @@ def run_all_background():
         finally:
             _ML_IS_RUNNING = False
             _ML_RUN_LOCK.release()
-            logger.info("Statistical background training complete.")
+            logger.info("ML KPI-05 background training complete.")
 
     threading.Thread(target=_run, name="ML_Runner_Thread", daemon=True).start()
     return True
@@ -65,7 +69,7 @@ if __name__ == "__main__":
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)]
     )
-    print("=== FinMAG Advanced Analytics pipeline execution ===")
+    print("=== FinMAG ML pipeline execution ===")
     results = run_all()
     print("\n=== ML PIPELINE RUN SUMMARY ===")
     for k, v in results.items():

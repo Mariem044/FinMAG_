@@ -64,6 +64,22 @@ def create_all_tables(drop_existing=False):
                 libelle_segment NVARCHAR(100) NULL
             )
         """,
+        "DIM_VILLE": """
+            CREATE TABLE DIM_VILLE (
+                id_ville       INT IDENTITY(1,1) PRIMARY KEY,
+                CbIndice       INT NOT NULL UNIQUE,
+                VI_Designation NVARCHAR(100) NULL,
+                VI_Code        NVARCHAR(20) NULL
+            )
+        """,
+        "DIM_MODE_REGLEMENT": """
+            CREATE TABLE DIM_MODE_REGLEMENT (
+                id_mode_reg    INT IDENTITY(1,1) PRIMARY KEY,
+                MR_Code        SMALLINT NOT NULL UNIQUE,
+                MR_Designation NVARCHAR(100) NULL,
+                MR_Type        SMALLINT NULL
+            )
+        """,
         "DIM_COLLABORATEUR": """
             CREATE TABLE DIM_COLLABORATEUR (
                 id_collab   INT IDENTITY(1,1) PRIMARY KEY,
@@ -108,6 +124,7 @@ def create_all_tables(drop_existing=False):
                 CT_Sommeil              SMALLINT NOT NULL DEFAULT 0,
                 id_segment              INT NULL,
                 id_collab               INT NULL,
+                id_ville                INT NULL,
                 CT_Encours              NUMERIC(18,4) NULL,
                 CT_SvCA                 NUMERIC(18,4) NULL,
                 CT_SoldeActuel          NUMERIC(18,4) NULL,
@@ -189,6 +206,7 @@ def create_all_tables(drop_existing=False):
                 id_client        INT NULL,
                 id_fournisseur   INT NULL,
                 id_banque        INT NULL,
+                id_mode_reg      INT NULL,
                 RT_Mode          SMALLINT NULL,
                 RT_Etat          SMALLINT NULL,
                 DR_Regle         SMALLINT NULL,
@@ -283,7 +301,7 @@ def _drop_all_tables():
         "FAIT_ECRITURES", "FAIT_REGLEMENTS", "FAIT_LIGNES_VENTE",
         "DIM_CAISSE", "DIM_ARTICLE", "DIM_CLIENT", "DIM_DEPOT",
         "DIM_FAMILLE", "DIM_FOURNISSEUR", "DIM_JOURNAL", "DIM_COLLABORATEUR",
-        "DIM_SEGMENT", "DIM_BANQUE", "DIM_TYPE_MVT_CAISSE",
+        "DIM_MODE_REGLEMENT", "DIM_VILLE", "DIM_SEGMENT", "DIM_BANQUE", "DIM_TYPE_MVT_CAISSE",
         "DIM_DATE",
     ]
 

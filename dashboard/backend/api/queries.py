@@ -1,12 +1,8 @@
 import sys
 import os
-import json
 import logging
-import re
 import threading
-import unicodedata
-from typing import List, Optional, Union
-from pathlib import Path
+from typing import Optional
 from datetime import datetime
 
 # Add potential backend paths to sys.path to resolve 'ml' and 'etl' module imports
@@ -24,17 +20,14 @@ for path in possible_paths:
 
 from fastapi import BackgroundTasks, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 from sqlalchemy import text
 
-from etl.config import DW_ENGINE, MAG_ENGINE, AUDIT_TABLE_NAME
+from etl.config import DW_ENGINE, MAG_ENGINE, GRT_ENGINE, AUDIT_TABLE_NAME
 from etl import pipeline
 
 app = FastAPI(title="FinMAG API") 
 _ETL_RUN_LOCK = threading.Lock()
 _ETL_LAST_ERROR = None
-_startup_logger = logging.getLogger("api.startup")
 
 @app.middleware("http")
 async def log_requests(request, call_next):
@@ -92,104 +85,163 @@ def _date_str(value):
     return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else "")
 
 
-def _clean_filter(val: Optional[Union[str, int]]):
-    if not val:
-        return None
-    cleaned = str(val).strip().strip('"').strip("'")
-    if cleaned.lower() in ("tous", "toutes", "toutes regions", "null", "undefined", ""):
-        return None
-    return cleaned
-
-
-def _parse_month(month_str: Optional[str]) -> int:
-    val = _clean_filter(month_str)
-    if not val:
+def _parse_month(month_str):
+    if not month_str:
         return 0
+    val = str(month_str).strip().lower()
     months_map = {
-        "jan": 1, "janvier": 1,
-        "fev": 2, "fevrier": 2,
-        "mar": 3, "mars": 3,
-        "avr": 4, "avril": 4,
-        "mai": 5,
-        "jun": 6, "juin": 6,
-        "jul": 7, "juillet": 7,
-        "aou": 8, "aout": 8,
-        "sep": 9, "septembre": 9,
-        "oct": 10, "octobre": 10,
-        "nov": 11, "novembre": 11,
-        "dec": 12, "decembre": 12
+        "jan": 1, "fev": 2, "mar": 3, "avr": 4,
+        "mai": 5, "jun": 6, "jul": 7, "aou": 8,
+        "sep": 9, "oct": 10, "nov": 11, "dec": 12
     }
-    return months_map.get(val.lower()[:3], 0)
+    return months_map.get(val[:3], 0)
 
 
-def _build_dynamic_filters(
-    year=None, quarter=None, month=None, region=None, famille=None,
-    segment=None, depot=None, banque=None,
-    aliases=None
-) -> tuple[str, dict]:
-    if aliases is None:
-        aliases = {"date": "d", "client": "c", "famille": "fa", "segment": "s", "depot": "dp", "banque": "b", "article": "a"}
-    
-    clauses = []
+def _build_filters_ventes(year=None, quarter=None, month=None, segment=None, famille=None):
+    """Filtres pour les endpoints ventes (FAIT_LIGNES_VENTE)."""
+    sql = ""
     params = {}
-    
-    c_year = _clean_filter(year)
-    if c_year and aliases.get("date"):
-        try:
-            y = int(c_year)
-            clauses.append(f"AND {aliases['date']}.annee = :p_year")
-            params["p_year"] = y
-        except ValueError:
-            pass
 
-    c_quarter = _clean_filter(quarter)
-    if c_quarter and aliases.get("date"):
-        q = 0
-        if c_quarter.upper() == "Q1": q = 1
-        elif c_quarter.upper() == "Q2": q = 2
-        elif c_quarter.upper() == "Q3": q = 3
-        elif c_quarter.upper() == "Q4": q = 4
-        if q > 0:
-            clauses.append(f"AND {aliases['date']}.trimestre = :p_quarter")
-            params["p_quarter"] = q
+    if year:
+        sql += " AND d.annee = :year"
+        params["year"] = int(year)
+
+    if quarter and quarter not in ("Tous", "Toutes", ""):
+        q_map = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
+        q = q_map.get(str(quarter).upper())
+        if q:
+            sql += " AND d.trimestre = :quarter"
+            params["quarter"] = q
 
     m = _parse_month(month)
-    if m > 0 and aliases.get("date"):
-        clauses.append(f"AND {aliases['date']}.mois = :p_month")
-        params["p_month"] = m
+    if m > 0:
+        sql += " AND d.mois = :month"
+        params["month"] = m
 
-    c_region = _clean_filter(region)
-    if c_region and aliases.get("client"):
-        clauses.append(f"AND {aliases['client']}.gouvernorat = :p_region")
-        params["p_region"] = c_region
+    if segment and segment not in ("Tous", "Toutes", ""):
+        sql += " AND s.libelle_segment = :segment"
+        params["segment"] = segment
 
-    c_famille = _clean_filter(famille)
-    if c_famille and aliases.get("famille"):
-        clauses.append(f"AND {aliases['famille']}.FA_Intitule LIKE :p_famille")
-        params["p_famille"] = f"%{c_famille}%"
+    if famille and famille not in ("Tous", "Toutes", ""):
+        sql += " AND fa.FA_Intitule LIKE :famille"
+        params["famille"] = f"%{famille}%"
 
-    c_segment = _clean_filter(segment)
-    if c_segment and aliases.get("segment"):
-        clauses.append(f"AND {aliases['segment']}.libelle_segment = :p_segment")
-        params["p_segment"] = c_segment
+    return sql, params
 
-    c_depot = _clean_filter(depot)
-    if c_depot:
-        if "central" in c_depot.lower():
-            if aliases.get("depot"):
-                clauses.append(f"AND {aliases['depot']}.DE_Principal = 1")
-        else:
-            depot_region = c_depot.replace("Depot ", "").replace("Dépôt ", "").split(" ")[0]
-            if aliases.get("client") and depot_region != "Tous":
-                clauses.append(f"AND {aliases['client']}.gouvernorat = :p_depot_region")
-                params["p_depot_region"] = depot_region
 
-    c_banque = _clean_filter(banque)
-    if c_banque and aliases.get("banque") and c_banque.lower() not in ["tous", "toutes"]:
-        clauses.append(f"AND {aliases['banque']}.EB_Abrege_code = :p_banque")
-        params["p_banque"] = c_banque
+def _build_filters_reglements(year=None, quarter=None, month=None, segment=None):
+    """Filtres pour les endpoints règlements/trésorerie (FAIT_REGLEMENTS)."""
+    sql = ""
+    params = {}
 
-    return " ".join(clauses), params
+    if year:
+        sql += " AND d.annee = :year"
+        params["year"] = int(year)
+
+    if quarter and quarter not in ("Tous", "Toutes", ""):
+        q_map = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
+        q = q_map.get(str(quarter).upper())
+        if q:
+            sql += " AND d.trimestre = :quarter"
+            params["quarter"] = q
+
+    m = _parse_month(month)
+    if m > 0:
+        sql += " AND d.mois = :month"
+        params["month"] = m
+
+    if segment and segment not in ("Tous", "Toutes", ""):
+        sql += " AND s.libelle_segment = :segment"
+        params["segment"] = segment
+
+    return sql, params
+
+
+def _build_filters_ecritures(year=None, quarter=None, month=None):
+    """Filtres pour les endpoints fiscalité/écritures (FAIT_ECRITURES)."""
+    sql = ""
+    params = {}
+
+    if year:
+        sql += " AND d.annee = :year"
+        params["year"] = int(year)
+
+    if quarter and quarter not in ("Tous", "Toutes", ""):
+        q_map = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
+        q = q_map.get(str(quarter).upper())
+        if q:
+            sql += " AND d.trimestre = :quarter"
+            params["quarter"] = q
+
+    m = _parse_month(month)
+    if m > 0:
+        sql += " AND d.mois = :month"
+        params["month"] = m
+
+    return sql, params
+
+
+def _build_filters_bordereaux(year=None, quarter=None, month=None, banque=None):
+    """Filtres pour F_BordereauRemise, source reelle des bordereaux banque."""
+    sql = ""
+    params = {}
+
+    if year:
+        sql += " AND YEAR(br.BR_Date) = :year"
+        params["year"] = int(year)
+
+    if quarter and quarter not in ("Tous", "Toutes", ""):
+        q_map = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
+        q = q_map.get(str(quarter).upper())
+        if q:
+            sql += " AND DATEPART(QUARTER, br.BR_Date) = :quarter"
+            params["quarter"] = q
+
+    m = _parse_month(month)
+    if m > 0:
+        sql += " AND MONTH(br.BR_Date) = :month"
+        params["month"] = m
+
+    if banque and banque not in ("Tous", "Toutes", ""):
+        sql += " AND br.BQ_ABREGE = :banque"
+        params["banque"] = banque
+
+    return sql, params
+
+
+def _rows_grt(sql, params=None):
+    try:
+        with GRT_ENGINE.connect() as conn:
+            return conn.execute(text(sql), params or {}).fetchall()
+    except Exception as e:
+        logging.error(f"GRT query error in _rows_grt: {e}")
+        return []
+
+
+def _row_grt(sql, params=None):
+    try:
+        with GRT_ENGINE.connect() as conn:
+            return conn.execute(text(sql), params or {}).fetchone()
+    except Exception as e:
+        logging.error(f"GRT query error in _row_grt: {e}")
+        return None
+
+
+def _mode_reg_key(mode_label, mode_code=None):
+    label = (mode_label or "").strip()
+    low = label.lower()
+    if "cheque" in low or "chèque" in low or "chq" in low:
+        return "Chèque"
+    if "traite" in low or "lcr" in low or "effet" in low:
+        return "Traite"
+    if "virement" in low or low.startswith("vir"):
+        return "Virement"
+
+    try:
+        code = int(mode_code)
+    except (TypeError, ValueError):
+        code = None
+    return {1: "Chèque", 2: "Traite", 3: "Virement"}.get(code)
 
 def _run_etl_background():
     global _ETL_LAST_ERROR
@@ -317,11 +369,7 @@ def get_ml_status():
     try:
         counts = {}
         tables = {
-            "kpi05": "ML_KPI05_CA_FORECAST",
-            "kpi11": "ML_KPI11_TRESORERIE_FORECAST",
-            "kpi17": "ML_KPI17_REAPPRO_ALERT",
-            "kpi18": "ML_KPI18_RUPTURE_FORECAST",
-            "kpi22": "ML_KPI22_RFM_SEGMENTS"
+            "kpi05": "ML_KPI05_CA_FORECAST"
         }
         for k, tbl in tables.items():
             try:
@@ -403,11 +451,8 @@ def get_dashboard_kpis(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=None, 
-        quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot,
-        aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
+    filt_sql, filt_params = _build_filters_ventes(
+        quarter=quarter, month=month, segment=segment, famille=famille
     )
     
     max_year_res = _row("""
@@ -630,11 +675,8 @@ def get_ca_by_month(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=None, 
-        quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot,
-        aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
+    filt_sql, filt_params = _build_filters_ventes(
+        quarter=quarter, month=month, segment=segment, famille=famille
     )
     max_year_res = _row("""
         SELECT MAX(d.annee) AS annee
@@ -644,129 +686,64 @@ def get_ca_by_month(
     """)
     max_year = max_year_res.annee if (max_year_res and max_year_res.annee is not None) else datetime.now().year
 
-    year_filter = f"AND d.annee IN ({year}, {year - 1})" if year else ""
-    sql = f"""
-        WITH monthly_stats AS (
-            -- Average monthly row count computed from real data
-            SELECT AVG(CAST(row_cnt AS FLOAT)) AS avg_rows
-            FROM (
-                SELECT d.annee, d.mois, COUNT(*) AS row_cnt
-                FROM FAIT_LIGNES_VENTE f
-                JOIN DIM_DATE d ON d.id_date = f.id_date
-                GROUP BY d.annee, d.mois
-            ) counts
-        ),
-        monthly AS (
-            SELECT
-                d.annee,
-                d.mois,
-                SUM(f.DL_MontantHT) AS ca,
-                COUNT(DISTINCT f.id_client) AS nb_clients_actifs,
-                SUM(CASE WHEN f.DL_CMUP IS NOT NULL AND f.DL_CMUP > 0 AND f.DL_Qte IS NOT NULL AND f.DL_MontantHT > (f.DL_Qte * f.DL_CMUP) THEN f.DL_MontantHT - (f.DL_Qte * f.DL_CMUP) ELSE NULL END) AS marge_brute,
-                COUNT(*) AS row_cnt
-            FROM FAIT_LIGNES_VENTE f
-            JOIN DIM_DATE d ON d.id_date = f.id_date
-            LEFT JOIN DIM_CLIENT c ON c.id_client = f.id_client
-            LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
-            LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
-            LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-            WHERE f.DO_Domaine = 0
-            {year_filter}
-            {filt_sql}
-            GROUP BY d.annee, d.mois
-        ),
-        latest AS (
-            SELECT 
-                MAX(m.annee) AS latest_year,
-                CASE 
-                    WHEN MAX(m.annee) = :max_year
-                    THEN COALESCE(NULLIF(MAX(CASE WHEN m.row_cnt >= ms.avg_rows * 0.5 THEN m.mois ELSE 0 END), 0), 12)
-                    ELSE 12
-                END AS latest_full_month
-            FROM monthly m
-            CROSS JOIN monthly_stats ms
-            WHERE m.annee = (SELECT MAX(annee) FROM monthly)
-        ),
-        rolling AS (
-            SELECT 
-                m.annee,
-                m.mois,
-                m.ca,
-                m.nb_clients_actifs,
-                m.marge_brute,
-                m.row_cnt
-            FROM monthly m
-            CROSS JOIN monthly_stats ms
-            CROSS JOIN latest
-            WHERE (
-                m.annee < :max_year
-                OR m.row_cnt >= ms.avg_rows * 0.5
-            )
-            AND (
-                m.annee < latest.latest_year
-                OR (m.annee = latest.latest_year AND m.mois <= latest.latest_full_month)
-            )
-        )
-        SELECT
-            r.annee,
-            r.mois AS month_num,
-            r.ca,
-            r.nb_clients_actifs,
-            r.marge_brute,
-            COALESCE(prev.ca, 0) AS caN1
-        FROM rolling r
-        CROSS JOIN monthly_stats ms
-        CROSS JOIN latest
-        LEFT JOIN monthly prev
-            ON prev.annee = r.annee - 1
-            AND prev.mois = r.mois
-            AND (
-                prev.annee < :max_year
-                OR prev.row_cnt >= ms.avg_rows * 0.1
-            )
-        WHERE r.annee = latest.latest_year
-        ORDER BY r.annee, r.mois
-    """
-    params = {"max_year": max_year}
+    # Récupérer les données mensuelles pour l'année sélectionnée et N-1
+    params = {"year": year, "year_n1": year - 1}
     params.update(filt_params)
-    rows = _rows(sql, params)
+
+    sql = f"""
+        SELECT
+            d.annee,
+            d.mois AS month_num,
+            SUM(f.DL_MontantHT) AS ca,
+            COUNT(DISTINCT f.id_client) AS nb_clients_actifs,
+            SUM(CASE
+                WHEN f.DL_CMUP IS NOT NULL AND f.DL_CMUP > 0 AND f.DL_Qte IS NOT NULL
+                     AND f.DL_MontantHT > (f.DL_Qte * f.DL_CMUP)
+                THEN f.DL_MontantHT - (f.DL_Qte * f.DL_CMUP)
+                ELSE NULL
+            END) AS marge_brute
+        FROM FAIT_LIGNES_VENTE f
+        JOIN DIM_DATE d ON d.id_date = f.id_date
+        LEFT JOIN DIM_CLIENT c ON c.id_client = f.id_client
+        LEFT JOIN DIM_ARTICLE a ON a.id_article = f.id_article
+        LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
+        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
+        WHERE f.DO_Domaine = 0
+        AND d.annee IN (:year, :year_n1)
+        {filt_sql}
+        GROUP BY d.annee, d.mois
+        ORDER BY d.annee, d.mois
+    """
+    all_rows = _rows(sql, params)
+
+    # Séparer année courante et N-1 en Python
+    rows = [r for r in all_rows if r.annee == year]
+    prev_year_dict = {r.month_num: _num(r.ca) for r in all_rows if r.annee == year - 1}
     
+    # Récupérer le taux de recouvrement par mois
     rec_by_month = {}
-    if rows:
-        latest_year = rows[0].annee
-        rec_sql = """
-            WITH deduped AS (
-                SELECT
-                    r.RT_Num,
-                    MAX(r.RT_Montant)         AS RT_Montant,
-                    MAX(r.DR_Regle)           AS DR_Regle,
-                    MAX(COALESCE(r.id_date_paiement, r.id_date_echeance)) AS id_date
-                FROM FAIT_REGLEMENTS r WITH (NOLOCK)
-                WHERE r.RT_Num IS NOT NULL AND r.id_client IS NOT NULL
-                GROUP BY r.RT_Num
-            )
-            SELECT
-                dt.mois,
-                SUM(CASE WHEN DR_Regle = 1 THEN RT_Montant ELSE 0 END) AS encaissements,
-                SUM(CASE WHEN DR_Regle = 0 THEN RT_Montant ELSE 0 END) AS impayes
-            FROM deduped d
-            JOIN DIM_DATE dt WITH (NOLOCK) ON dt.id_date = d.id_date
-            WHERE dt.annee = :year
-            GROUP BY dt.mois
-        """
-        rec_rows = _rows(rec_sql, {"year": latest_year})
-        for r in rec_rows:
-            enc = _num(r.encaissements)
-            imp = _num(r.impayes)
-            tot = enc + imp
-            rate = (enc / tot * 100) if tot else 0.0
-            rec_by_month[r.mois] = rate
+    rec_rows = _rows("""
+        SELECT
+            dt.mois,
+            SUM(CASE WHEN r.DR_Regle = 1 THEN r.RT_Montant ELSE 0 END) AS encaissements,
+            SUM(CASE WHEN r.DR_Regle = 0 THEN r.RT_Montant ELSE 0 END) AS impayes
+        FROM FAIT_REGLEMENTS r
+        JOIN DIM_DATE dt ON dt.id_date = COALESCE(r.id_date_paiement, r.id_date_echeance)
+        WHERE dt.annee = :year
+        AND r.RT_Num IS NOT NULL
+        GROUP BY dt.mois
+    """, {"year": year})
+    for r in rec_rows:
+        enc = _num(r.encaissements)
+        imp = _num(r.impayes)
+        tot = enc + imp
+        rec_by_month[r.mois] = (enc / tot * 100) if tot else 0.0
 
     return [
         {
-            "month": f"{MONTHS[r.month_num - 1]} {str(r.annee)[2:]}",
+            "month": f"{MONTHS[r.month_num - 1]} {str(year)[2:]}",
             "ca": _num(r.ca),
-            "caN1": _num(r.caN1),
+            "caN1": prev_year_dict.get(r.month_num, 0.0),
             "nb_clients_actifs": _int(r.nb_clients_actifs),
             "marge_brute": _num(r.marge_brute),
             "taux_recouvrement": rec_by_month.get(r.month_num, 0.0),
@@ -786,10 +763,8 @@ def get_top_familles(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot,
-        aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
+    filt_sql, filt_params = _build_filters_ventes(
+        year=year, quarter=quarter, month=month, segment=segment, famille=famille
     )
     sql = f"""
         SELECT 
@@ -825,10 +800,8 @@ def get_tresorerie_summary(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot,
-        aliases={"date": "d", "client": "c", "segment": "s"}
+    filt_sql, filt_params = _build_filters_reglements(
+        year=year, quarter=quarter, month=month, segment=segment
     )
     sql = f"""
         WITH deduped AS (
@@ -883,10 +856,8 @@ def get_aging(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot,
-        aliases={"date": "d", "client": "c", "segment": "s"}
+    filt_sql, filt_params = _build_filters_reglements(
+        year=year, quarter=quarter, month=month, segment=segment
     )
     sql = f"""
         SELECT 
@@ -928,35 +899,30 @@ def get_articles(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot,
-        aliases={"date": "d", "client": "c", "famille": "fa", "segment": "s"}
+    filt_sql, filt_params = _build_filters_ventes(
+        year=year, quarter=quarter, month=month, segment=segment
     )
-    
-    # Custom depot clause for stock CTE
-    c_depot = _clean_filter(depot)
+
+    # Filtre dépôt pour le stock
     depot_clause = ""
-    if c_depot:
-        if "central" in c_depot.lower():
+    if depot and depot not in ("Tous", "Toutes", ""):
+        if "central" in depot.lower():
             depot_clause = "AND dp.DE_Principal = 1"
         else:
             depot_clause = "AND dp.DE_Intitule = :p_depot_name"
-            filt_params["p_depot_name"] = c_depot
+            filt_params["p_depot_name"] = depot
 
-    # Custom famille clause for outer query
-    c_famille = _clean_filter(famille)
-    famille_clause = "AND fa.FA_Intitule LIKE :p_famille_main" if c_famille else ""
-    if c_famille:
-        filt_params["p_famille_main"] = f"%{c_famille}%"
+    # Filtre famille pour la requête principale
+    famille_clause = ""
+    if famille and famille not in ("Tous", "Toutes", ""):
+        famille_clause = "AND fa.FA_Intitule LIKE :p_famille_main"
+        filt_params["p_famille_main"] = f"%{famille}%"
 
-    # Calculate days in the selected period for dynamic DSI
+    # Nombre de jours selon la période sélectionnée
     days_in_period = 365.0
-    c_quarter = _clean_filter(quarter)
-    c_month = _clean_filter(month)
-    if c_month:
+    if month and str(month).strip() not in ("", "Tous"):
         days_in_period = 30.0
-    elif c_quarter and c_quarter != "Tous":
+    elif quarter and str(quarter).strip() not in ("", "Tous"):
         days_in_period = 90.0
     filt_params["p_days_in_period"] = days_in_period
 
@@ -1048,11 +1014,12 @@ def get_banque_rapprochement(
     depot: Optional[str] = None,
     banque: Optional[str] = None,
 ):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, banque=banque,
-        aliases={"date": "d", "client": "c", "segment": "s", "banque": "b"}
+    filt_sql, filt_params = _build_filters_reglements(
+        year=year, quarter=quarter, month=month, segment=segment
     )
+    if banque and banque not in ("Tous", "Toutes", ""):
+        filt_sql += " AND b.EB_Abrege_code = :banque"
+        filt_params["banque"] = banque
     sql = f"""
         WITH deduped AS (
             SELECT
@@ -1120,105 +1087,145 @@ def get_banque_rapprochement_breakdown(
     depot: Optional[str] = None,
     banque: Optional[str] = None,
 ):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot, banque=banque,
-        aliases={"date": "d", "client": "c", "segment": "s", "banque": "b"}
+    filt_sql, filt_params = _build_filters_bordereaux(
+        year=year, quarter=quarter, month=month, banque=banque
     )
     sql = f"""
-        SELECT 
-            COALESCE(b.EB_Abrege_code, 'Non spécifiée') AS banque,
-            CASE r.RT_Mode
-                WHEN 1 THEN 'Espèce'
-                WHEN 2 THEN 'Chèque'
-                WHEN 3 THEN 'Virement'
-                WHEN 4 THEN 'Traite'
-                WHEN 5 THEN 'Carte Bancaire'
-                ELSE 'Autre'
-            END AS libelle_mode_reg,
-            SUM(COALESCE(r.RT_Montant, 0)) AS total_montant
-        FROM FAIT_REGLEMENTS r
-        LEFT JOIN DIM_DATE d ON d.id_date = COALESCE(r.id_date_paiement, r.id_date_echeance)
-        LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
-        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-        LEFT JOIN DIM_BANQUE b ON b.id_banque = r.id_banque
-        WHERE COALESCE(r.RT_Rapproche, 0) = 0 AND COALESCE(r.DR_Regle, 0) = 0
+        SELECT
+            COALESCE(NULLIF(br.BQ_ABREGE, ''), NULLIF(eb.EB_Abrege, ''), 'Non spécifiée') AS banque,
+            br.BR_ModeReg AS mode_reg,
+            COALESCE(NULLIF(mr.MR_Designation, ''), CONCAT('Mode ', br.BR_ModeReg)) AS libelle_mode_reg,
+            SUM(COALESCE(NULLIF(br.BR_TotalReglement, 0), NULLIF(br.BR_Montant, 0), 0)) AS total_montant
+        FROM F_BordereauRemise br WITH (NOLOCK)
+        LEFT JOIN P_ModeReglements mr WITH (NOLOCK) ON mr.MR_Code = br.BR_ModeReg
+        LEFT JOIN F_EBANQUE eb WITH (NOLOCK)
+            ON REPLACE(COALESCE(br.BR_CompteBanque, ''), ' ', '') =
+               CONCAT(COALESCE(eb.EB_Banque, ''), COALESCE(eb.EB_Guichet, ''), COALESCE(eb.EB_Compte, ''), COALESCE(eb.EB_Cle, ''))
+            OR (
+                NULLIF(eb.EB_Compte, '') IS NOT NULL
+                AND REPLACE(COALESCE(br.BR_CompteBanque, ''), ' ', '') LIKE CONCAT('%', REPLACE(COALESCE(eb.EB_Compte, ''), ' ', ''), '%')
+            )
+        WHERE br.BR_Date IS NOT NULL
+        AND COALESCE(NULLIF(br.BR_TotalReglement, 0), NULLIF(br.BR_Montant, 0), 0) <> 0
         {filt_sql}
-        GROUP BY b.EB_Abrege_code, r.RT_Mode
+        GROUP BY br.BQ_ABREGE, eb.EB_Abrege, br.BR_ModeReg, mr.MR_Designation
     """
     totals = {"Chèque": 0.0, "Traite": 0.0, "Virement": 0.0}
     bank_data = {}
-    for r in _rows(sql, filt_params):
+    for r in _rows_grt(sql, filt_params):
         bank_name = r.banque or "Non spécifiée"
-        mode_label = r.libelle_mode_reg or ""
-        
-        # Determine mode
-        mode_key = None
-        if "Ch" in mode_label or "ch" in mode_label or "Chéque" in mode_label:
-            mode_key = "Chèque"
-        elif "Trait" in mode_label or "trait" in mode_label or "LCR" in mode_label:
-            mode_key = "Traite"
-        elif "Vir" in mode_label or "vir" in mode_label:
-            mode_key = "Virement"
-            
+        mode_key = _mode_reg_key(r.libelle_mode_reg, r.mode_reg)
         val = _num(r.total_montant)
         if mode_key:
             totals[mode_key] += val
-            
-        # Group by bank
+
         if bank_name not in bank_data:
             bank_data[bank_name] = {"banque": bank_name, "Chèque": 0.0, "Traite": 0.0, "Virement": 0.0}
         if mode_key:
             bank_data[bank_name][mode_key] += val
-            
-    banques_list = list(bank_data.values())
 
     sql_tx = f"""
         SELECT TOP 25
-            r.RT_Num,
-            CASE r.RT_Mode
-                WHEN 1 THEN 'Espèce'
-                WHEN 2 THEN 'Chèque'
-                WHEN 3 THEN 'Virement'
-                WHEN 4 THEN 'Traite'
-                WHEN 5 THEN 'Carte Bancaire'
-                ELSE 'Autre'
-            END AS libelle_mode_reg,
-            COALESCE(r.RT_Montant, 0) AS montant,
-            COALESCE(c.CT_Intitule, 'Client Divers') AS client
-        FROM FAIT_REGLEMENTS r
-        LEFT JOIN DIM_DATE d ON d.id_date = COALESCE(r.id_date_paiement, r.id_date_echeance)
-        LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
-        LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-        LEFT JOIN DIM_BANQUE b ON b.id_banque = r.id_banque
-        WHERE COALESCE(r.RT_Rapproche, 0) = 0 AND COALESCE(r.DR_Regle, 0) = 0
+            br.BR_Num,
+            br.BR_ModeReg AS mode_reg,
+            COALESCE(NULLIF(mr.MR_Designation, ''), CONCAT('Mode ', br.BR_ModeReg)) AS libelle_mode_reg,
+            COALESCE(NULLIF(br.BR_TotalReglement, 0), NULLIF(br.BR_Montant, 0), 0) AS montant,
+            COALESCE(NULLIF(br.BQ_ABREGE, ''), NULLIF(eb.EB_Abrege, ''), NULLIF(br.BR_IntituleBanque, ''), 'Banque') AS banque
+        FROM F_BordereauRemise br WITH (NOLOCK)
+        LEFT JOIN P_ModeReglements mr WITH (NOLOCK) ON mr.MR_Code = br.BR_ModeReg
+        LEFT JOIN F_EBANQUE eb WITH (NOLOCK)
+            ON REPLACE(COALESCE(br.BR_CompteBanque, ''), ' ', '') =
+               CONCAT(COALESCE(eb.EB_Banque, ''), COALESCE(eb.EB_Guichet, ''), COALESCE(eb.EB_Compte, ''), COALESCE(eb.EB_Cle, ''))
+            OR (
+                NULLIF(eb.EB_Compte, '') IS NOT NULL
+                AND REPLACE(COALESCE(br.BR_CompteBanque, ''), ' ', '') LIKE CONCAT('%', REPLACE(COALESCE(eb.EB_Compte, ''), ' ', ''), '%')
+            )
+        WHERE br.BR_Date IS NOT NULL
+        AND COALESCE(NULLIF(br.BR_TotalReglement, 0), NULLIF(br.BR_Montant, 0), 0) <> 0
         {filt_sql}
-        ORDER BY COALESCE(r.RT_Montant, 0) DESC
+        ORDER BY COALESCE(NULLIF(br.BR_TotalReglement, 0), NULLIF(br.BR_Montant, 0), 0) DESC
     """
     transactions = []
-    for r in _rows(sql_tx, filt_params):
-        mode_label = r.libelle_mode_reg or ""
-        mode_mapped = "Autre"
-        if "Ch" in mode_label or "ch" in mode_label:
-            mode_mapped = "Chèque"
-        elif "Trait" in mode_label or "trait" in mode_label or "LCR" in mode_label:
-            mode_mapped = "Traite"
-        elif "Vir" in mode_label or "vir" in mode_label:
-            mode_mapped = "Virement"
-        elif "Esp" in mode_label or "esp" in mode_label:
-            mode_mapped = "Espèce"
-
+    for r in _rows_grt(sql_tx, filt_params):
         transactions.append({
-            "reference": r.RT_Num,
-            "mode": mode_mapped,
+            "reference": r.BR_Num,
+            "mode": _mode_reg_key(r.libelle_mode_reg, r.mode_reg) or r.libelle_mode_reg,
             "montant": _num(r.montant),
-            "client": r.client
+            "client": r.banque,
         })
 
     return {
         "totals": totals,
-        "banques": banques_list,
-        "transactions": transactions
+        "banques": list(bank_data.values()),
+        "transactions": transactions,
+    }
+
+
+@app.get("/api/banque/debug-bordereaux")
+def debug_bordereaux_banque(
+    year: Optional[int] = None,
+    quarter: Optional[str] = None,
+    month: Optional[str] = None,
+    banque: Optional[str] = None,
+):
+    filt_sql, filt_params = _build_filters_bordereaux(
+        year=year, quarter=quarter, month=month, banque=banque
+    )
+    join_sql = """
+        LEFT JOIN F_EBANQUE eb WITH (NOLOCK)
+            ON REPLACE(COALESCE(br.BR_CompteBanque, ''), ' ', '') =
+               CONCAT(COALESCE(eb.EB_Banque, ''), COALESCE(eb.EB_Guichet, ''), COALESCE(eb.EB_Compte, ''), COALESCE(eb.EB_Cle, ''))
+            OR (
+                NULLIF(eb.EB_Compte, '') IS NOT NULL
+                AND REPLACE(COALESCE(br.BR_CompteBanque, ''), ' ', '') LIKE CONCAT('%', REPLACE(COALESCE(eb.EB_Compte, ''), ' ', ''), '%')
+            )
+    """
+    summary = _row_grt(f"""
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN COALESCE(NULLIF(br.BQ_ABREGE, ''), NULLIF(eb.EB_Abrege, '')) IS NULL THEN 1 ELSE 0 END) AS sans_banque,
+            SUM(CASE WHEN NULLIF(br.BQ_ABREGE, '') IS NOT NULL THEN 1 ELSE 0 END) AS avec_bq_abrege,
+            SUM(CASE WHEN NULLIF(eb.EB_Abrege, '') IS NOT NULL THEN 1 ELSE 0 END) AS resolus_par_compte
+        FROM F_BordereauRemise br WITH (NOLOCK)
+        {join_sql}
+        WHERE br.BR_Date IS NOT NULL
+        AND COALESCE(NULLIF(br.BR_TotalReglement, 0), NULLIF(br.BR_Montant, 0), 0) <> 0
+        {filt_sql}
+    """, filt_params)
+    samples = _rows_grt(f"""
+        SELECT TOP 20
+            br.BR_Num,
+            br.BQ_ABREGE,
+            br.BR_CompteBanque,
+            eb.EB_Abrege,
+            br.BR_IntituleBanque,
+            br.BR_ModeReg,
+            COALESCE(NULLIF(br.BR_TotalReglement, 0), NULLIF(br.BR_Montant, 0), 0) AS montant
+        FROM F_BordereauRemise br WITH (NOLOCK)
+        {join_sql}
+        WHERE br.BR_Date IS NOT NULL
+        AND COALESCE(NULLIF(br.BR_TotalReglement, 0), NULLIF(br.BR_Montant, 0), 0) <> 0
+        AND COALESCE(NULLIF(br.BQ_ABREGE, ''), NULLIF(eb.EB_Abrege, '')) IS NULL
+        {filt_sql}
+        ORDER BY COALESCE(NULLIF(br.BR_TotalReglement, 0), NULLIF(br.BR_Montant, 0), 0) DESC
+    """, filt_params)
+    return {
+        "total": _int(summary.total) if summary else 0,
+        "sansBanque": _int(summary.sans_banque) if summary else 0,
+        "avecBqAbrege": _int(summary.avec_bq_abrege) if summary else 0,
+        "resolusParCompte": _int(summary.resolus_par_compte) if summary else 0,
+        "samplesSansBanque": [
+            {
+                "BR_Num": r.BR_Num,
+                "BQ_ABREGE": r.BQ_ABREGE,
+                "BR_CompteBanque": r.BR_CompteBanque,
+                "EB_Abrege": r.EB_Abrege,
+                "BR_IntituleBanque": r.BR_IntituleBanque,
+                "BR_ModeReg": _int(r.BR_ModeReg),
+                "montant": _num(r.montant),
+            }
+            for r in samples
+        ],
     }
 
 
@@ -1232,12 +1239,10 @@ def get_caisses(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=None,
-        aliases={"date": "d"}
+    filt_sql, filt_params = _build_filters_ecritures(
+        year=year, quarter=quarter, month=month
     )
-    c_depot = _clean_filter(depot)
+    c_depot = str(depot).strip() if depot else ""
     depot_clause = ""
     depot_params = {}
     if c_depot:
@@ -1301,17 +1306,14 @@ def get_caisse_flux_daily(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=None,
-        aliases={"date": "d"}
+    filt_sql, filt_params = _build_filters_ecritures(
+        year=year, quarter=quarter, month=month
     )
-    c_depot = _clean_filter(depot)
     depot_clause = ""
     depot_params = {}
-    if c_depot:
+    if depot and depot not in ("Tous", "Toutes", ""):
         rev_map = {"tunis nord": 1425916589894576877, "tunis sud": 1085862494906140374, "sfax": 2798417896384401189, "sousse": 6528386168626322420}
-        depot_code = rev_map.get(c_depot.lower())
+        depot_code = rev_map.get(depot.lower())
         if depot_code:
             depot_clause = "AND e.id_caisse = (SELECT id_caisse FROM DIM_CAISSE WHERE CA_Numero_code = :p_caisse_depot)"
             depot_params["p_caisse_depot"] = depot_code
@@ -1361,17 +1363,14 @@ def get_caisse_mouvements_by_type(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=None,
-        aliases={"date": "d"}
+    filt_sql, filt_params = _build_filters_ecritures(
+        year=year, quarter=quarter, month=month
     )
-    c_depot = _clean_filter(depot)
     depot_clause = ""
     depot_params = {}
-    if c_depot:
+    if depot and depot not in ("Tous", "Toutes", ""):
         rev_map = {"tunis nord": 1425916589894576877, "tunis sud": 1085862494906140374, "sfax": 2798417896384401189, "sousse": 6528386168626322420}
-        depot_code = rev_map.get(c_depot.lower())
+        depot_code = rev_map.get(depot.lower())
         if depot_code:
             depot_clause = "AND e.id_caisse = (SELECT id_caisse FROM DIM_CAISSE WHERE CA_Numero_code = :p_caisse_depot)"
             depot_params["p_caisse_depot"] = depot_code
@@ -1424,10 +1423,8 @@ def get_fiscalite_kpis(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot,
-        aliases={"date": "d"}
+    filt_sql, filt_params = _build_filters_ecritures(
+        year=year, quarter=quarter, month=month
     )
     sql_kpis = f"""
         WITH stats AS (
@@ -1497,10 +1494,8 @@ def get_fiscalite_tva_by_month(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot,
-        aliases={"date": "d"}
+    filt_sql, filt_params = _build_filters_ecritures(
+        year=year, quarter=quarter, month=month
     )
     sql = f"""
         SELECT
@@ -1537,10 +1532,8 @@ def get_fiscalite_anomalies(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
-    filt_sql, filt_params = _build_dynamic_filters(
-        year=year, quarter=quarter, month=month, region=region, famille=famille,
-        segment=segment, depot=depot,
-        aliases={"date": "d"}
+    filt_sql, filt_params = _build_filters_ecritures(
+        year=year, quarter=quarter, month=month
     )
     sql = f"""
         WITH stats AS (

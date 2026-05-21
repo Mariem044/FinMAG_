@@ -8,8 +8,39 @@ def _read(engine, sql):
         return pd.read_sql(text(sql), conn)
 
 
+def _table_columns(engine, table_name):
+    sql = """
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_NAME = :table_name
+    """
+    with engine.connect() as conn:
+        rows = conn.execute(text(sql), {"table_name": table_name}).fetchall()
+    return {str(row.COLUMN_NAME).lower() for row in rows}
+
+
+def _select_column(existing_columns, column_name, alias=None, default="NULL"):
+    output_name = alias or column_name
+    if column_name.lower() in existing_columns:
+        return f"[{column_name}] AS [{output_name}]"
+    return f"{default} AS [{output_name}]"
+
+
+def _select_first_column(existing_columns, column_names, alias, default="NULL"):
+    for column_name in column_names:
+        if column_name.lower() in existing_columns:
+            return f"[{column_name}] AS [{alias}]"
+    return f"{default} AS [{alias}]"
+
+
 def extract_dim_segment():
     return _read(MAG_ENGINE, "SELECT cbIndice, CT_PrixTTC, CT_Intitule AS libelle_segment FROM P_CATTARIF WHERE cbIndice BETWEEN 1 AND 5 AND CT_Intitule IS NOT NULL AND CT_Intitule <> ''")
+
+def extract_dim_ville():
+    return _read(GRT_ENGINE, "SELECT CbIndice, VI_Designation, VI_Code FROM P_Ville WHERE CbIndice IS NOT NULL")
+
+def extract_dim_mode_reglement():
+    return _read(GRT_ENGINE, "SELECT MR_Code, MR_Designation, MR_Type FROM P_ModeReglements WHERE MR_Code IS NOT NULL")
 
 def extract_dim_collaborateur():
     return _read(MAG_ENGINE, "SELECT CO_No, CO_Fonction, CO_Sommeil FROM F_COLLABORATEUR")
@@ -52,10 +83,26 @@ def extract_dim_journal():
     return _read(MAG_ENGINE, "SELECT JO_Num, JO_Type FROM F_JOURNAUX")
 
 def extract_dim_banque_mag():
-    return _read(MAG_ENGINE, "SELECT EB_Abrege, EB_Banque FROM F_EBANQUE")
+    columns = _table_columns(MAG_ENGINE, "F_EBANQUE")
+    selected = [
+        _select_column(columns, "EB_Abrege"),
+        _select_column(columns, "EB_Banque"),
+        _select_column(columns, "EB_Compte"),
+    ]
+    return _read(MAG_ENGINE, f"SELECT {', '.join(selected)} FROM F_EBANQUE")
 
 def extract_dim_banque_grt():
-    return pd.DataFrame(columns=["EB_Abrege", "EB_Banque"])
+    columns = _table_columns(GRT_ENGINE, "F_EBANQUE")
+    intitule_col = "EB_Intitule" if "eb_intitule" in columns else "EB_Banque"
+    selected = [
+        _select_column(columns, "EB_Abrege"),
+        f"COALESCE(NULLIF([{intitule_col}], ''), NULLIF([EB_Banque], ''), [EB_Abrege]) AS [EB_Banque]",
+        _select_column(columns, "EB_Compte"),
+    ]
+    return _read(
+        GRT_ENGINE,
+        f"SELECT {', '.join(selected)} FROM F_EBANQUE WHERE EB_Abrege IS NOT NULL",
+    )
 
 def extract_dim_caisse_mag():
     try:
@@ -139,7 +186,31 @@ def extract_docentete_dates():
 
 def extract_fait_reglements_clients():
     sql = """
-        SELECT rc.RT_Num, rc.CT_Num, rc.DO_Type, rc.DO_Piece, rc.RT_Date, rc.RT_Mode, rc.RT_Montant, rc.RT_Etat, rc.BQ_Num, rc.BQ_ABREGE, rc.RT_Rapproche, rc.RT_Echeance AS LB_EcheanceReg, lb.LB_Ligne, br.BR_Num, lb.LB_MontantReg, lb.LB_NbJour, lb.LB_Agios, br.BR_TotalReglement, br.BR_Rapproch, NULL AS BR_TauxAgios, NULL AS BR_TMM
+        SELECT
+            rc.RT_Num,
+            rc.CT_Num,
+            rc.DO_Type,
+            rc.DO_Piece,
+            rc.RT_Date,
+            rc.RT_Mode,
+            rc.RT_Montant,
+            rc.RT_Etat,
+            rc.BQ_Num,
+            rc.BQ_ABREGE,
+            br.BQ_ABREGE AS BQ_ABREGE_BR,
+            br.BR_CompteBanque,
+            br.BR_IntituleBanque,
+            rc.RT_Rapproche,
+            rc.RT_Echeance AS LB_EcheanceReg,
+            lb.LB_Ligne,
+            br.BR_Num,
+            lb.LB_MontantReg,
+            lb.LB_NbJour,
+            lb.LB_Agios,
+            br.BR_TotalReglement,
+            br.BR_Rapproch,
+            br.BR_TauxAgios,
+            br.BR_TMM
         FROM F_ReglementClient rc
         LEFT JOIN F_LigneBordereauRemise lb ON lb.RT_Num = rc.RT_Num
         LEFT JOIN F_BordereauRemise br ON br.BR_Num = lb.BR_Num
@@ -151,10 +222,30 @@ def extract_fait_reglements_fournisseurs():
     return _read(GRT_ENGINE, "SELECT RT_Num, CT_Num, DO_Type, DO_Piece, RT_Date, RT_Mode, RT_Montant, RT_Etat, BQ_Num FROM F_ReglementFournisseur WHERE RT_Montant IS NOT NULL")
 
 def extract_docregl_grt():
-    return _read(GRT_ENGINE, "SELECT DO_Piece, DR_Montant, DR_ModeReg FROM F_DOCREGL")
+    columns = _table_columns(GRT_ENGINE, "F_DOCREGL")
+    selected = [
+        _select_column(columns, "DO_Domaine"),
+        _select_column(columns, "DO_Type"),
+        _select_column(columns, "DO_Piece"),
+        _select_column(columns, "DR_Montant"),
+        _select_column(columns, "DR_EtatRegle"),
+        _select_column(columns, "DR_ModeReg"),
+        _select_column(columns, "DR_MontantRecu"),
+        _select_column(columns, "DR_ResteAPayer"),
+        _select_column(columns, "BQ_ABREGE", "BQ_ABREGE_DOCREGL"),
+    ]
+    return _read(GRT_ENGINE, f"SELECT {', '.join(selected)} FROM F_DOCREGL")
 
 def extract_docregl_mag():
-    return _read(MAG_ENGINE, "SELECT DO_Piece, N_Reglement, DR_Regle FROM F_DOCREGL")
+    columns = _table_columns(MAG_ENGINE, "F_DOCREGL")
+    selected = [
+        _select_column(columns, "DO_Domaine"),
+        _select_column(columns, "DO_Type"),
+        _select_column(columns, "DO_Piece"),
+        _select_column(columns, "N_Reglement"),
+        _select_first_column(columns, ["DR_Regle", "DR_EtatRegle"], "DR_Regle"),
+    ]
+    return _read(MAG_ENGINE, f"SELECT {', '.join(selected)} FROM F_DOCREGL")
 
 def extract_fait_mvtcaisse():
     sql = """

@@ -1,26 +1,8 @@
-from datetime import datetime
 from sqlalchemy import text
 from etl.config import DW_ENGINE, ERROR_MSG_MAX_LEN
 from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
-
-
-def get_last_run_info():
-    """Retourne la date du dernier run réussi."""
-    try:
-        with DW_ENGINE.connect() as conn:
-            result = conn.execute(
-                text("SELECT MAX(run_date) FROM ETL_AUDIT WHERE status = 'SUCCESS' AND table_name = 'PIPELINE'")
-            ).scalar()
-        if result is None:
-            logger.info("Aucun run précédent, chargement complet.")
-            return None, "full"
-        logger.info(f"Dernier run réussi : {result}")
-        return result, "delta"
-    except Exception:
-        logger.info("Table audit introuvable, chargement complet.")
-        return None, "full"
 
 
 def _ensure_audit_table_exists():

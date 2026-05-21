@@ -11,23 +11,25 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-_DDL = """
-IF OBJECT_ID('ML__CA_FORECAST', 'U') IS NOT NULL 
+TABLE_NAME = "ML_KPI05_CA_FORECAST"
+
+_DDL = f"""
+IF OBJECT_ID('{TABLE_NAME}', 'U') IS NOT NULL 
     AND (
-        COL_LENGTH('ML__CA_FORECAST', 'model_name') IS NULL
-        OR COL_LENGTH('ML__CA_FORECAST', 'mape') IS NULL
+        COL_LENGTH('{TABLE_NAME}', 'model_name') IS NULL
+        OR COL_LENGTH('{TABLE_NAME}', 'mape') IS NULL
         OR EXISTS (
             SELECT 1 FROM sys.columns c
             JOIN sys.types t ON c.user_type_id = t.user_type_id
-            WHERE c.object_id = OBJECT_ID('ML__CA_FORECAST')
+            WHERE c.object_id = OBJECT_ID('{TABLE_NAME}')
 AND c.name = 'run_date'
                 AND t.name = 'date'
         )
     )
-    DROP TABLE ML__CA_FORECAST;
+    DROP TABLE {TABLE_NAME};
 
-IF OBJECT_ID('ML__CA_FORECAST', 'U') IS NULL
-CREATE TABLE ML__CA_FORECAST (
+IF OBJECT_ID('{TABLE_NAME}', 'U') IS NULL
+CREATE TABLE {TABLE_NAME} (
     id              INT IDENTITY(1,1) PRIMARY KEY,
     run_date        DATETIME NOT NULL,
     model_name      VARCHAR(20) NOT NULL DEFAULT 'PROPHET',
@@ -290,12 +292,12 @@ def _forecast_prophet(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
 
 def _save_forecast(forecast: pd.DataFrame) -> None:
     if forecast.empty:
-        logger.warning(" Empty forecast, keeping existing ML__CA_FORECAST data")
+        logger.warning(f" Empty forecast, keeping existing {TABLE_NAME} data")
         return
 
     now_ts = datetime.now()
     with DW_ENGINE.begin() as conn:
-        conn.execute(text("DELETE FROM ML__CA_FORECAST"))
+        conn.execute(text(f"DELETE FROM {TABLE_NAME}"))
 
     rows = [
         (
@@ -311,8 +313,8 @@ def _save_forecast(forecast: pd.DataFrame) -> None:
         )
         for row in forecast.itertuples(index=False)
     ]
-    sql = """
-        INSERT INTO ML__CA_FORECAST
+    sql = f"""
+        INSERT INTO {TABLE_NAME}
             (run_date, model_name, ds, yhat, yhat_lower, yhat_upper, is_historical, mape, mae)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
@@ -322,7 +324,7 @@ def _save_forecast(forecast: pd.DataFrame) -> None:
         cursor.executemany(sql, rows)
         cursor.close()
 
-    logger.info(f" {len(rows)} rows saved to ML__CA_FORECAST")
+    logger.info(f" {len(rows)} rows saved to {TABLE_NAME}")
 
 def _evaluate(df_hist: pd.DataFrame, forecast: pd.DataFrame) -> tuple[float, float]:
     hist_fc = forecast[forecast["is_historical"] == 1].copy()
