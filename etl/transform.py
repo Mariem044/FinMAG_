@@ -1,3 +1,5 @@
+"""Transformations de préparation des données pour les dimensions et faits ETL."""
+
 import pandas as pd
 
 

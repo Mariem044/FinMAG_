@@ -374,7 +374,7 @@ def run_etl(background_tasks: BackgroundTasks):
 
 @app.get("/api/ml/status")
 def get_ml_status():
-    from ml.runner import is_running, get_last_error  # type: ignore
+    from ..ml.runner import is_running, get_last_error  # type: ignore
     try:
         counts = {}
         tables = {
@@ -413,7 +413,7 @@ def get_ml_status():
 
 @app.post("/api/ml/run")
 def run_ml_endpoint():
-    from ml.runner import run_all_background  # type: ignore
+    from ..ml.runner import run_all_background  # type: ignore
     started = run_all_background()
     return {"started": started, "running": True}
 

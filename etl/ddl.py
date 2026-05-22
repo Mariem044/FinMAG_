@@ -1,3 +1,5 @@
+"""Définitions de schéma et création de tables pour le data warehouse ETL."""
+
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from etl.config import DW_ENGINE

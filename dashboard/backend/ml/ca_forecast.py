@@ -6,11 +6,12 @@ from sqlalchemy import text
 
 warnings.filterwarnings("ignore")
 
-from config import DW_ENGINE
-from utils.logger import get_logger
+from ..config import DW_ENGINE
+from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Nom de la table où le forecast de CA est enregistré.
 TABLE_NAME = "ML_KPI05_CA_FORECAST"
 
 _DDL = f"""
@@ -44,8 +45,10 @@ CREATE TABLE {TABLE_NAME} (
 """
 
 def _ensure_table() -> None:
+    # Vérifie que la table de forecast existe et la crée si nécessaire.
     with DW_ENGINE.begin() as conn:
         conn.execute(text(_DDL))
+
 
 def _load_monthly_ca() -> pd.DataFrame:
     sql = """
@@ -59,6 +62,7 @@ def _load_monthly_ca() -> pd.DataFrame:
         HAVING COUNT(*) > 10
         ORDER BY ds
     """
+    # Requête SQL pour obtenir la somme du chiffre d'affaires par année et mois.
     with DW_ENGINE.connect() as conn:
         df = pd.read_sql(text(sql), conn)
     df["ds"] = pd.to_datetime(df["ds"])
@@ -71,232 +75,66 @@ def _load_monthly_ca() -> pd.DataFrame:
                 f"({df['ds'].min().date()} -> {df['ds'].max().date()})")
     return df
 
-def _forecast_seasonal_fallback(df: pd.DataFrame, horizon: int, model_name: str) -> pd.DataFrame:
-    logger.info(f" Running Seasonal Decomposition Fallback for {model_name}...")
+def _forecast_simple(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
+    logger.info("Running simple CA forecast...")
+    df = df.copy()
+    df["month"] = df["ds"].dt.month
     n_obs = len(df)
     t = np.arange(n_obs)
     y = df["y"].values.astype(float)
-    
+
     if n_obs >= 2:
         alpha, beta = np.polyfit(t, y, 1)
     else:
         alpha, beta = 0.0, float(y[0]) if n_obs > 0 else 0.0
-    
+
     trend = alpha * t + beta
     trend_safe = np.where(trend <= 0, 1e-5, trend)
-    seasonal_ratios = y / trend_safe
-    
-    df_temp = df.copy()
-    df_temp["ratio"] = seasonal_ratios
-    df_temp["month"] = df_temp["ds"].dt.month
-    
-    monthly_seasonality = df_temp.groupby("month")["ratio"].mean().to_dict()
+    df["seasonal_ratio"] = df["y"] / trend_safe
+
+    # On calcule la saisonnalité moyenne par mois : combien le CA diffère de la tendance.
+    monthly_seasonality = df.groupby("month")["seasonal_ratio"].mean().to_dict()
     for m in range(1, 13):
-        if m not in monthly_seasonality:
-            monthly_seasonality[m] = 1.0
-            
+        monthly_seasonality.setdefault(m, 1.0)
+
     mean_ratio = np.mean(list(monthly_seasonality.values()))
     if mean_ratio > 0:
         for m in monthly_seasonality:
             monthly_seasonality[m] /= mean_ratio
-            
+
+    # Prépare une série de dates qui couvre l'historique et l'horizon de forecast.
     last_ds = df["ds"].max()
-    future_dates = [last_ds + pd.DateOffset(months=i) for i in range(1, horizon + 1)]
-    future_df = pd.DataFrame({"ds": future_dates})
-    future_df["y"] = np.nan
-    
-    full_df = pd.concat([df, future_df], ignore_index=True)
+    full_dates = pd.date_range(start=df["ds"].min(), periods=n_obs + horizon, freq="MS")
+    full_df = pd.DataFrame({"ds": full_dates})
     full_df["t"] = np.arange(len(full_df))
     full_df["month"] = full_df["ds"].dt.month
-    
-    pred_trend = alpha * full_df["t"].values + beta
-    full_df["yhat"] = pred_trend * full_df["month"].map(monthly_seasonality)
-    
-    residuals = y - (trend * df_temp["month"].map(monthly_seasonality))
-    std_err = np.std(residuals) if len(residuals) > 1 else 0.1 * np.mean(y) if len(y) > 0 else 1.0
-    
-    full_df["yhat_lower"] = full_df["yhat"] - 1.28 * std_err
-    full_df["yhat_upper"] = full_df["yhat"] + 1.28 * std_err
-    
-    last_hist = df["ds"].max()
-    full_df["is_historical"] = (full_df["ds"] <= last_hist).astype(int)
-    
-    result = full_df[["ds", "yhat", "yhat_lower", "yhat_upper", "is_historical"]].copy()
-    result["yhat"]       = result["yhat"].clip(lower=0)
-    result["yhat_lower"] = result["yhat_lower"].clip(lower=0)
-    result["yhat_upper"] = result["yhat_upper"].clip(lower=0)
-    result["model_name"] = model_name
-    return result
+    full_df["yhat"] = (alpha * full_df["t"] + beta) * full_df["month"].map(monthly_seasonality).fillna(1.0)
 
-def _forecast_trend_fallback(df: pd.DataFrame, horizon: int, model_name: str) -> pd.DataFrame:
-    logger.info(f" Running Linear Trend Fallback for {model_name}...")
-    n_obs = len(df)
-    t = np.arange(n_obs)
-    y = df["y"].values.astype(float)
-    
-    if n_obs >= 2:
-        alpha, beta = np.polyfit(t, y, 1)
+    hist_df = full_df[full_df["ds"] <= last_ds].copy()
+    hist_df = hist_df.merge(df[["ds", "y"]], on="ds", how="left")
+    residuals = hist_df.loc[hist_df["y"].notna(), "y"] - hist_df.loc[hist_df["y"].notna(), "yhat"]
+    if len(residuals) > 1:
+        std_err = float(np.std(residuals))
     else:
-        alpha, beta = 0.0, float(y[0]) if n_obs > 0 else 0.0
-        
-    last_ds = df["ds"].max()
-    future_dates = [last_ds + pd.DateOffset(months=i) for i in range(1, horizon + 1)]
-    future_df = pd.DataFrame({"ds": future_dates})
-    
-    full_df = pd.concat([df, future_df], ignore_index=True)
-    full_df["t"] = np.arange(len(full_df))
-    
-    full_df["yhat"] = alpha * full_df["t"].values + beta
-    
-    residuals = y - (alpha * t + beta)
-    std_err = np.std(residuals) if len(residuals) > 1 else 0.1 * np.mean(y) if len(y) > 0 else 1.0
-    
-    full_df["yhat_lower"] = full_df["yhat"] - 1.28 * std_err
-    full_df["yhat_upper"] = full_df["yhat"] + 1.28 * std_err
-    
-    last_hist = df["ds"].max()
-    full_df["is_historical"] = (full_df["ds"] <= last_hist).astype(int)
-    
-    result = full_df[["ds", "yhat", "yhat_lower", "yhat_upper", "is_historical"]].copy()
-    result["yhat"]       = result["yhat"].clip(lower=0)
-    result["yhat_lower"] = result["yhat_lower"].clip(lower=0)
-    result["yhat_upper"] = result["yhat_upper"].clip(lower=0)
-    result["model_name"] = model_name
-    return result
+        std_err = max(0.05 * np.mean(y) if len(y) else 1.0, 1.0)
 
-def _forecast_arima(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
-    logger.info(" Training ARIMA model...")
-    df_ts = df.set_index("ds").copy()
-    df_ts = df_ts.asfreq("MS")
-    y = df_ts["y"].ffill().fillna(0)
-    
-    try:
-        from statsmodels.tsa.arima.model import ARIMA
-        model = ARIMA(y, order=(1, 1, 1))
-        res = model.fit()
-        
-        hist_pred = res.fittedvalues
-        hist_pred = hist_pred.fillna(y.iloc[0])
-        
-        fc = res.get_forecast(steps=horizon)
-        fc_mean = fc.predicted_mean
-        fc_ci = fc.conf_int(alpha=0.20) # 80% CI
-        
-        future_dates = pd.date_range(start=y.index[-1] + pd.DateOffset(months=1), periods=horizon, freq="MS")
-        
-        hist_df = pd.DataFrame({
-            "ds": y.index,
-            "yhat": hist_pred.values,
-            "yhat_lower": hist_pred.values * 0.95,
-            "yhat_upper": hist_pred.values * 1.05,
-            "is_historical": 1
-        })
-        
-        future_df = pd.DataFrame({
-            "ds": future_dates,
-            "yhat": fc_mean.values,
-            "yhat_lower": fc_ci.iloc[:, 0].values,
-            "yhat_upper": fc_ci.iloc[:, 1].values,
-            "is_historical": 0
-        })
-        
-        result = pd.concat([hist_df, future_df], ignore_index=True)
-        result["model_name"] = "ARIMA"
-        logger.info(" ARIMA model finished successfully.")
-        return result
-    except (ImportError, ValueError, np.linalg.LinAlgError) as exc:
-        logger.error(f" ARIMA fitting failed: {exc}. Using trend fallback.")
-        return _forecast_trend_fallback(df, horizon, "ARIMA")
+    full_df["yhat_lower"] = (full_df["yhat"] - 1.28 * std_err).clip(lower=0)
+    full_df["yhat_upper"] = (full_df["yhat"] + 1.28 * std_err).clip(lower=0)
+    full_df["is_historical"] = (full_df["ds"] <= last_ds).astype(int)
+    full_df["model_name"] = "SIMPLE"
+    full_df["yhat"] = full_df["yhat"].clip(lower=0)
 
-def _forecast_sarima(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
-    logger.info(" Training SARIMA model...")
-    df_ts = df.set_index("ds").copy()
-    df_ts = df_ts.asfreq("MS")
-    y = df_ts["y"].ffill().fillna(0)
-    
-    try:
-        from statsmodels.tsa.statespace.sarimax import SARIMAX
-        if len(y) < 24:
-            logger.warning(" Series too short for SARIMA(12). Using seasonal period 3.")
-            model = SARIMAX(y, order=(1, 1, 1), seasonal_order=(1, 1, 1, 3), enforce_stationarity=False, enforce_invertibility=False)
-        else:
-            model = SARIMAX(y, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12), enforce_stationarity=False, enforce_invertibility=False)
-        
-        res = model.fit(disp=False)
-        
-        hist_pred = res.fittedvalues
-        hist_pred = hist_pred.fillna(y.iloc[0])
-        
-        fc = res.get_forecast(steps=horizon)
-        fc_mean = fc.predicted_mean
-        fc_ci = fc.conf_int(alpha=0.20) # 80% CI
-        
-        future_dates = pd.date_range(start=y.index[-1] + pd.DateOffset(months=1), periods=horizon, freq="MS")
-        
-        hist_df = pd.DataFrame({
-            "ds": y.index,
-            "yhat": hist_pred.values,
-            "yhat_lower": hist_pred.values * 0.95,
-            "yhat_upper": hist_pred.values * 1.05,
-            "is_historical": 1
-        })
-        
-        future_df = pd.DataFrame({
-            "ds": future_dates,
-            "yhat": fc_mean.values,
-            "yhat_lower": fc_ci.iloc[:, 0].values,
-            "yhat_upper": fc_ci.iloc[:, 1].values,
-            "is_historical": 0
-        })
-        
-        result = pd.concat([hist_df, future_df], ignore_index=True)
-        result["model_name"] = "SARIMA"
-        logger.info(" SARIMA model finished successfully.")
-        return result
-    except (ImportError, ValueError, np.linalg.LinAlgError) as exc:
-        logger.error(f" SARIMA fitting failed: {exc}. Using seasonal fallback.")
-        return _forecast_seasonal_fallback(df, horizon, "SARIMA")
-
-def _forecast_prophet(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
-    logger.info(" Training Prophet model...")
-    try:
-        from prophet import Prophet
-        
-        model = Prophet(
-            yearly_seasonality=True,
-            weekly_seasonality=False,
-            daily_seasonality=False,
-            seasonality_mode="multiplicative",
-            interval_width=0.80,
-            changepoint_prior_scale=0.15,
-        )
-        model.add_seasonality(name="ramadan_approx", period=354.37, fourier_order=3)
-        model.fit(df)
-        
-        future = model.make_future_dataframe(periods=horizon, freq="MS")
-        forecast = model.predict(future)
-        
-        last_hist = df["ds"].max()
-        forecast["is_historical"] = (forecast["ds"] <= last_hist).astype(int)
-        
-        result = forecast[["ds", "yhat", "yhat_lower", "yhat_upper", "is_historical"]].copy()
-        result["yhat"]       = result["yhat"].clip(lower=0)
-        result["yhat_lower"] = result["yhat_lower"].clip(lower=0)
-        result["yhat_upper"] = result["yhat_upper"].clip(lower=0)
-        result["model_name"] = "PROPHET"
-        logger.info(" Prophet model finished successfully.")
-        return result
-    except (ImportError, ValueError, np.linalg.LinAlgError, RuntimeError) as exc:
-        logger.error(f" Prophet training failed: {exc}. Using seasonal fallback.")
-        return _forecast_seasonal_fallback(df, horizon, "PROPHET")
+    return full_df[["ds", "yhat", "yhat_lower", "yhat_upper", "is_historical", "model_name"]]
 
 def _save_forecast(forecast: pd.DataFrame) -> None:
+    # Enregistre le forecast dans la base de données. Si le forecast est vide, on ne modifie rien.
     if forecast.empty:
         logger.warning(f" Empty forecast, keeping existing {TABLE_NAME} data")
         return
 
     now_ts = datetime.now()
 
+    # Convertit chaque ligne du forecast en dictionnaire prêt pour l'insertion SQL.
     rows = [
         {
             "run_date": now_ts,
@@ -323,7 +161,9 @@ def _save_forecast(forecast: pd.DataFrame) -> None:
 
     logger.info(f" {len(rows)} rows saved to {TABLE_NAME}")
 
+
 def _evaluate(df_hist: pd.DataFrame, forecast: pd.DataFrame) -> tuple[float, float]:
+    # Calcule MAE et MAPE sur les données historiques pour valider le modèle.
     hist_fc = forecast[forecast["is_historical"] == 1].copy()
     merged = df_hist.merge(hist_fc[["ds", "yhat"]], on="ds", how="inner")
     if merged.empty:
@@ -336,7 +176,10 @@ def _evaluate(df_hist: pd.DataFrame, forecast: pd.DataFrame) -> tuple[float, flo
     logger.info(f" {model_name} In-sample validation (last 3 months) - MAE: {mae:,.0f} | MAPE: {mape:.1f}%")
     return mae, mape
 
+
 def run(horizon: int = 12) -> pd.DataFrame:
+    # Point d'entrée principal pour lancer le forecast de CA.
+    # Cette fonction prépare les données, exécute le modèle, l'évalue et enregistre les résultats.
     _ensure_table()
     df = _load_monthly_ca()
     if df.empty:
@@ -346,25 +189,10 @@ def run(horizon: int = 12) -> pd.DataFrame:
     if len(df) < 12:
         logger.warning(" Less than 12 months of data — forecast may be unreliable")
 
-    # Train all 3 models!
-    arima_fc = _forecast_arima(df, horizon)
-    arima_mae, arima_mape = _evaluate(df, arima_fc)
-    arima_fc["mae"] = arima_mae
-    arima_fc["mape"] = arima_mape
-    
-    sarima_fc = _forecast_sarima(df, horizon)
-    sarima_mae, sarima_mape = _evaluate(df, sarima_fc)
-    sarima_fc["mae"] = sarima_mae
-    sarima_fc["mape"] = sarima_mape
-    
-    prophet_fc = _forecast_prophet(df, horizon)
-    prophet_mae, prophet_mape = _evaluate(df, prophet_fc)
-    prophet_fc["mae"] = prophet_mae
-    prophet_fc["mape"] = prophet_mape
-    
-    # Combine forecasts
-    combined_forecast = pd.concat([arima_fc, sarima_fc, prophet_fc], ignore_index=True)
-    
-    # Save all forecasts!
-    _save_forecast(combined_forecast)
-    return combined_forecast
+    forecast = _forecast_simple(df, horizon)
+    mae, mape = _evaluate(df, forecast)
+    forecast["mae"] = mae
+    forecast["mape"] = mape
+
+    _save_forecast(forecast)
+    return forecast

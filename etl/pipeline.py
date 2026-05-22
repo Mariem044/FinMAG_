@@ -1,3 +1,5 @@
+"""Pipeline ETL complet : extraction, transformation et chargement dans le data warehouse."""
+
 from datetime import datetime, timezone
 import re
 import pandas as pd
@@ -13,6 +15,7 @@ logger = get_logger(__name__)
 
 
 def _build_lookup(table_name, natural_col, surrogate_col):
+    """Construire un dictionnaire de correspondance natural key -> surrogate key."""
     query = f"SELECT [{surrogate_col}], [{natural_col}] FROM [{table_name}]"
     df = pd.read_sql(query, DW_ENGINE)
     if table_name == "DIM_DATE" and not df.empty:
@@ -21,6 +24,7 @@ def _build_lookup(table_name, natural_col, surrogate_col):
 
 
 def _clean_text_code(value):
+    """Normalise un libellé texte pour comparaison en majuscules."""
     if pd.isna(value):
         return None
     text = str(value).strip()
@@ -28,6 +32,7 @@ def _clean_text_code(value):
 
 
 def _clean_bank_account(value):
+    """Extraire les chiffres d'un champ compte bancaire et normaliser le numéro."""
     if pd.isna(value):
         return None
     digits = re.sub(r"\D+", "", str(value))
@@ -35,6 +40,7 @@ def _clean_bank_account(value):
 
 
 def _resolve_ville(row, ville_by_index, ville_by_code, ville_by_name):
+    """Résoudre une ville à partir de plusieurs clés possibles (index, code, nom)."""
     raw_region = row.get("CT_CodeRegion")
     if pd.notna(raw_region):
         try:
@@ -52,6 +58,7 @@ def _resolve_ville(row, ville_by_index, ville_by_code, ville_by_name):
 
 
 def _lookup_banque(row, lookup, fields):
+    """Chercher une banque dans le lookup à partir de plusieurs champs possibles."""
     for field in fields:
         key = _clean_text_code(row.get(field))
         if key and key in lookup:
@@ -67,6 +74,7 @@ def _lookup_banque_by_account(row, account_lookup, fields):
         if account in account_lookup:
             return account_lookup[account]
         for bank_account, bank_id in account_lookup.items():
+            # Tenter une correspondance partielle sur les numéros de compte
             if bank_account and (bank_account in account or account in bank_account):
                 return bank_id
     return None

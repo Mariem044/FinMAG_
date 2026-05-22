@@ -1,3 +1,5 @@
+"""Chargement des données dans les tables du data warehouse."""
+
 import pandas as pd
 from sqlalchemy import text
 from etl.config import DW_ENGINE

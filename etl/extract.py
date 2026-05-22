@@ -1,5 +1,8 @@
+"""Extraction des données sources depuis les bases MAG et GRT."""
+
 import logging
 import pandas as pd
+
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from etl.config import MAG_ENGINE, GRT_ENGINE
@@ -24,6 +27,7 @@ def _table_columns(engine, table_name):
 
 
 def _select_column(existing_columns, column_name, alias=None, default="NULL"):
+    """Sélectionner une colonne si elle existe, sinon retourner une valeur par défaut."""
     output_name = alias or column_name
     if column_name.lower() in existing_columns:
         return f"[{column_name}] AS [{output_name}]"
@@ -31,6 +35,7 @@ def _select_column(existing_columns, column_name, alias=None, default="NULL"):
 
 
 def _select_first_column(existing_columns, column_names, alias, default="NULL"):
+    """Rechercher le premier nom de colonne existant parmi plusieurs options."""
     for column_name in column_names:
         if column_name.lower() in existing_columns:
             return f"[{column_name}] AS [{alias}]"

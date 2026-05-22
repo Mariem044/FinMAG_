@@ -1,15 +1,20 @@
 import threading
 import logging
 
-from ml import ca_forecast
+from . import ca_forecast
 
 logger = logging.getLogger("ml.runner")
+
+# Le module runner orchestre l'exécution du ou des scripts ML.
+# Il permet d'exécuter le calcul en tâche de fond et de conserver l'état.
 
 _ML_RUN_LOCK = threading.Lock()
 _ML_LAST_ERROR = None
 _ML_IS_RUNNING = False
 
+
 def is_running():
+    # Indique si un thread ML est déjà en cours d'exécution.
     global _ML_IS_RUNNING
     return _ML_IS_RUNNING or _ML_RUN_LOCK.locked()
 
@@ -17,7 +22,9 @@ def get_last_error():
     global _ML_LAST_ERROR
     return _ML_LAST_ERROR
 
+
 def run_all(only=None, skip=None):
+    # Exécute les modules ML sélectionnés. on peut filtrer avec only ou skip.
     modules = {
         "05": ca_forecast,
     }
@@ -38,7 +45,9 @@ def run_all(only=None, skip=None):
             results[kpi_id] = f"ERROR: {exc}"
     return results
 
+
 def run_all_background():
+    # Lance la même exécution que run_all, mais dans un thread séparé.
     global _ML_IS_RUNNING, _ML_LAST_ERROR
     if not _ML_RUN_LOCK.acquire(blocking=False):
         return False
@@ -63,6 +72,7 @@ def run_all_background():
     return True
 
 if __name__ == "__main__":
+    # Permet d'exécuter le module en ligne de commande pour tester localement.
     import sys
     logging.basicConfig(
         level=logging.INFO,

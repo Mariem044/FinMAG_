@@ -1,3 +1,5 @@
+"""Audit des exécutions ETL : suivi de démarrage, fin et gestion des erreurs."""
+
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from etl.config import DW_ENGINE, ERROR_MSG_MAX_LEN
@@ -7,6 +9,7 @@ logger = get_logger(__name__)
 
 
 def _ensure_audit_table_exists():
+    """Créer la table ETL_AUDIT si elle n'existe pas encore."""
     sql_check = """
         SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
         WHERE TABLE_NAME = 'ETL_AUDIT' AND TABLE_TYPE = 'BASE TABLE'

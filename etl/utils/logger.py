@@ -1,3 +1,5 @@
+"""Logger simple pour les composants ETL, avec sortie formatée sur stdout."""
+
 import logging
 import sys
 

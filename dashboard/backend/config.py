@@ -1,70 +1,77 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
+import logging
+import math
 import os
-from datetime import timezone, date, datetime
+from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
 
-import logging
-import pandas as _pd
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
+from sqlalchemy.pool import QueuePool
 
 logging.getLogger("pyodbc").setLevel(logging.WARNING)
 
-from dotenv import load_dotenv
-from sqlalchemy import create_engine, Engine, event
-from sqlalchemy.pool import QueuePool
-
-
+# Load environment variables from .env, unless DOTENV_PATH points to another file.
 DEFAULT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
-_ENV_PATH = Path(os.environ.get("DOTENV_PATH", DEFAULT_ENV_PATH))
-if _ENV_PATH.exists():
-    load_dotenv(_ENV_PATH)
-else:
-    load_dotenv()
+DOTENV_PATH = Path(os.environ.get("DOTENV_PATH", DEFAULT_ENV_PATH))
+load_dotenv(DOTENV_PATH if DOTENV_PATH.exists() else DEFAULT_ENV_PATH)
+
+
+def get_required_env(name: str) -> str:
+    """Return a required environment variable or raise a clear error."""
+    value = os.environ.get(name)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
 
 
 def _sqlserver_tls_compat(conn_str: str) -> str:
+    """Ensure SQL Server connection strings include TLS flags."""
     lowered = conn_str.lower()
     if "encrypt=" in lowered or "trustservercertificate=" in lowered:
         return conn_str
 
     if "odbc_connect=" in lowered:
-        parts = urlsplit(conn_str)
-        query = dict(parse_qsl(parts.query, keep_blank_values=True))
-        odbc = query.get("odbc_connect")
-        if odbc is None:
-            return conn_str
-        query["odbc_connect"] = f"{odbc};Encrypt=no;TrustServerCertificate=yes"
-        return urlunsplit((
-            parts.scheme,
-            parts.netloc,
-            parts.path,
-            urlencode(query, quote_via=quote_plus),
-            parts.fragment,
-        ))
+        return _add_tls_to_odbc_connect(conn_str)
 
-    sep = "&" if "?" in conn_str else "?"
-    return f"{conn_str}{sep}Encrypt=no&TrustServerCertificate=yes"
+    separator = "&" if "?" in conn_str else "?"
+    return f"{conn_str}{separator}Encrypt=no&TrustServerCertificate=yes"
+
+
+def _add_tls_to_odbc_connect(conn_str: str) -> str:
+    parts = urlsplit(conn_str)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    odbc = query.get("odbc_connect")
+    if odbc is None:
+        return conn_str
+
+    query["odbc_connect"] = f"{odbc};Encrypt=no;TrustServerCertificate=yes"
+    return urlunsplit((
+        parts.scheme,
+        parts.netloc,
+        parts.path,
+        urlencode(query, quote_via=quote_plus),
+        parts.fragment,
+    ))
 
 
 def _make_engine(conn_str: str, pool_size: int = 5) -> Engine:
-    connect_args = {
-        "timeout": 30,
-    }
-
+    """Create a SQLAlchemy engine with simple defaults."""
     engine = create_engine(
         _sqlserver_tls_compat(conn_str),
         poolclass=QueuePool,
         pool_size=pool_size,
         max_overflow=10,
         pool_pre_ping=True,
-        connect_args=connect_args,
+        connect_args={"timeout": 30},
     )
 
     @event.listens_for(engine, "connect")
-    def _set_options(dbapi_conn, _rec):
+    def _set_sql_server_options(dbapi_conn, _record):
         cursor = dbapi_conn.cursor()
         cursor.execute("SET NOCOUNT ON")
         cursor.close()
@@ -72,10 +79,15 @@ def _make_engine(conn_str: str, pool_size: int = 5) -> Engine:
     return engine
 
 
-DW_ENGINE:  Engine = _make_engine(os.environ["DW_CONN"],  pool_size=5)
-MAG_ENGINE: Engine = _make_engine(os.environ["MAG_CONN"], pool_size=3)
-GRT_ENGINE: Engine = _make_engine(os.environ["GRT_CONN"], pool_size=3)
+def _parse_date(name: str, default: str) -> date:
+    """Parse a YYYY-MM-DD date from environment variables."""
+    value = os.environ.get(name, default)
+    return datetime.strptime(value, "%Y-%m-%d").date()
 
+
+DW_ENGINE = _make_engine(get_required_env("DW_CONN"), pool_size=5)
+MAG_ENGINE = _make_engine(get_required_env("MAG_CONN"), pool_size=3)
+GRT_ENGINE = _make_engine(get_required_env("GRT_CONN"), pool_size=3)
 
 DEFAULT_DIM_DATE_START = "2020-01-01"
 DEFAULT_DIM_DATE_END = "2026-12-31"
@@ -83,12 +95,11 @@ DEFAULT_ERROR_MSG_MAX_LEN = "500"
 DEFAULT_SEUIL_TENSION_STOCK = "0.5"
 DEFAULT_HASH_BYTES = "8"
 
-DIM_DATE_START:    date = datetime.strptime(os.environ.get("DIM_DATE_START", DEFAULT_DIM_DATE_START), "%Y-%m-%d").date()
-DIM_DATE_END:      date = datetime.strptime(os.environ.get("DIM_DATE_END", DEFAULT_DIM_DATE_END), "%Y-%m-%d").date()
-AUDIT_TABLE_NAME:  str = os.environ.get("ETL_AUDIT_TABLE", "ETL_AUDIT")
-ERROR_MSG_MAX_LEN: int = int(os.environ.get("ETL_ERROR_MSG_MAX_LEN", DEFAULT_ERROR_MSG_MAX_LEN))
-SEUIL_TENSION_STOCK: float = float(os.environ.get("SEUIL_TENSION_STOCK", DEFAULT_SEUIL_TENSION_STOCK))
-
+DIM_DATE_START = _parse_date("DIM_DATE_START", DEFAULT_DIM_DATE_START)
+DIM_DATE_END = _parse_date("DIM_DATE_END", DEFAULT_DIM_DATE_END)
+AUDIT_TABLE_NAME = os.environ.get("ETL_AUDIT_TABLE", "ETL_AUDIT")
+ERROR_MSG_MAX_LEN = int(os.environ.get("ETL_ERROR_MSG_MAX_LEN", DEFAULT_ERROR_MSG_MAX_LEN))
+SEUIL_TENSION_STOCK = float(os.environ.get("SEUIL_TENSION_STOCK", DEFAULT_SEUIL_TENSION_STOCK))
 
 _HASH_BYTES: int = int(os.environ.get("ETL_HASH_BYTES", DEFAULT_HASH_BYTES))
 if _HASH_BYTES < 8:
@@ -98,18 +109,18 @@ if _HASH_BYTES < 8:
     )
 
 
-def hash_key(value: Optional[str | int | float]) -> Optional[int]:
-    
+def hash_key(value: str | int | float | None) -> int | None:
+    """Return a stable integer hash or None for empty values."""
     if value is None:
         return None
-    try:
-        if _pd.isna(value):
-            return None
-    except (TypeError, ValueError):
-        pass
+
+    if isinstance(value, float) and math.isnan(value):
+        return None
+
     normalized = str(value).strip().upper()
     if not normalized:
         return None
-    digest = hashlib.sha256(normalized.encode("utf-8")).digest()
-    return int.from_bytes(digest[:_HASH_BYTES], "big") & ((1 << (_HASH_BYTES * 8 - 1)) - 1)
 
+    digest = hashlib.sha256(normalized.encode("utf-8")).digest()
+    max_bits = _HASH_BYTES * 8 - 1
+    return int.from_bytes(digest[:_HASH_BYTES], "big") & ((1 << max_bits) - 1)
