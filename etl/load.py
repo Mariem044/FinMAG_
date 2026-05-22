@@ -1,6 +1,6 @@
 import pandas as pd
 from sqlalchemy import text
-from etl.config import DW_ENGINE, CHUNK_SIZE
+from etl.config import DW_ENGINE
 from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -28,7 +28,7 @@ def load_dimension(df, table):
     with DW_ENGINE.begin() as conn:
         conn.execute(text(f"DELETE FROM [{table}]"))
 
-    df_clean.to_sql(table, DW_ENGINE, if_exists="append", index=False, chunksize=CHUNK_SIZE)
+    df_clean.to_sql(table, DW_ENGINE, if_exists="append", index=False)
     logger.info(f"[{table}] {len(df_clean)} lignes chargées.")
 
 

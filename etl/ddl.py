@@ -1,4 +1,5 @@
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from etl.config import DW_ENGINE
 from etl.utils.logger import get_logger
 
@@ -285,8 +286,8 @@ def create_all_tables(drop_existing=False):
             try:
                 conn.execute(text(ddl_sql.strip()))
                 logger.info(f"  [OK] {table_name} créée")
-            except Exception as e:
-                logger.error(f"  [ERREUR] {table_name}: {e}")
+            except SQLAlchemyError as exc:
+                logger.error(f"  [ERREUR] {table_name}: {exc}")
                 raise
 
     logger.info("=== Toutes les tables créées ===")
@@ -310,5 +311,5 @@ def _drop_all_tables():
             try:
                 conn.execute(text(f"DROP TABLE IF EXISTS [{table_name}]"))
                 logger.info(f"  [DROP] {table_name}")
-            except Exception as e:
-                logger.warning(f"  [DROP WARN] {table_name}: {e}")
+            except SQLAlchemyError as exc:
+                logger.warning(f"  [DROP WARN] {table_name}: {exc}")

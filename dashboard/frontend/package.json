@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --configLoader native",
-    "api": "cd ../.. && python -m uvicorn dashboard.backend.api.queries:app --host 127.0.0.1 --port 8000 --reload",
+    "api": "cd ../.. && python -m uvicorn dashboard.backend.api.queries:app --reload",
     "etl": "python -m etl.pipeline",
     "build": "vite build --configLoader native",
     "build:dev": "vite build --mode development --configLoader native",

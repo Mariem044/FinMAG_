@@ -204,8 +204,8 @@ def _forecast_arima(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
         result["model_name"] = "ARIMA"
         logger.info(" ARIMA model finished successfully.")
         return result
-    except Exception as e:
-        logger.error(f" ARIMA fitting failed: {e}. Using trend fallback.")
+    except (ImportError, ValueError, np.linalg.LinAlgError) as exc:
+        logger.error(f" ARIMA fitting failed: {exc}. Using trend fallback.")
         return _forecast_trend_fallback(df, horizon, "ARIMA")
 
 def _forecast_sarima(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
@@ -253,8 +253,8 @@ def _forecast_sarima(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
         result["model_name"] = "SARIMA"
         logger.info(" SARIMA model finished successfully.")
         return result
-    except Exception as e:
-        logger.error(f" SARIMA fitting failed: {e}. Using seasonal fallback.")
+    except (ImportError, ValueError, np.linalg.LinAlgError) as exc:
+        logger.error(f" SARIMA fitting failed: {exc}. Using seasonal fallback.")
         return _forecast_seasonal_fallback(df, horizon, "SARIMA")
 
 def _forecast_prophet(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
@@ -286,8 +286,8 @@ def _forecast_prophet(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
         result["model_name"] = "PROPHET"
         logger.info(" Prophet model finished successfully.")
         return result
-    except Exception as e:
-        logger.error(f" Prophet training failed: {e}. Using seasonal fallback.")
+    except (ImportError, ValueError, np.linalg.LinAlgError, RuntimeError) as exc:
+        logger.error(f" Prophet training failed: {exc}. Using seasonal fallback.")
         return _forecast_seasonal_fallback(df, horizon, "PROPHET")
 
 def _save_forecast(forecast: pd.DataFrame) -> None:
@@ -296,33 +296,30 @@ def _save_forecast(forecast: pd.DataFrame) -> None:
         return
 
     now_ts = datetime.now()
-    with DW_ENGINE.begin() as conn:
-        conn.execute(text(f"DELETE FROM {TABLE_NAME}"))
 
     rows = [
-        (
-            now_ts,
-            str(row.model_name),
-            row.ds.date(),
-            float(row.yhat),
-            float(row.yhat_lower),
-            float(row.yhat_upper),
-            int(row.is_historical),
-            float(row.mape) if hasattr(row, 'mape') and pd.notna(row.mape) else None,
-            float(row.mae) if hasattr(row, 'mae') and pd.notna(row.mae) else None,
-        )
+        {
+            "run_date": now_ts,
+            "model_name": str(row.model_name),
+            "ds": row.ds.date(),
+            "yhat": float(row.yhat),
+            "yhat_lower": float(row.yhat_lower),
+            "yhat_upper": float(row.yhat_upper),
+            "is_historical": int(row.is_historical),
+            "mape": float(row.mape) if hasattr(row, 'mape') and pd.notna(row.mape) else None,
+            "mae": float(row.mae) if hasattr(row, 'mae') and pd.notna(row.mae) else None,
+        }
         for row in forecast.itertuples(index=False)
     ]
     sql = f"""
         INSERT INTO {TABLE_NAME}
             (run_date, model_name, ds, yhat, yhat_lower, yhat_upper, is_historical, mape, mae)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (:run_date, :model_name, :ds, :yhat, :yhat_lower, :yhat_upper, :is_historical, :mape, :mae)
     """
     with DW_ENGINE.begin() as conn:
-        cursor = conn.connection.cursor()
-        cursor.fast_executemany = True
-        cursor.executemany(sql, rows)
-        cursor.close()
+        conn.execute(text(f"DELETE FROM {TABLE_NAME}"))
+        if rows:
+            conn.execute(text(sql), rows)
 
     logger.info(f" {len(rows)} rows saved to {TABLE_NAME}")
 

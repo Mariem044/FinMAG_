@@ -1,4 +1,5 @@
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from etl.config import DW_ENGINE, ERROR_MSG_MAX_LEN
 from etl.utils.logger import get_logger
 
@@ -30,8 +31,8 @@ def _ensure_audit_table_exists():
             with DW_ENGINE.begin() as conn:
                 conn.execute(text(sql_create))
             logger.info("Table ETL_AUDIT créée avec succès.")
-    except Exception as e:
-        logger.error(f"Erreur lors de la vérification/création de la table ETL_AUDIT : {e}")
+    except SQLAlchemyError as exc:
+        logger.error(f"Erreur lors de la vérification/création de la table ETL_AUDIT : {exc}")
 
 
 def start_run(mode):
@@ -69,5 +70,5 @@ def end_run(run_id, status, error_msg=None):
                 },
             )
         logger.info(f"Pipeline terminé - run_id={run_id}, status={status}")
-    except Exception as e:
-        logger.error(f"Impossible de mettre à jour la table audit : {e}")
+    except SQLAlchemyError as exc:
+        logger.error(f"Impossible de mettre à jour la table audit : {exc}")

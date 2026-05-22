@@ -7,13 +7,14 @@ from datetime import datetime, timezone
 from typing import Generator, Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
-from config import DW_ENGINE, ERROR_MSG_MAX_LEN
+from config import AUDIT_TABLE_NAME, DW_ENGINE, ERROR_MSG_MAX_LEN
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-_TABLE = os.environ["ETL_AUDIT_TABLE"]
+_TABLE = AUDIT_TABLE_NAME
 _STALE_RUNNING_HOURS = int(os.environ.get("ETL_STALE_RUNNING_HOURS", "6"))
 
 
@@ -38,7 +39,7 @@ def get_last_run_info() -> tuple[Optional[datetime], str]:
 
         logger.info(f"Last successful run: {result}; DELTA mode selected")
         return result, "delta"
-    except Exception:
+    except SQLAlchemyError:
         logger.info("ETL_AUDIT is missing; FULL LOAD mode selected")
         return None, "full"
 
@@ -115,7 +116,7 @@ def log_table(
                     "err": (error_msg or "")[:ERROR_MSG_MAX_LEN] if error_msg else None,
                 },
             )
-    except Exception as exc:
+    except SQLAlchemyError as exc:
         logger.error(f"[AUDIT] Could not log table {table_name}: {exc}")
 
 
@@ -137,7 +138,7 @@ def end_run(run_id: int, status: str, error_msg: Optional[str] = None) -> None:
                 },
             )
         logger.info(f"[AUDIT] Run {run_id} finished - status={status}")
-    except Exception as exc:
+    except SQLAlchemyError as exc:
         logger.error(f"[AUDIT] end_run: {exc}")
 
 
@@ -157,7 +158,7 @@ def release_lock(run_id: int) -> None:
                 ),
                 {"rid": run_id},
             )
-    except Exception as exc:
+    except SQLAlchemyError as exc:
         logger.warning(f"release_lock: {exc}")
 
 

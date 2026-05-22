@@ -17,8 +17,12 @@ from sqlalchemy import create_engine, Engine, event
 from sqlalchemy.pool import QueuePool
 
 
-_ENV_PATH = Path(__file__).parent / ".env"
-load_dotenv(_ENV_PATH)
+DEFAULT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+_ENV_PATH = Path(os.environ.get("DOTENV_PATH", DEFAULT_ENV_PATH))
+if _ENV_PATH.exists():
+    load_dotenv(_ENV_PATH)
+else:
+    load_dotenv()
 
 
 def _sqlserver_tls_compat(conn_str: str) -> str:
@@ -46,16 +50,17 @@ def _sqlserver_tls_compat(conn_str: str) -> str:
 
 
 def _make_engine(conn_str: str, pool_size: int = 5) -> Engine:
+    connect_args = {
+        "timeout": 30,
+    }
+
     engine = create_engine(
         _sqlserver_tls_compat(conn_str),
         poolclass=QueuePool,
         pool_size=pool_size,
         max_overflow=10,
         pool_pre_ping=True,
-        connect_args={
-            "timeout": 30,
-            "fast_executemany": True,
-        },
+        connect_args=connect_args,
     )
 
     @event.listens_for(engine, "connect")
@@ -72,15 +77,20 @@ MAG_ENGINE: Engine = _make_engine(os.environ["MAG_CONN"], pool_size=3)
 GRT_ENGINE: Engine = _make_engine(os.environ["GRT_CONN"], pool_size=3)
 
 
-CHUNK_SIZE:        int = int(os.environ["ETL_CHUNK_SIZE"])
-DIM_DATE_START:    date = datetime.strptime(os.environ["DIM_DATE_START"], "%Y-%m-%d").date()
-DIM_DATE_END:      date = datetime.strptime(os.environ["DIM_DATE_END"], "%Y-%m-%d").date()
+DEFAULT_DIM_DATE_START = "2020-01-01"
+DEFAULT_DIM_DATE_END = "2026-12-31"
+DEFAULT_ERROR_MSG_MAX_LEN = "500"
+DEFAULT_SEUIL_TENSION_STOCK = "0.5"
+DEFAULT_HASH_BYTES = "8"
+
+DIM_DATE_START:    date = datetime.strptime(os.environ.get("DIM_DATE_START", DEFAULT_DIM_DATE_START), "%Y-%m-%d").date()
+DIM_DATE_END:      date = datetime.strptime(os.environ.get("DIM_DATE_END", DEFAULT_DIM_DATE_END), "%Y-%m-%d").date()
 AUDIT_TABLE_NAME:  str = os.environ.get("ETL_AUDIT_TABLE", "ETL_AUDIT")
-ERROR_MSG_MAX_LEN: int = int(os.environ.get("ETL_ERROR_MSG_MAX_LEN", "500"))
-SEUIL_TENSION_STOCK: float = float(os.environ.get("SEUIL_TENSION_STOCK", "0.5"))
+ERROR_MSG_MAX_LEN: int = int(os.environ.get("ETL_ERROR_MSG_MAX_LEN", DEFAULT_ERROR_MSG_MAX_LEN))
+SEUIL_TENSION_STOCK: float = float(os.environ.get("SEUIL_TENSION_STOCK", DEFAULT_SEUIL_TENSION_STOCK))
 
 
-_HASH_BYTES: int = int(os.environ.get("ETL_HASH_BYTES", "8"))
+_HASH_BYTES: int = int(os.environ.get("ETL_HASH_BYTES", DEFAULT_HASH_BYTES))
 if _HASH_BYTES < 8:
     raise ValueError(
         f"ETL_HASH_BYTES={_HASH_BYTES} is too small. "

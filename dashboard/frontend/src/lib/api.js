@@ -1,13 +1,12 @@
 import { useFilters } from "../store/useFilters";
+import { API_BASE, API_PREFIX, API_TIMEOUT_MS } from "./dashboardConstants";
 
-const BASE = ((typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "").replace(
-  /\/$/,
-  "",
-);
+const BASE = API_BASE || "";
+const TIMEOUT_MS = Number(API_TIMEOUT_MS || 8000);
 
-const TIMEOUT_MS = Number(
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_TIMEOUT_MS) || 8000,
-);
+function apiPath(path) {
+  return `${API_PREFIX}${path}`;
+}
 
 function url(path) {
   return `${BASE}${path}`;
@@ -76,48 +75,48 @@ function post(path) {
 }
 
 export const api = {
-  health: () => get("/api/health"),
-  filters: () => get("/api/dashboard/filters"),
+  health: () => get(apiPath("/health")),
+  filters: () => get(apiPath("/dashboard/filters")),
 
   etl: {
-    status: () => get("/api/etl/status"),
-    run: () => post("/api/etl/run"),
+    status: () => get(apiPath("/etl/status")),
+    run: () => post(apiPath("/etl/run")),
   },
 
   ml: {
-    status: () => get("/api/ml/status"),
-    run: () => post("/api/ml/run"),
-    forecastCa: () => get("/api/ml/forecast-ca"),
+    status: () => get(apiPath("/ml/status")),
+    run: () => post(apiPath("/ml/run")),
+    forecastCa: () => get(apiPath("/ml/forecast-ca")),
   },
 
   dashboard: {
-    kpis: (year) => get(`/api/dashboard/kpis${year ? `?year=${year}` : ""}`),
-    caByMonth: (year) => get(`/api/ventes/ca-by-month${year ? `?year=${year}` : ""}`),
-    topFamilles: (year) => get(`/api/ventes/top-familles${year ? `?year=${year}` : ""}`),
-    articles: (year) => get(`/api/produits/articles${year ? `?year=${year}` : ""}`),
+    kpis: (year) => get(apiPath(`/dashboard/kpis${year ? `?year=${year}` : ""}`)),
+    caByMonth: (year) => get(apiPath(`/ventes/ca-by-month${year ? `?year=${year}` : ""}`)),
+    topFamilles: (year) => get(apiPath(`/ventes/top-familles${year ? `?year=${year}` : ""}`)),
+    articles: (year) => get(apiPath(`/produits/articles${year ? `?year=${year}` : ""}`)),
   },
 
   tresorerie: {
-    summary: () => get("/api/tresorerie/summary"),
-    aging: () => get("/api/tresorerie/aging"),
+    summary: () => get(apiPath("/tresorerie/summary")),
+    aging: () => get(apiPath("/tresorerie/aging")),
   },
 
 
 
   banque: {
-    rapprochement: () => get("/api/banque/rapprochement"),
-    rapprochementBreakdown: () => get("/api/banque/rapprochement-breakdown"),
+    rapprochement: () => get(apiPath("/banque/rapprochement")),
+    rapprochementBreakdown: () => get(apiPath("/banque/rapprochement-breakdown")),
   },
 
   caisse: {
-    caisses: () => get("/api/caisse/caisses"),
-    fluxDaily: () => get("/api/caisse/flux-daily"),
-    mouvementsByType: () => get("/api/caisse/mouvements-by-type"),
+    caisses: () => get(apiPath("/caisse/caisses")),
+    fluxDaily: () => get(apiPath("/caisse/flux-daily")),
+    mouvementsByType: () => get(apiPath("/caisse/mouvements-by-type")),
   },
 
   fiscalite: {
-    kpis: () => get("/api/fiscalite/kpis"),
-    tvaByMonth: () => get("/api/fiscalite/tva-by-month"),
-    anomalies: () => get("/api/fiscalite/anomalies"),
+    kpis: () => get(apiPath("/fiscalite/kpis")),
+    tvaByMonth: () => get(apiPath("/fiscalite/tva-by-month")),
+    anomalies: () => get(apiPath("/fiscalite/anomalies")),
   },
 };

@@ -1,50 +1,59 @@
-import sys
 import os
 import logging
 import threading
 from typing import Optional
 from datetime import datetime
 
-# Add potential backend paths to sys.path to resolve 'ml' and 'etl' module imports
-current_dir = os.path.abspath(os.path.dirname(__file__))
-possible_paths = [
-    os.path.join(current_dir, "..", "..", ".."),                  # FINMAG root to import 'etl'
-    os.path.join(current_dir, "..", "..", "dashboard", "backend"), # from etl/api
-    os.path.join(current_dir, ".."),                              # from dashboard/backend/api
-    os.path.join(os.getcwd(), "dashboard", "backend"),             # from root
-]
-for path in possible_paths:
-    abs_path = os.path.abspath(path)
-    if os.path.exists(abs_path) and abs_path not in sys.path:
-        sys.path.insert(0, abs_path)
-
 from fastapi import BackgroundTasks, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from etl.config import DW_ENGINE, MAG_ENGINE, GRT_ENGINE, AUDIT_TABLE_NAME
 from etl import pipeline
 
-app = FastAPI(title="FinMAG API") 
+logger = logging.getLogger(__name__)
+
+APP_ENV = os.environ.get("APP_ENV", "development").lower()
+DEV_MODE = APP_ENV != "production"
+REQUEST_LOG_FILE = os.environ.get("REQUEST_LOG_FILE")
+
+app = FastAPI(title="FinMAG API")
 _ETL_RUN_LOCK = threading.Lock()
 _ETL_LAST_ERROR = None
 
 @app.middleware("http")
 async def log_requests(request, call_next):
     url = str(request.url)
+    timestamp = datetime.now().isoformat()
+
+    if REQUEST_LOG_FILE:
+        try:
+            log_path = os.path.abspath(REQUEST_LOG_FILE)
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"{timestamp} {request.method} {url}\n")
+        except OSError as exc:
+            logger.warning("Could not write request log to %s: %s", REQUEST_LOG_FILE, exc)
+    else:
+        logger.info("Incoming request: %s %s", request.method, url)
+
     try:
-        # Save log file in backend folder
-        log_path = os.path.join(os.path.dirname(__file__), "api_request_logs.txt")
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(f"{datetime.now()}: {request.method} {url}\n")
+        response = await call_next(request)
     except Exception:
-        pass
-    response = await call_next(request)
+        logger.exception("Unhandled error while processing request %s %s", request.method, url)
+        raise
+
+    logger.info("Request completed: %s %s %s", request.method, url, response.status_code)
     return response
+
+cors_origins = ["*"] if DEV_MODE else os.environ.get("CORS_ALLOW_ORIGINS", "").split(",")
+if not DEV_MODE and cors_origins == [""]:
+    raise RuntimeError("CORS_ALLOW_ORIGINS must be set in production to restrict allowed origins")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -57,8 +66,8 @@ def _rows(sql, params=None):
     try:
         with DW_ENGINE.connect() as conn:
             return conn.execute(text(sql), params or {}).fetchall()
-    except Exception as e:
-        logging.error(f"Database query error in _rows: {e}")
+    except SQLAlchemyError as exc:
+        logging.error(f"Database query error in _rows: {exc}")
         return []
 
 
@@ -68,8 +77,8 @@ def _row(sql, params=None):
     try:
         with DW_ENGINE.connect() as conn:
             return conn.execute(text(sql), params or {}).fetchone()
-    except Exception as e:
-        logging.error(f"Database query error in _row: {e}")
+    except SQLAlchemyError as exc:
+        logging.error(f"Database query error in _row: {exc}")
         return None
 
 
@@ -213,8 +222,8 @@ def _rows_grt(sql, params=None):
     try:
         with GRT_ENGINE.connect() as conn:
             return conn.execute(text(sql), params or {}).fetchall()
-    except Exception as e:
-        logging.error(f"GRT query error in _rows_grt: {e}")
+    except SQLAlchemyError as exc:
+        logging.error(f"GRT query error in _rows_grt: {exc}")
         return []
 
 
@@ -222,8 +231,8 @@ def _row_grt(sql, params=None):
     try:
         with GRT_ENGINE.connect() as conn:
             return conn.execute(text(sql), params or {}).fetchone()
-    except Exception as e:
-        logging.error(f"GRT query error in _row_grt: {e}")
+    except SQLAlchemyError as exc:
+        logging.error(f"GRT query error in _row_grt: {exc}")
         return None
 
 
@@ -250,7 +259,7 @@ def _run_etl_background():
         _ETL_LAST_ERROR = None
 
         try:
-            from ml.runner import run_all as run_ml  # type: ignore
+            from ..ml.runner import run_all as run_ml  # type: ignore
             run_ml()
         except Exception as ml_exc:
             logger = logging.getLogger("api.etl")
@@ -304,7 +313,7 @@ def get_dashboard_filters():
             "familles": familles,
             "years": years
         }
-    except Exception as exc:
+    except SQLAlchemyError as exc:
         logging.error(f"Error fetching dynamic filters: {exc}")
         return {
             "depots": ["Tous", "Tunis Nord", "Tunis Sud", "Sfax", "Sousse", "Nabeul", "Bizerte", "Dépôt Central"],
@@ -334,7 +343,7 @@ def get_etl_status():
             UNION ALL SELECT 'ecritures', COUNT(*) FROM FAIT_ECRITURES WITH (NOLOCK)
             """
         )
-    except Exception as exc:
+    except SQLAlchemyError as exc:
         return {
             "running": _ETL_RUN_LOCK.locked(),
             "lastError": str(exc),
@@ -375,7 +384,7 @@ def get_ml_status():
             try:
                 n = _row(f"SELECT COUNT(*) AS c FROM {tbl} WITH (NOLOCK)")
                 counts[k] = _int(n.c) if n else 0
-            except Exception:
+            except SQLAlchemyError:
                 counts[k] = 0
 
         last_date = None
@@ -383,10 +392,10 @@ def get_ml_status():
             r = _row("SELECT MAX(run_date) AS d FROM ML_KPI05_CA_FORECAST WITH (NOLOCK)")
             if r and r.d:
                 last_date = _date_str(r.d)
-        except Exception:
+        except SQLAlchemyError:
             pass
 
-    except Exception as exc:
+    except SQLAlchemyError as exc:
         return {
             "running": is_running(),
             "lastError": str(exc),
@@ -435,7 +444,7 @@ def get_ml_forecast_ca():
             }
             for r in rows
         ]
-    except Exception:
+    except SQLAlchemyError:
         return []
 
 
@@ -645,7 +654,7 @@ def get_dashboard_kpis(
                 rec_n1 = rate
         taux_recouvrement = rec_n
         taux_recouvrement_growth_pct = round(rec_n - rec_n1, 1)
-    except Exception:
+    except SQLAlchemyError:
         taux_recouvrement = 0.0
         taux_recouvrement_growth_pct = 0.0
         

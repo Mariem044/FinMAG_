@@ -86,3 +86,8 @@ export const formatTND = (v = 0) => {
     }).format(Number(v || 0) * rate) + ` ${code}`
   );
 };
+
+// API configuration (single source of truth)
+export const API_BASE = ((typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "").replace(/\/$/, "");
+export const API_PREFIX = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_PREFIX) || "/api";
+export const API_TIMEOUT_MS = Number((typeof import.meta !== "undefined" && import.meta.env?.VITE_API_TIMEOUT_MS) || 8000);

@@ -1,11 +1,17 @@
 import os
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
 # Charger les variables d'environnement
-load_dotenv()
+DEFAULT_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+ENV_PATH = Path(os.environ.get("DOTENV_PATH", DEFAULT_ENV_PATH))
+if ENV_PATH.exists():
+    load_dotenv(ENV_PATH)
+else:
+    load_dotenv()
 
 
 def _sqlserver_tls_compat(conn_str: str) -> str:
@@ -120,34 +126,48 @@ def ensure_dw_database_exists() -> None:
             conn.execute(text(f"CREATE DATABASE {_quote_sqlserver_identifier(db_name)}"))
 
 
-def _make_engine(conn_str: str, *, fast_executemany: bool = False):
-    kwargs = {}
-    if fast_executemany and conn_str.startswith("mssql+pyodbc"):
-        kwargs["fast_executemany"] = True
-    return create_engine(_sqlserver_tls_compat(conn_str), **kwargs)
+def _make_engine(conn_str: str):
+    return create_engine(_sqlserver_tls_compat(conn_str))
 
 
-DW_ENGINE  = _make_engine(os.environ["DW_CONN"], fast_executemany=True)
+DW_ENGINE  = _make_engine(os.environ["DW_CONN"])
 MAG_ENGINE = _make_engine(os.environ["MAG_CONN"])
 GRT_ENGINE = _make_engine(os.environ["GRT_CONN"])
 
 # Paramètres ETL
-DIM_DATE_START = datetime.strptime(os.environ.get("DIM_DATE_START", "2020-01-01"), "%Y-%m-%d").date()
-DIM_DATE_END   = datetime.strptime(os.environ.get("DIM_DATE_END",   "2026-12-31"), "%Y-%m-%d").date()
+DEFAULT_DIM_DATE_START = "2020-01-01"
+DEFAULT_DIM_DATE_END = "2026-12-31"
+DEFAULT_ERROR_MSG_MAX_LEN = "500"
+DEFAULT_HASH_BYTES = "8"
+
+DIM_DATE_START = datetime.strptime(os.environ.get("DIM_DATE_START", DEFAULT_DIM_DATE_START), "%Y-%m-%d").date()
+DIM_DATE_END   = datetime.strptime(os.environ.get("DIM_DATE_END",   DEFAULT_DIM_DATE_END), "%Y-%m-%d").date()
 
 # Paramètres supplémentaires
 AUDIT_TABLE_NAME = os.environ.get("ETL_AUDIT_TABLE", "ETL_AUDIT")
-CHUNK_SIZE = int(os.environ.get("ETL_CHUNK_SIZE", "5000"))
-ERROR_MSG_MAX_LEN = int(os.environ.get("ETL_ERROR_MSG_MAX_LEN", "500"))
+ERROR_MSG_MAX_LEN = int(os.environ.get("ETL_ERROR_MSG_MAX_LEN", DEFAULT_ERROR_MSG_MAX_LEN))
+
+_HASH_BYTES: int = int(os.environ.get("ETL_HASH_BYTES", DEFAULT_HASH_BYTES))
+if _HASH_BYTES < 8:
+    raise ValueError(
+        f"ETL_HASH_BYTES={_HASH_BYTES} is too small. "
+        "Set ETL_HASH_BYTES=8 in .env to avoid surrogate key collisions."
+    )
 
 
 def hash_key(value) -> int | None:
     """Retourne un entier positif 31-bit déterministe, ou None si vide."""
     if value is None:
         return None
-    s = str(value).strip().upper()
-    if not s:
+    try:
+        import pandas as _pd
+        if _pd.isna(value):
+            return None
+    except (ImportError, TypeError, ValueError):
+        pass
+    normalized = str(value).strip().upper()
+    if not normalized:
         return None
     import hashlib
-    digest = hashlib.md5(s.encode()).digest()
-    return int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
+    digest = hashlib.sha256(normalized.encode("utf-8")).digest()
+    return int.from_bytes(digest[:_HASH_BYTES], "big") & ((1 << (_HASH_BYTES * 8 - 1)) - 1)

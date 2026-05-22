@@ -1,6 +1,10 @@
+import logging
 import pandas as pd
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from etl.config import MAG_ENGINE, GRT_ENGINE
+
+logger = logging.getLogger(__name__)
 
 
 def _read(engine, sql):
@@ -114,8 +118,8 @@ def extract_dim_caisse_mag():
         df = _read(MAG_ENGINE, f"SELECT CA_No, JO_Num, DE_No, CO_No, {col_type} FROM F_CAISSE")
         if not df.empty:
             return df
-    except Exception:
-        pass
+    except SQLAlchemyError as exc:
+        logger.warning(f"Could not read MAG caisse data; falling back to GRT: {exc}")
 
     # Fallback to GRT_ENGINE F_Caisse
     sql_grt = """
