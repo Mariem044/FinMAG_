@@ -1,77 +1,64 @@
-"""Audit des exécutions ETL : suivi de démarrage, fin et gestion des erreurs."""
+"""Audit des exécutions ETL : suivi de démarrage, fin et gestion des erreurs.
+
+This module no longer embeds the ETL_AUDIT DDL; it delegates creation to
+the central DDL helper when the audit table is missing.
+"""
 
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from etl.config import DW_ENGINE, ERROR_MSG_MAX_LEN
+
+from etl.config import DW_ENGINE, ERROR_MSG_MAX_LEN, AUDIT_TABLE_NAME
 from etl.utils.logger import get_logger
+from etl import ddl
 
 logger = get_logger(__name__)
 
 
 def _ensure_audit_table_exists():
-    """Créer la table ETL_AUDIT si elle n'existe pas encore."""
-    sql_check = """
-        SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_NAME = 'ETL_AUDIT' AND TABLE_TYPE = 'BASE TABLE'
-    """
-    sql_create = """
-        CREATE TABLE ETL_AUDIT (
-            run_id           INT IDENTITY(1,1) PRIMARY KEY,
-            run_date         DATETIME NOT NULL DEFAULT GETUTCDATE(),
-            mode             VARCHAR(10) NOT NULL,
-            table_name       VARCHAR(100) NOT NULL,
-            rows_inserted    INT NOT NULL DEFAULT 0,
-            rows_updated     INT NOT NULL DEFAULT 0,
-            duration_seconds INT NOT NULL DEFAULT 0,
-            status           VARCHAR(20) NOT NULL,
-            error_msg        NVARCHAR(500) NULL
-        )
-    """
+    """Ensure the configured audit table exists; create via `etl.ddl` if missing."""
     try:
-        with DW_ENGINE.connect() as conn:
-            exists = conn.execute(text(sql_check)).scalar()
-        if not exists or exists == 0:
-            with DW_ENGINE.begin() as conn:
-                conn.execute(text(sql_create))
-            logger.info("Table ETL_AUDIT créée avec succès.")
+        if not ddl.table_exists(AUDIT_TABLE_NAME):
+            # Create all tables (DDL centrally defines ETL_AUDIT); this avoids
+            # duplicated CREATE TABLE SQL in multiple places.
+            ddl.create_all_tables(drop_existing=False)
+            logger.info("Table %s créée via etl.ddl.create_all_tables", AUDIT_TABLE_NAME)
     except SQLAlchemyError as exc:
-        logger.error(f"Erreur lors de la vérification/création de la table ETL_AUDIT : {exc}")
+        logger.error("Erreur lors de la vérification/création de la table %s: %s", AUDIT_TABLE_NAME, exc)
 
 
 def start_run(mode):
-    """Insère un enregistrement RUNNING dans la table audit et retourne son ID."""
+    """Insert a RUNNING row into the configured audit table and return its ID."""
     _ensure_audit_table_exists()
+    sql = text(
+        f"INSERT INTO [{AUDIT_TABLE_NAME}] (run_date, mode, table_name, rows_inserted, rows_updated, duration_seconds, status, error_msg) "
+        "OUTPUT INSERTED.run_id "
+        "VALUES (GETUTCDATE(), :mode, 'PIPELINE', 0, 0, 0, 'RUNNING', NULL)"
+    )
     with DW_ENGINE.begin() as conn:
-        result = conn.execute(
-            text(
-                "INSERT INTO ETL_AUDIT (run_date, mode, table_name, rows_inserted, rows_updated, duration_seconds, status, error_msg) "
-                "OUTPUT INSERTED.run_id "
-                "VALUES (GETUTCDATE(), :mode, 'PIPELINE', 0, 0, 0, 'RUNNING', NULL)"
-            ),
-            {"mode": mode},
-        )
+        result = conn.execute(sql, {"mode": mode})
         run_id = result.scalar()
-    logger.info(f"Pipeline démarré - run_id={run_id}, mode={mode}")
+    logger.info("Pipeline démarré - run_id=%s, mode=%s", run_id, mode)
     return run_id
 
 
 def end_run(run_id, status, error_msg=None):
-    """Met à jour l'enregistrement audit à la fin du pipeline."""
+    """Update the configured audit row when the pipeline finishes."""
     try:
+        sql = text(
+            f"UPDATE [{AUDIT_TABLE_NAME}] "
+            "SET status = :status, error_msg = :error_msg, "
+            "duration_seconds = DATEDIFF(SECOND, run_date, GETUTCDATE()) "
+            "WHERE run_id = :run_id"
+        )
         with DW_ENGINE.begin() as conn:
             conn.execute(
-                text(
-                    "UPDATE ETL_AUDIT "
-                    "SET status = :status, error_msg = :error_msg, "
-                    "duration_seconds = DATEDIFF(SECOND, run_date, GETUTCDATE()) "
-                    "WHERE run_id = :run_id"
-                ),
+                sql,
                 {
                     "status": status,
                     "error_msg": error_msg[:ERROR_MSG_MAX_LEN] if error_msg else None,
                     "run_id": run_id,
                 },
             )
-        logger.info(f"Pipeline terminé - run_id={run_id}, status={status}")
+        logger.info("Pipeline terminé - run_id=%s, status=%s", run_id, status)
     except SQLAlchemyError as exc:
-        logger.error(f"Impossible de mettre à jour la table audit : {exc}")
+        logger.error("Impossible de mettre à jour la table audit: %s", exc)

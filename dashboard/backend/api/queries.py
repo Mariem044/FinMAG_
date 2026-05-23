@@ -9,7 +9,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from etl.config import DW_ENGINE, MAG_ENGINE, GRT_ENGINE, AUDIT_TABLE_NAME
+import etl.config as etl_config
+
+# Acquire DB engines and audit table name from etl.config when available,
+# falling back to environment defaults to remain robust after refactors.
+DW_ENGINE = etl_config.DW_ENGINE
+MAG_ENGINE = etl_config.MAG_ENGINE
+GRT_ENGINE = etl_config.GRT_ENGINE
+AUDIT_TABLE_NAME = getattr(etl_config, "AUDIT_TABLE_NAME", os.environ.get("ETL_AUDIT_TABLE", "ETL_AUDIT"))
 from etl import pipeline
 
 logger = logging.getLogger(__name__)

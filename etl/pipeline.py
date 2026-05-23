@@ -5,6 +5,7 @@ import re
 import pandas as pd
 from sqlalchemy import text
 
+import os
 from etl.config import DW_ENGINE, DIM_DATE_START, DIM_DATE_END, ensure_dw_database_exists
 from etl.utils.logger import get_logger
 from etl.utils import audit
@@ -87,7 +88,9 @@ def run_pipeline():
     try:
         ensure_dw_database_exists()
         run_id = audit.start_run("full")
-        ddl.create_all_tables(drop_existing=True)
+        # Drop existing tables only when explicitly requested via env var.
+        drop_existing = str(os.environ.get("ETL_DROP_EXISTING", "False")).lower() in ("1", "true", "yes")
+        ddl.create_all_tables(drop_existing=drop_existing)
 
         today = datetime.now(timezone.utc).date()
         lookups = {}
