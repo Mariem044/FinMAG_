@@ -1,3 +1,14 @@
+"""Configuration de logging pour le backend ETL/API.
+
+Ce module fournit `get_logger(name)` qui retourne un logger configuré
+avec :
+- un handler fichier rotatif (`RotatingFileHandler`) vers `etl_run.log`
+- un handler console (stdout)
+
+Les niveaux et le chemin du fichier peuvent être configurés via
+`ETL_LOG_LEVEL` et `ETL_LOG_FILE`.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -16,6 +27,7 @@ _LOG_LEVEL_MAP: dict[str, int] = {
 
 _LOG_DIR = Path(__file__).parent.parent
 _LOG_FILE = _LOG_DIR / os.getenv("ETL_LOG_FILE", "etl_run.log")
+_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 _LOG_LEVEL = _LOG_LEVEL_MAP.get(
     os.getenv("ETL_LOG_LEVEL", "INFO").upper(), logging.INFO
 )
@@ -36,6 +48,11 @@ _handler_console.setFormatter(logging.Formatter(_FMT, datefmt=_DATE_FMT))
 
 
 def get_logger(name: str) -> logging.Logger:
+    """Retourne un logger configuré pour l'application.
+
+    Utiliser `get_logger(__name__)` dans les modules pour obtenir un
+    logger cohérent (niveau, format, handlers).
+    """
     logger = logging.getLogger(name)
     if not logger.handlers:
         logger.setLevel(_LOG_LEVEL)

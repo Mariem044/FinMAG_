@@ -1,11 +1,23 @@
-"""Chargement des données dans les tables du data warehouse."""
+"""Chargement des données dans les tables du data warehouse.
 
+Ce module gère la persistance des `pandas.DataFrame` extraits/transformés
+dans les tables SQL. Stratégie par défaut : vider la table cible puis
+insérer toutes les lignes (`DELETE` + `INSERT` via pandas `to_sql`).
+
+Attention : cette stratégie est simple et déterministe mais peut être
+coûteuse sur de larges volumes. Elle est contrôlée par l'option
+`ETL_ALLOW_TABLE_DELETE` (env).
+"""
+
+import os
 import pandas as pd
 from sqlalchemy import text
 from etl.config import DW_ENGINE
 from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+ALLOW_TABLE_DELETE = os.environ.get("ETL_ALLOW_TABLE_DELETE", "true").strip().lower() in ("1", "true", "yes")
 
 
 def get_table_columns(table):
@@ -27,8 +39,15 @@ def load_dimension(df, table):
     valid_cols = [c for c in df.columns if c in target_cols]
     df_clean = df[valid_cols].copy()
 
-    with DW_ENGINE.begin() as conn:
-        conn.execute(text(f"DELETE FROM [{table}]"))
+    if ALLOW_TABLE_DELETE:
+        with DW_ENGINE.begin() as conn:
+            conn.execute(text(f"DELETE FROM [{table}]"))
+    else:
+        logger.warning(
+            "[%s] ETL_ALLOW_TABLE_DELETE is disabled; %s rows will be appended instead of deleting existing data.",
+            table,
+            len(df_clean),
+        )
 
     df_clean.to_sql(table, DW_ENGINE, if_exists="append", index=False)
     logger.info(f"[{table}] {len(df_clean)} lignes chargées.")

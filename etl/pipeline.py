@@ -1,4 +1,21 @@
-"""Pipeline ETL complet : extraction, transformation et chargement dans le data warehouse."""
+"""Pipeline ETL complet : extraction, transformation et chargement.
+
+Ce module orchestre l'exécution complète du pipeline ETL :
+1) création/validation des tables (via `etl.ddl`)
+2) extraction des sources (via `etl.extract`)
+3) transformations pandas (via `etl.transform`)
+4) chargement dans le data warehouse (via `etl.load`)
+5) post-traitements SQL (KPIs, calculs) et logging d'audit
+
+Le pipeline utilise des lookups (mappings natural_key -> surrogate_id)
+pour résoudre les dimensions et construire les faits. Il journalise
+les métriques d'exécution dans la table `ETL_AUDIT` via `etl.utils.audit`.
+
+Design notes :
+- Les transformations doivent être déterministes et testables sur DataFrames
+- Les correspondances bancaires/ville sont résilientes aux variations
+    de format (normalisation des chaînes et comparaison par clés nettoyées)
+"""
 
 from datetime import datetime, timezone
 import re

@@ -1,4 +1,14 @@
-"""Définitions de schéma et création de tables pour le data warehouse ETL."""
+"""DDL (création de schéma) pour le data warehouse.
+
+Ce module contient les définitions SQL des tables dimensions et faits
+utilisées par l'ETL. Il expose :
+- `table_exists(table_name)` : vérifie si une table existe
+- `create_all_tables(drop_existing=False)` : crée toutes les tables
+    nécessaires (optionnellement en supprimant les existantes)
+
+Le SQL est volontairement explicite (CREATE TABLE) pour garder le
+contrôle sur le schéma et les types compatibles SQL Server.
+"""
 
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError

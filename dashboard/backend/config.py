@@ -1,5 +1,22 @@
 ﻿from __future__ import annotations
 
+"""Configuration partagée pour le backend FinMAG.
+
+Ce module centralise la lecture des variables d'environnement, la
+création des moteurs SQLAlchemy (`DW_ENGINE`, `MAG_ENGINE`, `GRT_ENGINE`)
+et les utilitaires liés aux connexions (gestion TLS/ODBC, parsing de
+dates, génération de clés de hachage stables). Les fonctions exposées
+ici sont utilisées par l'ETL, le backend API et les composants ML.
+
+Principaux points :
+- `get_required_env(name)` : lève une erreur si la variable d'environnement
+    attendue est absente (utile pour fail-fast en démarrage).
+- `_make_engine(conn_str)` : fabrique un `Engine` SQLAlchemy avec des
+    options par défaut et un pool adapté.
+- `hash_key(value)` : génère une clé entière stable à partir d'une valeur
+    (utilisée pour créer des surrogate keys déterministes dans l'ETL).
+"""
+
 import hashlib
 import logging
 import math

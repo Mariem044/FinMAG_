@@ -1,7 +1,13 @@
 """Audit des exécutions ETL : suivi de démarrage, fin et gestion des erreurs.
 
-This module no longer embeds the ETL_AUDIT DDL; it delegates creation to
-the central DDL helper when the audit table is missing.
+Ce module gère l'enregistrement simple des runs ETL dans la table
+`ETL_AUDIT`. Il veille également à créer la table d'audit via
+`etl.ddl` si elle est absente (évite la duplication du DDL ici).
+
+Fonctions principales :
+- `_ensure_audit_table_exists()` : vérifie/crée la table d'audit
+- `start_run(mode)` : insère une ligne RUNNING et retourne `run_id`
+- `end_run(run_id, status, error_msg)` : met à jour la ligne d'audit
 """
 
 from sqlalchemy import text

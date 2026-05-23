@@ -1,4 +1,9 @@
-"""Transformations de préparation des données pour les dimensions et faits ETL."""
+"""Transformations de préparation des données pour les dimensions et faits ETL.
+
+Ce module contient des fonctions pures (pandas) qui normalisent les
+DataFrames extraits avant leur chargement. Elles ne doivent pas
+effectuer d'opérations côté base de données.
+"""
 
 import pandas as pd
 
@@ -21,7 +26,14 @@ def transform_dim_date(df):
 
 
 def add_fact_reglements_calcs(df):
-    """Calcule le délai de paiement réel en jours et le bucket impayé."""
+    """Calcule le délai de paiement réel en jours et le bucket impayé.
+
+    - `delai_reel_jours` : différence en jours entre date de paiement et date
+        initiale du document
+    - `ecart_delai` : écart entre `delai_reel_jours` et `RT_NbJour` (contrat)
+    - `bucket_impaye` : découpage en classes d'ancienneté des impayés
+        (0: 0-30j, 1:31-60j, 2:61-90j, 3:>90j)
+    """
     df = df.copy()
     df["RT_Date"]         = pd.to_datetime(df["RT_Date"], errors="coerce")
     df["DO_Date"]         = pd.to_datetime(df["DO_Date"], errors="coerce")

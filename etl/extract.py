@@ -1,4 +1,17 @@
-"""Extraction des données sources depuis les bases MAG et GRT."""
+"""Extraction des données sources depuis les bases MAG et GRT.
+
+Ce module centralise toutes les requêtes SQL nécessaires pour lire
+les tables sources (clients, articles, ventes, mouvements de caisse,
+etc.). Les fonctions retournent des `pandas.DataFrame` prêts à être
+transformés et chargés.
+
+Conventions :
+- le helper `_read(engine, sql)` retourne un DataFrame depuis l'
+    engine fourni
+- `_select_column` et `_select_first_column` permettent de gérer
+    les variations de noms de colonnes entre versions des sources
+    (compatibilité ascendante)
+"""
 
 import logging
 import pandas as pd

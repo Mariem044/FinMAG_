@@ -5,6 +5,10 @@ import {
   Brain,
   Cpu,
   Activity,
+  Clock,
+  RefreshCw,
+  Play,
+  Terminal,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -24,6 +28,12 @@ import { useApiResource } from "@/hooks/useApiResource";
 export const Route = createFileRoute("/predictions")({
   component: PredictionsStudioPage,
 });
+
+const ML_STATUS_REFRESH_MS = Number(
+  (typeof import.meta !== "undefined" &&
+    import.meta.env?.VITE_ML_STATUS_REFRESH_MS) ||
+    3000,
+);
 
 function normalizeModelId(name) {
   return String(name || "model")
@@ -103,6 +113,18 @@ function SimpleGauge({ pct, color, label, value, subtext }) {
 
 function PredictionsStudioPage() {
   const [activeTab, setActiveTab] = useState("");
+  const [isTriggering, setIsTriggering] = useState(false);
+
+  const mlStatusFn = useMemo(() => () => api.ml.status(), []);
+  const { data: mlStatus, refresh: refreshMlStatus } = useApiResource(
+    mlStatusFn,
+    {
+      running: false,
+      lastError: null,
+      lastRun: null,
+      counts: {},
+    },
+  );
 
   const forecastCaFn = useMemo(() => () => api.ml.forecastCa(), []);
   const {
@@ -110,6 +132,15 @@ function PredictionsStudioPage() {
     loading: caLoading,
     refresh: refreshForecast,
   } = useApiResource(forecastCaFn, []);
+
+  useEffect(() => {
+    if (!mlStatus?.running) return undefined;
+    const timer = window.setInterval(() => {
+      refreshMlStatus();
+      refreshForecast();
+    }, ML_STATUS_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [mlStatus?.running, refreshMlStatus, refreshForecast]);
 
   const rows = useMemo(() => (Array.isArray(caData) ? caData : []), [caData]);
 
@@ -202,11 +233,161 @@ function PredictionsStudioPage() {
     });
   }, [filteredCaData]);
 
+  const formattedLastRun = useMemo(() => {
+    if (!mlStatus?.lastRun?.date) return "Aucune execution enregistree";
+    try {
+      return new Date(mlStatus.lastRun.date).toLocaleString("fr-TN", {
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return mlStatus.lastRun.date;
+    }
+  }, [mlStatus]);
+
+  const runState = useMemo(() => {
+    if (mlStatus?.running)
+      return {
+        label: "En cours",
+        className: "text-indigo-400 bg-indigo-500/10 animate-pulse",
+      };
+    if (mlStatus?.lastError)
+      return { label: "Erreur", className: "text-red-400 bg-red-500/10" };
+    if (mlStatus?.lastRun)
+      return {
+        label: "Termine",
+        className: "text-emerald-400 bg-emerald-500/10",
+      };
+    return { label: "Non lance", className: "text-text-dim bg-surface" };
+  }, [mlStatus]);
+
+  const apiLogs = useMemo(() => {
+    const rawLogs = Array.isArray(mlStatus?.logs) ? mlStatus.logs : [];
+    return rawLogs.map((log) => {
+      if (typeof log === "string")
+        return { time: "", message: log, type: "info" };
+      return {
+        time: log.time || log.t || "",
+        message: log.message || log.m || JSON.stringify(log),
+        type: log.type || "info",
+      };
+    });
+  }, [mlStatus]);
+
+  async function handleTriggerTraining() {
+    if (isTriggering || mlStatus?.running) return;
+
+    setIsTriggering(true);
+    try {
+      await api.ml.run();
+      refreshMlStatus();
+      refreshForecast();
+    } catch (error) {
+      console.error("Erreur lors du lancement ML:", error);
+    } finally {
+      setIsTriggering(false);
+    }
+  }
+
   const chartH = useChartHeight();
   const activeColor = activeModel?.color || CHART_THEME.primary;
+  const actionDisabled = isTriggering || Boolean(mlStatus?.running);
 
   return (
     <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-surface/20 border border-border/30 rounded-2xl p-5 flex flex-col justify-between">
+          <div className="space-y-3">
+            <h4 className="text-[13px] font-semibold text-foreground tracking-wide flex items-center gap-1.5">
+              <RefreshCw className="h-4 w-4 text-indigo-400" />
+              Orchestrateur predictif
+            </h4>
+
+            <div className="bg-background/40 border border-border/20 rounded-xl p-3 space-y-2 text-[11px]">
+              <div className="flex justify-between items-center gap-3">
+                <span className="text-text-dim">Derniere execution :</span>
+                <span className="font-semibold text-foreground flex items-center gap-1 text-right">
+                  <Clock size={11} className="text-text-dim" />
+                  {formattedLastRun}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-text-dim">Statut :</span>
+                <span
+                  className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${runState.className}`}
+                >
+                  {runState.label}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={handleTriggerTraining}
+            disabled={actionDisabled}
+            className={`w-full py-2.5 px-4 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 border transition-all mt-4 cursor-pointer shadow-sm ${
+              actionDisabled
+                ? "bg-surface border-border/20 text-text-dim cursor-not-allowed"
+                : "bg-surface hover:bg-surface/80 border-border/40 text-foreground active:scale-[0.98]"
+            }`}
+          >
+            <Play
+              size={11}
+              className={actionDisabled ? "animate-spin" : "fill-current"}
+            />
+            {actionDisabled ? "Calculs..." : "Forcer le reentrainement"}
+          </button>
+        </div>
+
+        <div className="md:col-span-2 bg-background border border-border/40 rounded-2xl p-4 flex flex-col h-[200px] shadow-inner">
+          <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-2">
+            <div className="flex items-center gap-1.5">
+              <Terminal size={12} className="text-text-dim" />
+              <span className="text-[9px] uppercase font-bold tracking-wider text-text-dim font-mono">
+                Journal d'execution
+              </span>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-1 font-mono text-[10px] text-text-dim pr-1 custom-scrollbar">
+            {apiLogs.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-center space-y-1">
+                <Terminal size={18} className="opacity-30 text-indigo-400" />
+                <p className="text-[9px] uppercase tracking-wider font-bold">
+                  Aucun journal retourne par l'API
+                </p>
+                {mlStatus?.lastError && (
+                  <p className="text-[8.5px] max-w-[360px] text-red-400">
+                    {mlStatus.lastError}
+                  </p>
+                )}
+              </div>
+            ) : (
+              apiLogs.map((log, index) => (
+                <div
+                  key={`${log.time}-${index}`}
+                  className="flex gap-2 items-start py-0.5"
+                >
+                  {log.time && (
+                    <span className="text-text-dim/40 select-none">
+                      {log.time}
+                    </span>
+                  )}
+                  <span
+                    className={
+                      log.type === "error" ? "text-red-400" : "text-foreground"
+                    }
+                  >
+                    {log.message}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
 
       {modelSummaries.length > 0 && (
         <div className="flex bg-background border border-border/40 p-1 rounded-xl shadow-inner w-max max-w-full overflow-x-auto">

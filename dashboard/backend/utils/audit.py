@@ -1,3 +1,18 @@
+"""Utilitaires d'audit pour le backend ETL.
+
+Ce module enregistre les débuts/fin d'exécution du pipeline dans la table
+`ETL_AUDIT` et fournit des context managers pour mesurer et persister
+les métriques (lignes insérées/mises à jour, durée, statut, message d'erreur).
+
+Principales fonctions :
+- `get_last_run_info()` : retourne la date de la dernière exécution réussie
+    et le mode ('full' ou 'delta').
+- `start_run(mode)` : acquiert un verrou applicatif SQL et insère une ligne
+    RUNNING dans la table d'audit (retourne `run_id`).
+- `table_timer(run_id, table_name)` : context manager pour mesurer et
+    logger l'insertion d'une table pendant l'exécution.
+"""
+
 from __future__ import annotations
 
 import os

@@ -1,6 +1,24 @@
+"""API backend FinMAG (endpoints et helpers).
+
+Ce module expose les routes FastAPI utilisées par le frontend.
+Il contient :
+- l'instance `app` FastAPI et la configuration CORS
+- des helpers `_rows`, `_row`, `_num`, `_int` pour exécuter des requêtes
+- des fonctions `_build_filters_*` pour construire dynamiquement des
+    clauses SQL selon les filtres (année, trimestre, mois, segment, famille...)
+- des endpoints pour contrôler et obtenir le statut ETL/ML
+- la logique pour lancer l'ETL et le ML en arrière-plan (verrous mutex)
+
+Commentaires :
+- Les helpers utilisent `etl.config` pour récupérer les moteurs DB.
+- Les endpoints doivent rester légers : les requêtes lourdes sont
+    exécutées côté base via SQL construits ici.
+"""
+
 import os
 import logging
 import threading
+from pathlib import Path
 from typing import Optional
 from datetime import datetime
 
@@ -54,8 +72,8 @@ async def log_requests(request, call_next):
     logger.info("Request completed: %s %s %s", request.method, url, response.status_code)
     return response
 
-cors_origins = ["*"] if DEV_MODE else os.environ.get("CORS_ALLOW_ORIGINS", "").split(",")
-if not DEV_MODE and cors_origins == [""]:
+cors_origins = ["*"] if DEV_MODE else [origin.strip() for origin in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",") if origin.strip()]
+if not DEV_MODE and not cors_origins:
     raise RuntimeError("CORS_ALLOW_ORIGINS must be set in production to restrict allowed origins")
 
 app.add_middleware(
@@ -423,6 +441,63 @@ def run_ml_endpoint():
     from ..ml.runner import run_all_background  # type: ignore
     started = run_all_background()
     return {"started": started, "running": True}
+
+
+@app.post("/api/ml/run-models")
+def run_ml_models(horizon: Optional[int] = 12, models: Optional[str] = None):
+    """Lancer le forecast CA pour un ou plusieurs modèles.
+
+    Query params:
+    - `horizon` : nombre de mois à prévoir (défaut 12)
+    - `models`  : chaîne séparée par des virgules, ex: "SIMPLE,ARIMA,PROPHET"
+
+    Le ML module est importé dynamiquement pour éviter d'ajouter de
+    lourdes dépendances au démarrage si elles sont absentes.
+    Retourne les lignes de prévision sérialisées et les métriques par modèle.
+    """
+    try:
+        from ..ml import ca_forecast  # type: ignore
+    except Exception as exc:
+        logger.error(f"Could not import ca_forecast: {exc}")
+        return {"started": False, "error": "ca_forecast module not available"}
+
+    model_list = None
+    if models:
+        model_list = [m.strip().upper() for m in str(models).split(",") if m.strip()]
+
+    try:
+        df = ca_forecast.run(horizon=int(horizon or 12), models=model_list)
+    except Exception as exc:
+        logger.error(f"Error running ca_forecast.run: {exc}")
+        return {"started": False, "error": str(exc)}
+
+    if df is None or df.empty:
+        return {"started": True, "rows": [], "metrics": {}}
+
+    # Sérialiser en JSON-friendly
+    rows = []
+    for r in df.itertuples(index=False):
+        # accéder par noms de colonnes possibles
+        d = {}
+        d["ds"] = _date_str(getattr(r, "ds", None))
+        d["model_name"] = getattr(r, "model_name", None)
+        d["yhat"] = _num(getattr(r, "yhat", None))
+        d["yhat_lower"] = _num(getattr(r, "yhat_lower", None))
+        d["yhat_upper"] = _num(getattr(r, "yhat_upper", None))
+        d["is_historical"] = int(getattr(r, "is_historical", 0))
+        d["mae"] = _num(getattr(r, "mae", None))
+        d["mape"] = _num(getattr(r, "mape", None))
+        rows.append(d)
+
+    # Metrics par modèle (prendre la première occurrence)
+    metrics = {}
+    for model in df["model_name"].unique():
+        sub = df[df["model_name"] == model]
+        mae = float(sub["mae"].dropna().unique()[0]) if "mae" in sub.columns and not sub["mae"].dropna().empty else 0.0
+        mape = float(sub["mape"].dropna().unique()[0]) if "mape" in sub.columns and not sub["mape"].dropna().empty else 0.0
+        metrics[model] = {"mae": mae, "mape": mape}
+
+    return {"started": True, "rows": rows[:1000], "metrics": metrics}
 
 
 @app.get("/api/ml/forecast-ca")

@@ -1,4 +1,18 @@
-﻿"""Configuration de l'ETL : paramètres, connexions et utilitaires partagés."""
+﻿"""Configuration centrale de l'ETL et utilitaires liés aux connexions.
+
+Ce module :
+- charge les variables d'environnement depuis `.env`
+- expose des moteurs SQLAlchemy `DW_ENGINE`, `MAG_ENGINE`, `GRT_ENGINE`
+- fournit des helpers pour modifier/inspecter des chaînes de connexion
+    (ex : remplacement de la base, ajout des flags TLS pour ODBC)
+- définit des constantes ETL (plage de dates, longueur max des messages
+    d'erreur, taille du hash utilisé pour générer des surrogate keys)
+
+Notes d'utilisation :
+- `ensure_dw_database_exists()` permet de créer la base DW si nécessaire.
+- `hash_key(value)` retourne un entier stable utilisé comme clé de
+    substitution dans le pipeline pour éviter collisions entre runs.
+"""
 
 import hashlib
 import os
@@ -15,6 +29,14 @@ DEFAULT_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 DOTENV_PATH = Path(os.environ.get("DOTENV_PATH", DEFAULT_ENV_PATH))
 # Charger les variables d'environnement à partir du fichier .env ou d'un chemin personnalisé
 load_dotenv(DOTENV_PATH if DOTENV_PATH.exists() else DEFAULT_ENV_PATH)
+
+
+def get_required_env(name: str) -> str:
+    """Return a required environment variable or raise a clear error."""
+    value = os.environ.get(name)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
 
 
 def _sqlserver_tls_compat(conn_str: str) -> str:
@@ -143,9 +165,9 @@ def _make_engine(conn_str: str):
     return create_engine(_sqlserver_tls_compat(conn_str))
 
 
-DW_ENGINE = _make_engine(os.environ["DW_CONN"])
-MAG_ENGINE = _make_engine(os.environ["MAG_CONN"])
-GRT_ENGINE = _make_engine(os.environ["GRT_CONN"])
+DW_ENGINE = _make_engine(get_required_env("DW_CONN"))
+MAG_ENGINE = _make_engine(get_required_env("MAG_CONN"))
+GRT_ENGINE = _make_engine(get_required_env("GRT_CONN"))
 
 # ETL parameters with default values.
 DEFAULT_DIM_DATE_START = "2020-01-01"
