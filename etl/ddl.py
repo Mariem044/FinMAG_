@@ -30,7 +30,7 @@ def table_exists(table_name):
 
 
 def create_all_tables(drop_existing=False):
-    """Crée toutes les tables du data warehouse."""
+    """Crée toutes les tables du data warehouse et leurs structures."""
     logger.info("=== Création des tables du data warehouse ===")
 
     if drop_existing:
@@ -183,7 +183,8 @@ def create_all_tables(drop_existing=False):
                 id_caisse      INT IDENTITY(1,1) PRIMARY KEY,
                 CA_Numero_code NVARCHAR(50) NOT NULL UNIQUE,
                 CA_Type        SMALLINT NULL,
-                id_journal     INT NULL
+                id_journal     INT NULL,
+                DE_No          INT NULL
             )
         """,
         "FAIT_LIGNES_VENTE": """

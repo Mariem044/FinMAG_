@@ -7,14 +7,6 @@ Ce module orchestre l'exécution complète du pipeline ETL :
 4) chargement dans le data warehouse (via `etl.load`)
 5) post-traitements SQL (KPIs, calculs) et logging d'audit
 
-Le pipeline utilise des lookups (mappings natural_key -> surrogate_id)
-pour résoudre les dimensions et construire les faits. Il journalise
-les métriques d'exécution dans la table `ETL_AUDIT` via `etl.utils.audit`.
-
-Design notes :
-- Les transformations doivent être déterministes et testables sur DataFrames
-- Les correspondances bancaires/ville sont résilientes aux variations
-    de format (normalisation des chaînes et comparaison par clés nettoyées)
 """
 
 from datetime import datetime, timezone
@@ -33,7 +25,28 @@ logger = get_logger(__name__)
 
 
 def _build_lookup(table_name, natural_col, surrogate_col):
-    """Construire un dictionnaire de correspondance natural key -> surrogate key."""
+    """
+    Construire un dictionnaire de correspondance : clé naturelle -> clé de substitution (surrogate key).
+    
+    Cette fonction crée une table de correspondance (lookup table) qui mappe les identifiants
+    métier (natural keys) vers les identifiants techniques générés par la base de données
+    (surrogate keys - des IDs auto-incrémentés).
+    
+    Exemple : 
+        - Natural key : "2024-01-15" (date)
+        - Surrogate key : 15 (id_date généré par la DB)
+        - Lookup : {"2024-01-15": 15}
+    
+    Cette lookup est utilisée pour enrichir les faits avec les IDs des dimensions.
+    
+    Args:
+        table_name: Nom de la table dimension (ex: "DIM_DATE", "DIM_CLIENT")
+        natural_col: Colonne contenant la clé naturelle (ex: "date_val", "CT_Num")
+        surrogate_col: Colonne contenant la clé de substitution (ex: "id_date", "id_client")
+    
+    Returns:
+        dict: Dictionnaire {natural_key: surrogate_key} pour mapping rapide
+    """
     query = f"SELECT [{surrogate_col}], [{natural_col}] FROM [{table_name}]"
     df = pd.read_sql(query, DW_ENGINE)
     if table_name == "DIM_DATE" and not df.empty:
@@ -42,7 +55,24 @@ def _build_lookup(table_name, natural_col, surrogate_col):
 
 
 def _clean_text_code(value):
-    """Normalise un libellé texte pour comparaison en majuscules."""
+    """
+    Normaliser un libellé texte en convertissant en majuscules et supprimant les espaces.
+    
+    Utilisée pour standardiser les codes texte avant de les utiliser comme clés de recherche
+    dans les lookups. Cela évite les problèmes de casse (majuscules/minuscules) ou d'espaces
+    excédentaires lors des appariements.
+    
+    Exemple :
+        _clean_text_code("  tunisia  ") → "TUNISIA"
+        _clean_text_code("Code_Client") → "CODE_CLIENT"
+        _clean_text_code(None) → None
+    
+    Args:
+        value: Valeur à normaliser (chaîne, nombre, ou None)
+    
+    Returns:
+        str | None: Texte normalisé en majuscules, ou None si vide/NaN
+    """
     if pd.isna(value):
         return None
     text = str(value).strip()
@@ -50,7 +80,24 @@ def _clean_text_code(value):
 
 
 def _clean_bank_account(value):
-    """Extraire les chiffres d'un champ compte bancaire et normaliser le numéro."""
+    """
+    Extraire et normaliser un numéro de compte bancaire en supprimant tous les caractères non-numériques.
+    
+    Les numéros de compte bancaire peuvent contenir des tirets, espaces ou autres caractères
+    de formatage. Cette fonction en extrait uniquement les chiffres pour permettre
+    une comparaison cohérente entre les sources.
+    
+    Exemple :
+        _clean_bank_account("1234-5678-90") → "1234567890"
+        _clean_bank_account("12 34 56 78") → "12345678"
+        _clean_bank_account(None) → None
+    
+    Args:
+        value: Chaîne contenant le numéro de compte (peut avoir des séparateurs)
+    
+    Returns:
+        str | None: Numéro de compte contenant uniquement les chiffres, ou None si vide
+    """
     if pd.isna(value):
         return None
     digits = re.sub(r"\D+", "", str(value))
@@ -58,7 +105,30 @@ def _clean_bank_account(value):
 
 
 def _resolve_ville(row, ville_by_index, ville_by_code, ville_by_name):
-    """Résoudre une ville à partir de plusieurs clés possibles (index, code, nom)."""
+    """
+    Résoudre une ville (gouvernorat) en essayant plusieurs approches de correspondance.
+    
+    Les villes peuvent être identifiées de plusieurs façons dans les sources :
+    1. Par index numérique (CT_CodeRegion)
+    2. Par code texte normalisé (VI_Code)
+    3. Par nom / désignation (CT_Ville, VI_Designation)
+    
+    Cette fonction essaie ces trois approches dans l'ordre et retourne la première correspondance trouvée.
+    
+    Exemple d'une ligne :
+        {"CT_CodeRegion": "1", "CT_Ville": "Tunis", "VI_Code": "TUN"}
+        → Cherche d'abord index 1, puis code "TUN", puis nom "TUNIS"
+        → Retourne {"id_ville": 5, "gouvernorat": "Tunis"}
+    
+    Args:
+        row: Dictionnaire contenant les colonnes de la ligne (CT_CodeRegion, CT_Ville, etc.)
+        ville_by_index: Lookup par index numérique {1: {"id_ville": 5, "gouvernorat": "Tunis"}}
+        ville_by_code: Lookup par code texte {"TUN": {"id_ville": 5, ...}}
+        ville_by_name: Lookup par nom normalisé {"TUNIS": {"id_ville": 5, ...}}
+    
+    Returns:
+        dict | None: {"id_ville": int, "gouvernorat": str} ou None si non trouvée
+    """
     raw_region = row.get("CT_CodeRegion")
     if pd.notna(raw_region):
         try:
@@ -76,7 +146,26 @@ def _resolve_ville(row, ville_by_index, ville_by_code, ville_by_name):
 
 
 def _lookup_banque(row, lookup, fields):
-    """Chercher une banque dans le lookup à partir de plusieurs champs possibles."""
+    """
+    Chercher une banque dans le lookup en essayant plusieurs colonnes de source.
+    
+    Utilisée pour enrichir les données de règlements avec l'ID de la banque.
+    Cherche dans chaque champ spécifié, normalise le texte, et retourne le premier ID trouvé.
+    
+    Exemple :
+        lookup = {"ATTIJARI": 1, "BNA": 2, "UIB": 3}
+        row = {"BQ_ABREGE": "ATT", "BQ_ABREGE_BR": "ATTIJARI"}
+        fields = ["BQ_ABREGE", "BQ_ABREGE_BR"]
+        → Cherche "ATT" (pas trouvé), puis "ATTIJARI" (trouvé!) → retourne 1
+    
+    Args:
+        row: Dictionnaire contenant les colonnes à explorer
+        lookup: Lookup dict {code_banque_normalisé: id_banque}
+        fields: Liste des noms de colonnes à essayer dans l'ordre
+    
+    Returns:
+        int | None: ID de la banque trouvée, ou None si aucune correspondance
+    """
     for field in fields:
         key = _clean_text_code(row.get(field))
         if key and key in lookup:
@@ -85,6 +174,7 @@ def _lookup_banque(row, lookup, fields):
 
 
 def _lookup_banque_by_account(row, account_lookup, fields):
+    """Chercher une banque par correspondance nominale ou partielle du compte bancaire."""
     for field in fields:
         account = _clean_bank_account(row.get(field))
         if not account:
@@ -99,6 +189,7 @@ def _lookup_banque_by_account(row, account_lookup, fields):
 
 
 def run_pipeline():
+    """Orchestre l'exécution complète du pipeline ETL : extraction, transformation et chargement."""
     logger.info("=== ETL PIPELINE STARTED ===")
 
     run_id = None
@@ -114,6 +205,12 @@ def run_pipeline():
 
        
         logger.info("[DIM_DATE] Génération de la plage de dates...")
+        # NOTE: `transform.transform_dim_date` is kept as a pure, reusable
+        # transformation because calendar attribute derivation is deterministic
+        # and useful across multiple pipelines/tests. We centralize this logic
+        # to make it easily testable and to avoid duplicating date calculations
+        # throughout the codebase. Other transformations that require lookups
+        # or contextual merging are left inline in `pipeline.py` for clarity.
         date_range = pd.date_range(start=DIM_DATE_START, end=DIM_DATE_END, freq="D")
         df_date = pd.DataFrame({"date_val": date_range})
         df_date = transform.transform_dim_date(df_date)
@@ -279,6 +376,7 @@ def run_pipeline():
         df_caisse = extract.extract_dim_caisse_mag()
         df_caisse = df_caisse.rename(columns={"CA_No": "CA_Numero_code"})
         df_caisse["id_journal"] = df_caisse["JO_Num"].map(lookups["DIM_JOURNAL"])
+        df_caisse["DE_No"] = pd.to_numeric(df_caisse["DE_No"], errors="coerce")
         df_caisse = df_caisse.drop_duplicates(subset=["CA_Numero_code"])
         load.load_dimension(df_caisse, "DIM_CAISSE")
         lookups["DIM_CAISSE"] = _build_lookup("DIM_CAISSE", "CA_Numero_code", "id_caisse")
@@ -300,6 +398,11 @@ def run_pipeline():
 
         # C2. FAIT_REGLEMENTS
         logger.info("[FAIT_REGLEMENTS] Extraction règlements...")
+        # NOTE: payment-specific calculations (delays, buckets, ecart) are
+        # implemented in `transform.add_fact_reglements_calcs` because they are
+        # pure pandas operations that benefit from unit testing and reuse.
+        # The pipeline keeps extraction/merge logic here (joins, lookups) since
+        # those steps depend on runtime lookups and the pipeline context.
         df_rc = extract.extract_fait_reglements_clients()
         df_rc["_acteur"] = "CLIENT"
         df_rf = extract.extract_fait_reglements_fournisseurs()

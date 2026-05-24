@@ -1,18 +1,3 @@
-"""Extraction des données sources depuis les bases MAG et GRT.
-
-Ce module centralise toutes les requêtes SQL nécessaires pour lire
-les tables sources (clients, articles, ventes, mouvements de caisse,
-etc.). Les fonctions retournent des `pandas.DataFrame` prêts à être
-transformés et chargés.
-
-Conventions :
-- le helper `_read(engine, sql)` retourne un DataFrame depuis l'
-    engine fourni
-- `_select_column` et `_select_first_column` permettent de gérer
-    les variations de noms de colonnes entre versions des sources
-    (compatibilité ascendante)
-"""
-
 import logging
 import pandas as pd
 
@@ -24,11 +9,13 @@ logger = logging.getLogger(__name__)
 
 
 def _read(engine, sql):
+    """Lire un SQL et renvoyer un DataFrame pandas."""
     with engine.connect() as conn:
         return pd.read_sql(text(sql), conn)
 
 
 def _table_columns(engine, table_name):
+    """Récupérer les noms de colonnes d'une table dans la base source."""
     sql = """
         SELECT COLUMN_NAME
         FROM INFORMATION_SCHEMA.COLUMNS
@@ -40,7 +27,7 @@ def _table_columns(engine, table_name):
 
 
 def _select_column(existing_columns, column_name, alias=None, default="NULL"):
-    """Sélectionner une colonne si elle existe, sinon retourner une valeur par défaut."""
+    """Sélectionner une colonne si elle existe, sinon renvoyer une valeur par défaut."""
     output_name = alias or column_name
     if column_name.lower() in existing_columns:
         return f"[{column_name}] AS [{output_name}]"
@@ -85,6 +72,7 @@ def extract_dim_client_mag():
     return _read(MAG_ENGINE, "SELECT CT_Num, CT_Sommeil, N_CatTarif, CO_No, CT_Encours, CT_SvCA, CT_Ville, CT_CodeRegion, CT_Intitule FROM F_COMPTET WHERE CT_Type = 0")
 
 def extract_dim_client_grt():
+    """Extraire les données clients depuis la source GRT avec correction de colonnes caractères."""
     # Vérifier si la colonne a une faute de frappe Sage (CT_EchustTroisMois)
     check_sql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'F_COMPTET' AND COLUMN_NAME = 'CT_EchustTroisMois'"
     with GRT_ENGINE.connect() as conn:
@@ -139,7 +127,6 @@ def extract_dim_caisse_mag():
     except SQLAlchemyError as exc:
         logger.warning(f"Could not read MAG caisse data; falling back to GRT: {exc}")
 
-    # Fallback to GRT_ENGINE F_Caisse
     sql_grt = """
         SELECT 
             CA_Numero AS CA_No, 
@@ -150,6 +137,7 @@ def extract_dim_caisse_mag():
         FROM F_Caisse
     """
     return _read(GRT_ENGINE, sql_grt)
+
 
 
 

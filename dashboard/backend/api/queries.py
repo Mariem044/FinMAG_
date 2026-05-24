@@ -1,18 +1,8 @@
-"""API backend FinMAG (endpoints et helpers).
-
-Ce module expose les routes FastAPI utilisées par le frontend.
-Il contient :
-- l'instance `app` FastAPI et la configuration CORS
-- des helpers `_rows`, `_row`, `_num`, `_int` pour exécuter des requêtes
-- des fonctions `_build_filters_*` pour construire dynamiquement des
-    clauses SQL selon les filtres (année, trimestre, mois, segment, famille...)
-- des endpoints pour contrôler et obtenir le statut ETL/ML
-- la logique pour lancer l'ETL et le ML en arrière-plan (verrous mutex)
-
-Commentaires :
-- Les helpers utilisent `etl.config` pour récupérer les moteurs DB.
-- Les endpoints doivent rester légers : les requêtes lourdes sont
-    exécutées côté base via SQL construits ici.
+"""
+Il connecte les bases de données
+Il construit et exécute des requêtes SQL
+Il calcule les KPIs métier
+Il pilote l'ETL et le ML
 """
 
 import os
@@ -47,6 +37,8 @@ app = FastAPI(title="FinMAG API")
 _ETL_RUN_LOCK = threading.Lock()
 _ETL_LAST_ERROR = None
 
+
+#cors pour utiliser ou bloquer les reqs entre origines differentes 
 @app.middleware("http")
 async def log_requests(request, call_next):
     url = str(request.url)
@@ -84,8 +76,14 @@ app.add_middleware(
 )
 
 MONTHS = ["Jan", "Fev", "Mar", "Avr", "Mai", "Jun", "Jul", "Aou", "Sep", "Oct", "Nov", "Dec"]
+NO_FILTER_VALUES = ("Tous", "Toutes", "")
+QUARTER_MAP = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
 
 def _rows(sql, params=None):
+    """Exécute une requête SQL en lecture sur le data warehouse et renvoie toutes les lignes.
+
+    Cette fonction utilise l'engine DW_ENGINE et gère les erreurs SQLAlchemy.
+    """
     if _ETL_RUN_LOCK.locked():
         return []
     try:
@@ -97,6 +95,7 @@ def _rows(sql, params=None):
 
 
 def _row(sql, params=None):
+    """Exécute une requête SQL en lecture sur le data warehouse et renvoie une seule ligne."""
     if _ETL_RUN_LOCK.locked():
         return None
     try:
@@ -108,18 +107,22 @@ def _row(sql, params=None):
 
 
 def _num(value, default=0.0):
+    """Convertit une valeur en float en utilisant une valeur par défaut si elle est nulle."""
     return float(value) if value is not None else default
 
 
 def _int(value, default=0):
+    """Convertit une valeur en int en utilisant une valeur par défaut si elle est nulle."""
     return int(value) if value is not None else default
 
 
 def _date_str(value):
+    """Formate une valeur de date/temps en chaîne ISO ou renvoie une chaîne vide."""
     return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else "")
 
 
 def _parse_month(month_str):
+    """Convertit une abréviation de mois francophone en numéro de mois (1-12)."""
     if not month_str:
         return 0
     val = str(month_str).strip().lower()
@@ -131,8 +134,17 @@ def _parse_month(month_str):
     return months_map.get(val[:3], 0)
 
 
+def _is_no_filter(value):
+    """Détermine si une valeur de filtre correspond à un libellé "pas de filtre"."""
+    return str(value).strip() in NO_FILTER_VALUES
+
+
 def _build_filters_ventes(year=None, quarter=None, month=None, segment=None, famille=None):
-    """Filtres pour les endpoints ventes (FAIT_LIGNES_VENTE)."""
+    """Construit dynamiquement les clauses SQL pour les filtres ventes.
+
+    Les filtres pris en charge incluent l'année, le trimestre, le mois, le segment
+    et la famille de produits.
+    """
     sql = ""
     params = {}
 
@@ -140,9 +152,8 @@ def _build_filters_ventes(year=None, quarter=None, month=None, segment=None, fam
         sql += " AND d.annee = :year"
         params["year"] = int(year)
 
-    if quarter and quarter not in ("Tous", "Toutes", ""):
-        q_map = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
-        q = q_map.get(str(quarter).upper())
+    if quarter and not _is_no_filter(quarter):
+        q = QUARTER_MAP.get(str(quarter).upper())
         if q:
             sql += " AND d.trimestre = :quarter"
             params["quarter"] = q
@@ -152,11 +163,11 @@ def _build_filters_ventes(year=None, quarter=None, month=None, segment=None, fam
         sql += " AND d.mois = :month"
         params["month"] = m
 
-    if segment and segment not in ("Tous", "Toutes", ""):
+    if segment and not _is_no_filter(segment):
         sql += " AND s.libelle_segment = :segment"
         params["segment"] = segment
 
-    if famille and famille not in ("Tous", "Toutes", ""):
+    if famille and not _is_no_filter(famille):
         sql += " AND fa.FA_Intitule LIKE :famille"
         params["famille"] = f"%{famille}%"
 
@@ -164,7 +175,10 @@ def _build_filters_ventes(year=None, quarter=None, month=None, segment=None, fam
 
 
 def _build_filters_reglements(year=None, quarter=None, month=None, segment=None):
-    """Filtres pour les endpoints règlements/trésorerie (FAIT_REGLEMENTS)."""
+    """Construit dynamiquement les clauses SQL pour les filtres règlements.
+
+    Utilisé par les endpoints de trésorerie et de recouvrement.
+    """
     sql = ""
     params = {}
 
@@ -172,9 +186,8 @@ def _build_filters_reglements(year=None, quarter=None, month=None, segment=None)
         sql += " AND d.annee = :year"
         params["year"] = int(year)
 
-    if quarter and quarter not in ("Tous", "Toutes", ""):
-        q_map = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
-        q = q_map.get(str(quarter).upper())
+    if quarter and not _is_no_filter(quarter):
+        q = QUARTER_MAP.get(str(quarter).upper())
         if q:
             sql += " AND d.trimestre = :quarter"
             params["quarter"] = q
@@ -184,7 +197,7 @@ def _build_filters_reglements(year=None, quarter=None, month=None, segment=None)
         sql += " AND d.mois = :month"
         params["month"] = m
 
-    if segment and segment not in ("Tous", "Toutes", ""):
+    if segment and not _is_no_filter(segment):
         sql += " AND s.libelle_segment = :segment"
         params["segment"] = segment
 
@@ -192,7 +205,7 @@ def _build_filters_reglements(year=None, quarter=None, month=None, segment=None)
 
 
 def _build_filters_ecritures(year=None, quarter=None, month=None):
-    """Filtres pour les endpoints fiscalité/écritures (FAIT_ECRITURES)."""
+    """Construit dynamiquement les clauses SQL pour les filtres des écritures comptables."""
     sql = ""
     params = {}
 
@@ -200,9 +213,8 @@ def _build_filters_ecritures(year=None, quarter=None, month=None):
         sql += " AND d.annee = :year"
         params["year"] = int(year)
 
-    if quarter and quarter not in ("Tous", "Toutes", ""):
-        q_map = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
-        q = q_map.get(str(quarter).upper())
+    if quarter and not _is_no_filter(quarter):
+        q = QUARTER_MAP.get(str(quarter).upper())
         if q:
             sql += " AND d.trimestre = :quarter"
             params["quarter"] = q
@@ -216,7 +228,7 @@ def _build_filters_ecritures(year=None, quarter=None, month=None):
 
 
 def _build_filters_bordereaux(year=None, quarter=None, month=None, banque=None):
-    """Filtres pour F_BordereauRemise, source reelle des bordereaux banque."""
+    """Construit dynamiquement les clauses SQL pour filtrer les bordereaux bancaires."""
     sql = ""
     params = {}
 
@@ -224,9 +236,8 @@ def _build_filters_bordereaux(year=None, quarter=None, month=None, banque=None):
         sql += " AND YEAR(br.BR_Date) = :year"
         params["year"] = int(year)
 
-    if quarter and quarter not in ("Tous", "Toutes", ""):
-        q_map = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
-        q = q_map.get(str(quarter).upper())
+    if quarter and not _is_no_filter(quarter):
+        q = QUARTER_MAP.get(str(quarter).upper())
         if q:
             sql += " AND DATEPART(QUARTER, br.BR_Date) = :quarter"
             params["quarter"] = q
@@ -236,7 +247,7 @@ def _build_filters_bordereaux(year=None, quarter=None, month=None, banque=None):
         sql += " AND MONTH(br.BR_Date) = :month"
         params["month"] = m
 
-    if banque and banque not in ("Tous", "Toutes", ""):
+    if banque and not _is_no_filter(banque):
         sql += " AND br.BQ_ABREGE = :banque"
         params["banque"] = banque
 
@@ -244,6 +255,7 @@ def _build_filters_bordereaux(year=None, quarter=None, month=None, banque=None):
 
 
 def _rows_grt(sql, params=None):
+    """Exécute une requête SQL en lecture sur le moteur GRT et renvoie toutes les lignes."""
     try:
         with GRT_ENGINE.connect() as conn:
             return conn.execute(text(sql), params or {}).fetchall()
@@ -253,6 +265,7 @@ def _rows_grt(sql, params=None):
 
 
 def _row_grt(sql, params=None):
+    """Exécute une requête SQL en lecture sur le moteur GRT et renvoie une seule ligne."""
     try:
         with GRT_ENGINE.connect() as conn:
             return conn.execute(text(sql), params or {}).fetchone()
@@ -261,23 +274,107 @@ def _row_grt(sql, params=None):
         return None
 
 
+def _rows_mag(sql, params=None):
+    """Exécute une requête SQL en lecture sur le moteur MAG et renvoie toutes les lignes."""
+    try:
+        with MAG_ENGINE.connect() as conn:
+            return conn.execute(text(sql), params or {}).fetchall()
+    except SQLAlchemyError as exc:
+        logging.error(f"MAG query error in _rows_mag: {exc}")
+        return []
+
+
+def _row_mag(sql, params=None):
+    """Exécute une requête SQL en lecture sur le moteur MAG et renvoie une seule ligne."""
+    try:
+        with MAG_ENGINE.connect() as conn:
+            return conn.execute(text(sql), params or {}).fetchone()
+    except SQLAlchemyError as exc:
+        logging.error(f"MAG query error in _row_mag: {exc}")
+        return None
+
+
+_PAYMENT_MODE_LABELS = None
+NUMERIC_REGLEMENT_MAP = {}
+
+def _normalize_reglement_label(label):
+    """Normalise un libellé de mode de règlement en un des buckets connus."""
+    # Disabled: do not force known buckets such as Chèque/Traite/Virement.
+    return None
+
+
+def _load_reglement_modes():
+    """Charge et met en cache les libellés de modes de règlement depuis P_REGLEMENT."""
+    global _PAYMENT_MODE_LABELS
+    if _PAYMENT_MODE_LABELS is not None:
+        return _PAYMENT_MODE_LABELS
+
+    rows = _rows_mag(
+        "SELECT R_Code, R_Intitule FROM P_REGLEMENT WHERE R_Intitule IS NOT NULL"
+    )
+    labels = {}
+    for r in rows:
+        label = getattr(r, "R_Intitule", None)
+        if label is None:
+            continue
+        clean_label = label.strip()
+        if getattr(r, "R_Code", None) is not None:
+            labels[str(r.R_Code).strip()] = clean_label
+        labels[clean_label.lower()] = clean_label
+
+    _PAYMENT_MODE_LABELS = labels
+    return labels
+
+
+_DEPOT_MAP = None
+def _load_depot_map():
+    """Charge et met en cache la correspondance `CA_Numero_code -> depot nom` depuis DIM_CAISSE et DIM_DEPOT.
+    Retourne un dict où les clés sont du même type que `CA_Numero_code` dans les résultats SQL.
+    """
+    global _DEPOT_MAP
+    if _DEPOT_MAP is not None:
+        return _DEPOT_MAP
+
+    rows = _rows("""
+        SELECT c.CA_Numero_code, d.DE_Intitule 
+        FROM DIM_CAISSE c
+        LEFT JOIN DIM_DEPOT d ON d.DE_No = c.DE_No
+        WHERE d.DE_Intitule IS NOT NULL
+    """)
+    m = {}
+    for r in rows:
+        key = getattr(r, 'CA_Numero_code', None)
+        name = getattr(r, 'DE_Intitule', None)
+        if key is None or name is None:
+            continue
+        # try to preserve numeric type when possible
+        try:
+            key_cast = int(key)
+        except Exception:
+            key_cast = key
+        m[key_cast] = name
+
+    _DEPOT_MAP = m
+    return m
+
+
 def _mode_reg_key(mode_label, mode_code=None):
+    """Retourne le bucket normalisé du mode de règlement pour l'affichage."""
     label = (mode_label or "").strip()
     low = label.lower()
-    if "cheque" in low or "chèque" in low or "chq" in low:
-        return "Chèque"
-    if "traite" in low or "lcr" in low or "effet" in low:
-        return "Traite"
-    if "virement" in low or low.startswith("vir"):
-        return "Virement"
+    reglement_modes = _load_reglement_modes()
+    if mode_code is not None:
+        mode_code_label = reglement_modes.get(str(mode_code).strip())
+        if mode_code_label:
+            return mode_code_label
 
-    try:
-        code = int(mode_code)
-    except (TypeError, ValueError):
-        code = None
-    return {1: "Chèque", 2: "Traite", 3: "Virement"}.get(code)
+    if low in reglement_modes:
+        return reglement_modes[low]
+
+    return None
 
 def _run_etl_background():
+    """Lance le pipeline ETL en arrière-plan et stocke l'erreur éventuelle."""
     global _ETL_LAST_ERROR
     try:
         pipeline.run_pipeline()
@@ -302,49 +399,72 @@ def health():
 
 @app.get("/api/dashboard/filters")
 def get_dashboard_filters():
+    """Renvoie les valeurs dynamiques des filtres de dashboard à partir des tables MAG et DIM."""
     try:
-        
         with MAG_ENGINE.connect() as conn:
-            depots = [r.DE_Intitule.strip() for r in conn.execute(text("SELECT DISTINCT DE_Intitule FROM F_DEPOT WHERE DE_Intitule IS NOT NULL ORDER BY DE_Intitule")).fetchall()]
+            depots = [
+                r.DE_Intitule.strip()
+                for r in conn.execute(text(
+                    "SELECT DISTINCT DE_Intitule FROM F_DEPOT WHERE DE_Intitule IS NOT NULL ORDER BY DE_Intitule"
+                )).fetchall()
+            ]
         if not depots:
             depots = ["Tous"]
         else:
             depots = ["Tous"] + depots
 
-
-        segments = [r.libelle_segment.strip() for r in _rows("SELECT DISTINCT libelle_segment FROM DIM_SEGMENT WHERE libelle_segment IS NOT NULL ORDER BY libelle_segment")]
+        segments = [
+            r.CT_Intitule.strip()
+            for r in _rows(
+                "SELECT DISTINCT CT_Intitule FROM P_CATTARIF WHERE CT_Intitule IS NOT NULL ORDER BY CT_Intitule"
+            )
+        ]
         if not segments:
             segments = ["Tous"]
         else:
             segments = ["Tous"] + segments
 
-        
-        familles = [r.FA_Intitule.strip() for r in _rows("SELECT DISTINCT FA_Intitule FROM DIM_ARTICLE WHERE FA_Intitule IS NOT NULL AND FA_Intitule <> '' ORDER BY FA_Intitule")]
+        familles = [
+            r.FA_Intitule.strip()
+            for r in _rows(
+                "SELECT DISTINCT FA_Intitule FROM F_FAMILLE WHERE FA_Intitule IS NOT NULL AND FA_Intitule <> '' ORDER BY FA_Intitule"
+            )
+        ]
         if not familles:
             familles = ["Toutes"]
         else:
             familles = ["Toutes"] + familles
 
-        
-        years = [int(r.annee) for r in _rows("SELECT DISTINCT d.annee FROM FAIT_LIGNES_VENTE f JOIN DIM_DATE d ON f.id_date = d.id_date WHERE d.annee IS NOT NULL ORDER BY d.annee DESC")]
+        years = [
+            int(r.annee)
+            for r in _rows(
+                "SELECT DISTINCT YEAR(DO_Date) AS annee FROM F_DOCENTETE WHERE DO_Date IS NOT NULL ORDER BY annee DESC"
+            )
+        ]
         if not years:
-            years = [int(r.annee) for r in _rows("SELECT DISTINCT annee FROM DIM_DATE WHERE annee IS NOT NULL ORDER BY annee DESC")]
+            years = [
+                int(r.annee)
+                for r in _rows(
+                    "SELECT DISTINCT annee FROM DIM_DATE WHERE annee IS NOT NULL ORDER BY annee DESC"
+                )
+            ]
         if not years:
-            years = [2026]
+            years = [datetime.now().year]
 
         return {
             "depots": depots,
             "segments": segments,
             "familles": familles,
-            "years": years
+            "years": years,
         }
     except SQLAlchemyError as exc:
         logging.error(f"Error fetching dynamic filters: {exc}")
+        current_year = datetime.now().year
         return {
-            "depots": ["Tous", "Tunis Nord", "Tunis Sud", "Sfax", "Sousse", "Nabeul", "Bizerte", "Dépôt Central"],
-            "segments": ["Tous", "DÉTAILLANTS", "SEMI-GROS", "HORECA", "GROSSISTES", "DISTRIBUTEUR"],
-            "familles": ["Toutes", "Biscuits", "Boissons", "Conserves", "Produits Laitiers", "Confiserie", "Épicerie", "Huiles", "Pâtes"],
-            "years": [2026, 2025, 2024, 2023, 2022, 2021, 2020]
+            "depots": ["Tous"],
+            "segments": ["Tous"],
+            "familles": ["Toutes"],
+            "years": [current_year],
         }
 
 
@@ -542,6 +662,7 @@ def get_dashboard_kpis(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
+    """Renvoie les KPI commerciaux clés pour le dashboard, avec N et N-1."""
     filt_sql, filt_params = _build_filters_ventes(
         quarter=quarter, month=month, segment=segment, famille=famille
     )
@@ -766,6 +887,7 @@ def get_ca_by_month(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
+    """Renvoie le chiffre d'affaires mensuel et le taux de recouvrement par mois."""
     filt_sql, filt_params = _build_filters_ventes(
         quarter=quarter, month=month, segment=segment, famille=famille
     )
@@ -789,7 +911,7 @@ def get_ca_by_month(
             COUNT(DISTINCT f.id_client) AS nb_clients_actifs,
             SUM(CASE
                 WHEN f.DL_CMUP IS NOT NULL AND f.DL_CMUP > 0 AND f.DL_Qte IS NOT NULL
-                     AND f.DL_MontantHT > (f.DL_Qte * f.DL_CMUP)
+                    AND f.DL_MontantHT > (f.DL_Qte * f.DL_CMUP)
                 THEN f.DL_MontantHT - (f.DL_Qte * f.DL_CMUP)
                 ELSE NULL
             END) AS marge_brute
@@ -854,6 +976,7 @@ def get_top_familles(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
+    """Renvoie les familles de produits les plus performantes par chiffre d'affaires."""
     filt_sql, filt_params = _build_filters_ventes(
         year=year, quarter=quarter, month=month, segment=segment, famille=famille
     )
@@ -891,6 +1014,7 @@ def get_tresorerie_summary(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
+    """Renvoie un résumé de trésorerie incluant encaissements, impayés et délai moyen."""
     filt_sql, filt_params = _build_filters_reglements(
         year=year, quarter=quarter, month=month, segment=segment
     )
@@ -947,6 +1071,7 @@ def get_aging(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
+    """Renvoie le suivi de l'aging des impayés clients par tranche de jours."""
     filt_sql, filt_params = _build_filters_reglements(
         year=year, quarter=quarter, month=month, segment=segment
     )
@@ -990,6 +1115,7 @@ def get_articles(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
+    """Renvoie les articles avec stock, CA et indicateurs de DSI pour le dashboard produits."""
     filt_sql, filt_params = _build_filters_ventes(
         year=year, quarter=quarter, month=month, segment=segment
     )
@@ -1105,6 +1231,7 @@ def get_banque_rapprochement(
     depot: Optional[str] = None,
     banque: Optional[str] = None,
 ):
+    """Renvoie le taux de rapprochement bancaire mensuel et les statistiques associées."""
     filt_sql, filt_params = _build_filters_reglements(
         year=year, quarter=quarter, month=month, segment=segment
     )
@@ -1178,6 +1305,7 @@ def get_banque_rapprochement_breakdown(
     depot: Optional[str] = None,
     banque: Optional[str] = None,
 ):
+    """Renvoie le détail des bordereaux et des modes de règlement agrégés par banque."""
     filt_sql, filt_params = _build_filters_bordereaux(
         year=year, quarter=quarter, month=month, banque=banque
     )
@@ -1185,13 +1313,18 @@ def get_banque_rapprochement_breakdown(
         SELECT
             COALESCE(NULLIF(br.BQ_ABREGE, ''), NULLIF(eb.EB_Abrege, ''), 'Non spécifiée') AS banque,
             br.BR_ModeReg AS mode_reg,
-            COALESCE(NULLIF(mr.MR_Designation, ''), CONCAT('Mode ', br.BR_ModeReg)) AS libelle_mode_reg,
+            COALESCE(
+                NULLIF(pr.R_Intitule, ''),
+                NULLIF(mr.MR_Designation, ''),
+                CONCAT('Mode ', br.BR_ModeReg)
+            ) AS libelle_mode_reg,
             SUM(COALESCE(NULLIF(br.BR_TotalReglement, 0), NULLIF(br.BR_Montant, 0), 0)) AS total_montant
         FROM F_BordereauRemise br WITH (NOLOCK)
+        LEFT JOIN P_REGLEMENT pr WITH (NOLOCK) ON pr.R_Code = br.BR_ModeReg
         LEFT JOIN P_ModeReglements mr WITH (NOLOCK) ON mr.MR_Code = br.BR_ModeReg
         LEFT JOIN F_EBANQUE eb WITH (NOLOCK)
             ON REPLACE(COALESCE(br.BR_CompteBanque, ''), ' ', '') =
-               CONCAT(COALESCE(eb.EB_Banque, ''), COALESCE(eb.EB_Guichet, ''), COALESCE(eb.EB_Compte, ''), COALESCE(eb.EB_Cle, ''))
+            CONCAT(COALESCE(eb.EB_Banque, ''), COALESCE(eb.EB_Guichet, ''), COALESCE(eb.EB_Compte, ''), COALESCE(eb.EB_Cle, ''))
             OR (
                 NULLIF(eb.EB_Compte, '') IS NOT NULL
                 AND REPLACE(COALESCE(br.BR_CompteBanque, ''), ' ', '') LIKE CONCAT('%', REPLACE(COALESCE(eb.EB_Compte, ''), ' ', ''), '%')
@@ -1201,32 +1334,39 @@ def get_banque_rapprochement_breakdown(
         {filt_sql}
         GROUP BY br.BQ_ABREGE, eb.EB_Abrege, br.BR_ModeReg, mr.MR_Designation
     """
-    totals = {"Chèque": 0.0, "Traite": 0.0, "Virement": 0.0}
+    totals = {}
     bank_data = {}
     for r in _rows_grt(sql, filt_params):
         bank_name = r.banque or "Non spécifiée"
         mode_key = _mode_reg_key(r.libelle_mode_reg, r.mode_reg)
         val = _num(r.total_montant)
         if mode_key:
+            totals.setdefault(mode_key, 0.0)
             totals[mode_key] += val
 
         if bank_name not in bank_data:
-            bank_data[bank_name] = {"banque": bank_name, "Chèque": 0.0, "Traite": 0.0, "Virement": 0.0}
+            bank_data[bank_name] = {"banque": bank_name}
         if mode_key:
+            bank_data[bank_name].setdefault(mode_key, 0.0)
             bank_data[bank_name][mode_key] += val
 
     sql_tx = f"""
         SELECT TOP 25
             br.BR_Num,
             br.BR_ModeReg AS mode_reg,
-            COALESCE(NULLIF(mr.MR_Designation, ''), CONCAT('Mode ', br.BR_ModeReg)) AS libelle_mode_reg,
+            COALESCE(
+                NULLIF(pr.R_Intitule, ''),
+                NULLIF(mr.MR_Designation, ''),
+                CONCAT('Mode ', br.BR_ModeReg)
+            ) AS libelle_mode_reg,
             COALESCE(NULLIF(br.BR_TotalReglement, 0), NULLIF(br.BR_Montant, 0), 0) AS montant,
             COALESCE(NULLIF(br.BQ_ABREGE, ''), NULLIF(eb.EB_Abrege, ''), NULLIF(br.BR_IntituleBanque, ''), 'Banque') AS banque
         FROM F_BordereauRemise br WITH (NOLOCK)
+        LEFT JOIN P_REGLEMENT pr WITH (NOLOCK) ON pr.R_Code = br.BR_ModeReg
         LEFT JOIN P_ModeReglements mr WITH (NOLOCK) ON mr.MR_Code = br.BR_ModeReg
         LEFT JOIN F_EBANQUE eb WITH (NOLOCK)
             ON REPLACE(COALESCE(br.BR_CompteBanque, ''), ' ', '') =
-               CONCAT(COALESCE(eb.EB_Banque, ''), COALESCE(eb.EB_Guichet, ''), COALESCE(eb.EB_Compte, ''), COALESCE(eb.EB_Cle, ''))
+            CONCAT(COALESCE(eb.EB_Banque, ''), COALESCE(eb.EB_Guichet, ''), COALESCE(eb.EB_Compte, ''), COALESCE(eb.EB_Cle, ''))
             OR (
                 NULLIF(eb.EB_Compte, '') IS NOT NULL
                 AND REPLACE(COALESCE(br.BR_CompteBanque, ''), ' ', '') LIKE CONCAT('%', REPLACE(COALESCE(eb.EB_Compte, ''), ' ', ''), '%')
@@ -1265,7 +1405,7 @@ def debug_bordereaux_banque(
     join_sql = """
         LEFT JOIN F_EBANQUE eb WITH (NOLOCK)
             ON REPLACE(COALESCE(br.BR_CompteBanque, ''), ' ', '') =
-               CONCAT(COALESCE(eb.EB_Banque, ''), COALESCE(eb.EB_Guichet, ''), COALESCE(eb.EB_Compte, ''), COALESCE(eb.EB_Cle, ''))
+            CONCAT(COALESCE(eb.EB_Banque, ''), COALESCE(eb.EB_Guichet, ''), COALESCE(eb.EB_Compte, ''), COALESCE(eb.EB_Cle, ''))
             OR (
                 NULLIF(eb.EB_Compte, '') IS NOT NULL
                 AND REPLACE(COALESCE(br.BR_CompteBanque, ''), ' ', '') LIKE CONCAT('%', REPLACE(COALESCE(eb.EB_Compte, ''), ' ', ''), '%')
@@ -1330,6 +1470,7 @@ def get_caisses(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
+    """Renvoie l'état des caisses par dépôt avec espèces, chèques et seuils."""
     filt_sql, filt_params = _build_filters_ecritures(
         year=year, quarter=quarter, month=month
     )
@@ -1337,7 +1478,7 @@ def get_caisses(
     depot_clause = ""
     depot_params = {}
     if c_depot:
-        rev_map = {"tunis nord": 1425916589894576877, "tunis sud": 1085862494906140374, "sfax": 2798417896384401189, "sousse": 6528386168626322420}
+        rev_map = {name.lower(): code for code, name in (_load_depot_map() or {}).items()}
         depot_code = rev_map.get(c_depot.lower())
         if depot_code:
             depot_clause = "AND c.CA_Numero_code = :p_caisse_depot"
@@ -1368,12 +1509,7 @@ def get_caisses(
     params = {}
     params.update(filt_params)
     params.update(depot_params)
-    depot_map = {
-        1425916589894576877: "Tunis Nord",
-        1085862494906140374: "Tunis Sud",
-        2798417896384401189: "Sfax",
-        6528386168626322420: "Sousse"
-    }
+    depot_map = _load_depot_map() or {}
     return [
         {
             "id": f"CA-{r.CA_Numero_code}",
@@ -1397,13 +1533,14 @@ def get_caisse_flux_daily(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
+    """Renvoie le flux de caisse journalier net avec cumulative et soldes."""
     filt_sql, filt_params = _build_filters_ecritures(
         year=year, quarter=quarter, month=month
     )
     depot_clause = ""
     depot_params = {}
     if depot and depot not in ("Tous", "Toutes", ""):
-        rev_map = {"tunis nord": 1425916589894576877, "tunis sud": 1085862494906140374, "sfax": 2798417896384401189, "sousse": 6528386168626322420}
+        rev_map = {name.lower(): code for code, name in (_load_depot_map() or {}).items()}
         depot_code = rev_map.get(depot.lower())
         if depot_code:
             depot_clause = "AND e.id_caisse = (SELECT id_caisse FROM DIM_CAISSE WHERE CA_Numero_code = :p_caisse_depot)"
@@ -1454,13 +1591,14 @@ def get_caisse_mouvements_by_type(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
+    """Renvoie la répartition des mouvements de caisse par type en pourcentage."""
     filt_sql, filt_params = _build_filters_ecritures(
         year=year, quarter=quarter, month=month
     )
     depot_clause = ""
     depot_params = {}
     if depot and depot not in ("Tous", "Toutes", ""):
-        rev_map = {"tunis nord": 1425916589894576877, "tunis sud": 1085862494906140374, "sfax": 2798417896384401189, "sousse": 6528386168626322420}
+        rev_map = {name.lower(): code for code, name in (_load_depot_map() or {}).items()}
         depot_code = rev_map.get(depot.lower())
         if depot_code:
             depot_clause = "AND e.id_caisse = (SELECT id_caisse FROM DIM_CAISSE WHERE CA_Numero_code = :p_caisse_depot)"
@@ -1514,6 +1652,7 @@ def get_fiscalite_kpis(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
+    """Renvoie les KPI de fiscalité et de contrôle des écritures."""
     filt_sql, filt_params = _build_filters_ecritures(
         year=year, quarter=quarter, month=month
     )
@@ -1585,6 +1724,7 @@ def get_fiscalite_tva_by_month(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
+    """Renvoie le CA TVA collectée et déductible par mois."""
     filt_sql, filt_params = _build_filters_ecritures(
         year=year, quarter=quarter, month=month
     )
@@ -1623,6 +1763,7 @@ def get_fiscalite_anomalies(
     segment: Optional[str] = None,
     depot: Optional[str] = None,
 ):
+    """Renvoie les anomalies comptables détectées sur les écritures."""
     filt_sql, filt_params = _build_filters_ecritures(
         year=year, quarter=quarter, month=month
     )
@@ -1663,6 +1804,4 @@ def get_fiscalite_anomalies(
         }
         for r in _rows(sql, filt_params)
     ]
-
-
 

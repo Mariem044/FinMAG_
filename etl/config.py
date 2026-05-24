@@ -4,14 +4,10 @@ Ce module :
 - charge les variables d'environnement depuis `.env`
 - expose des moteurs SQLAlchemy `DW_ENGINE`, `MAG_ENGINE`, `GRT_ENGINE`
 - fournit des helpers pour modifier/inspecter des chaînes de connexion
-    (ex : remplacement de la base, ajout des flags TLS pour ODBC)
 - définit des constantes ETL (plage de dates, longueur max des messages
     d'erreur, taille du hash utilisé pour générer des surrogate keys)
 
-Notes d'utilisation :
-- `ensure_dw_database_exists()` permet de créer la base DW si nécessaire.
-- `hash_key(value)` retourne un entier stable utilisé comme clé de
-    substitution dans le pipeline pour éviter collisions entre runs.
+
 """
 
 import hashlib
@@ -32,13 +28,13 @@ load_dotenv(DOTENV_PATH if DOTENV_PATH.exists() else DEFAULT_ENV_PATH)
 
 
 def get_required_env(name: str) -> str:
-    """Return a required environment variable or raise a clear error."""
+    """Retourne une variable d'environnement requise ou lève une erreur explicite."""
     value = os.environ.get(name)
     if not value:
         raise RuntimeError(f"Missing required environment variable: {name}")
     return value
 
-
+#pour chiffrer les comms entre le user et le serveur web 
 def _sqlserver_tls_compat(conn_str: str) -> str:
     """Ajouter les paramètres TLS aux chaînes de connexion SQL Server si nécessaire."""
     if not conn_str.startswith("mssql+pyodbc"):
@@ -54,8 +50,9 @@ def _sqlserver_tls_compat(conn_str: str) -> str:
     separator = "&" if "?" in conn_str else "?"
     return f"{conn_str}{separator}Encrypt=no&TrustServerCertificate=yes"
 
-
+#odbc est une interface de programmation d'applications (API) qui permet aux applications d'accéder à des systèmes de gestion de bases de données (SGBD) de manière indépendante du langage de programmation utilisé.
 def _add_tls_to_odbc_connect(conn_str: str) -> str:
+    """Ajouter les paramètres TLS dans le paramètre `odbc_connect` d'une URL."""
     parts = urlsplit(conn_str)
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
     odbc = query.get("odbc_connect")
@@ -71,9 +68,13 @@ def _add_tls_to_odbc_connect(conn_str: str) -> str:
         parts.fragment,
     ))
 
-
+#replace database est une fonction qui prend une chaîne de connexion SQLAlchemy et un nom de base de données, 
+# et retourne une nouvelle chaîne de connexion avec le nom de base de données remplacé. 
+# Cela est utile pour se connecter à la base de données "master" de SQL Server afin de 
+# vérifier l'existence d'une base de données spécifique ou pour en créer une nouvelle si
+#  elle n'existe pas.
 def _replace_database(conn_str: str, database: str) -> str:
-    """Remplacer le nom de base de données dans une chaîne de connexion."""
+    """Remplacer le nom de base de données dans une chaîne de connexion SQLAlchemy."""
     lower = conn_str.lower()
     if "odbc_connect=" in lower:
         parts = urlsplit(conn_str)
@@ -118,7 +119,7 @@ def _replace_database(conn_str: str, database: str) -> str:
 
 
 def _database_name(conn_str: str) -> Optional[str]:
-    """Extraire le nom de la base de données depuis une chaîne de connexion."""
+    """Extraire le nom de la base de données depuis une chaîne de connexion SQLAlchemy."""
     if "odbc_connect=" in conn_str.lower():
         parts = urlsplit(conn_str)
         query = dict(parse_qsl(parts.query, keep_blank_values=True))
@@ -138,11 +139,12 @@ def _database_name(conn_str: str) -> Optional[str]:
 
 
 def _quote_sqlserver_identifier(identifier: str) -> str:
+    """Échapper un identifiant SQL Server pour construire une requête sûre."""
     return f"[{identifier.replace(']', ']]')}]"
 
 
 def ensure_dw_database_exists() -> None:
-    """Create the DW database if it does not already exist."""
+    """Créer la base de données DW si elle n'existe pas déjà."""
     dw_conn = os.environ["DW_CONN"]
     if dw_conn.startswith("sqlite"):
         return
@@ -161,7 +163,7 @@ def ensure_dw_database_exists() -> None:
 
 
 def _make_engine(conn_str: str):
-    """Créer un moteur SQLAlchemy pour la chaîne de connexion fournie."""
+    """Créer un moteur SQLAlchemy avec compatibilité TLS pour SQL Server."""
     return create_engine(_sqlserver_tls_compat(conn_str))
 
 
@@ -194,7 +196,7 @@ if _HASH_BYTES < 8:
 
 
 def hash_key(value) -> int | None:
-    """Return a deterministic integer hash or None for empty values."""
+    """Retourne un hash entier déterministe ou None pour les valeurs vides."""
     if value is None:
         return None
 

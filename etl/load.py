@@ -1,14 +1,3 @@
-"""Chargement des données dans les tables du data warehouse.
-
-Ce module gère la persistance des `pandas.DataFrame` extraits/transformés
-dans les tables SQL. Stratégie par défaut : vider la table cible puis
-insérer toutes les lignes (`DELETE` + `INSERT` via pandas `to_sql`).
-
-Attention : cette stratégie est simple et déterministe mais peut être
-coûteuse sur de larges volumes. Elle est contrôlée par l'option
-`ETL_ALLOW_TABLE_DELETE` (env).
-"""
-
 import os
 import pandas as pd
 from sqlalchemy import text
@@ -29,7 +18,7 @@ def get_table_columns(table):
 
 
 def load_dimension(df, table):
-    """Supprime toutes les lignes de la table puis insère les nouvelles données."""
+    """Supprime toutes les lignes de la table cible puis insère les données extraites."""
     if df.empty:
         logger.info(f"[{table}] DataFrame vide, rien à charger.")
         return
@@ -54,5 +43,5 @@ def load_dimension(df, table):
 
 
 def load_fact(df, table):
-    """Charge une table de faits (même stratégie que les dimensions)."""
+    """Charge une table de faits en utilisant la même stratégie que pour les dimensions."""
     load_dimension(df, table)

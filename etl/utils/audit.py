@@ -21,11 +21,11 @@ logger = get_logger(__name__)
 
 
 def _ensure_audit_table_exists():
-    """Ensure the configured audit table exists; create via `etl.ddl` if missing."""
+    """Vérifie que la table d'audit configurée existe, sinon elle la crée via `etl.ddl`."""
     try:
         if not ddl.table_exists(AUDIT_TABLE_NAME):
-            # Create all tables (DDL centrally defines ETL_AUDIT); this avoids
-            # duplicated CREATE TABLE SQL in multiple places.
+            # Créer toutes les tables si nécessaire (le DDL définit ETL_AUDIT ici)
+            # Cela évite de dupliquer le SQL CREATE TABLE dans plusieurs fichiers.
             ddl.create_all_tables(drop_existing=False)
             logger.info("Table %s créée via etl.ddl.create_all_tables", AUDIT_TABLE_NAME)
     except SQLAlchemyError as exc:
@@ -33,7 +33,7 @@ def _ensure_audit_table_exists():
 
 
 def start_run(mode):
-    """Insert a RUNNING row into the configured audit table and return its ID."""
+    """Insère une ligne RUNNING dans la table d'audit et retourne son ID."""
     _ensure_audit_table_exists()
     sql = text(
         f"INSERT INTO [{AUDIT_TABLE_NAME}] (run_date, mode, table_name, rows_inserted, rows_updated, duration_seconds, status, error_msg) "
@@ -48,7 +48,7 @@ def start_run(mode):
 
 
 def end_run(run_id, status, error_msg=None):
-    """Update the configured audit row when the pipeline finishes."""
+    """Met à jour la ligne d'audit lorsque le pipeline se termine."""
     try:
         sql = text(
             f"UPDATE [{AUDIT_TABLE_NAME}] "
