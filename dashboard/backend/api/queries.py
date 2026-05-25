@@ -204,24 +204,24 @@ def _build_filters_reglements(year=None, quarter=None, month=None, segment=None)
     return sql, params
 
 
-def _build_filters_ecritures(year=None, quarter=None, month=None):
+def _build_filters_ecritures(year=None, quarter=None, month=None, date_alias="d"):
     """Construit dynamiquement les clauses SQL pour les filtres des écritures comptables."""
     sql = ""
     params = {}
 
     if year:
-        sql += " AND d.annee = :year"
+        sql += f" AND {date_alias}.annee = :year"
         params["year"] = int(year)
 
     if quarter and not _is_no_filter(quarter):
         q = QUARTER_MAP.get(str(quarter).upper())
         if q:
-            sql += " AND d.trimestre = :quarter"
+            sql += f" AND {date_alias}.trimestre = :quarter"
             params["quarter"] = q
 
     m = _parse_month(month)
     if m > 0:
-        sql += " AND d.mois = :month"
+        sql += f" AND {date_alias}.mois = :month"
         params["month"] = m
 
     return sql, params
@@ -1664,13 +1664,19 @@ def get_fiscalite_kpis(
     filt_sql, filt_params = _build_filters_ecritures(
         year=year, quarter=quarter, month=month
     )
+    stats_filt_sql, _ = _build_filters_ecritures(
+        year=year, quarter=quarter, month=month, date_alias="d_stats"
+    )
     sql_kpis = f"""
         WITH stats AS (
             SELECT 
-                AVG(ABS(EC_Montant))  AS avg_montant,
-                STDEV(ABS(EC_Montant)) AS stdev_montant
-            FROM FAIT_ECRITURES
-            WHERE EC_Montant IS NOT NULL
+                AVG(ABS(e_stats.EC_Montant))  AS avg_montant,
+                STDEV(ABS(e_stats.EC_Montant)) AS stdev_montant
+            FROM FAIT_ECRITURES e_stats
+            LEFT JOIN DIM_DATE d_stats ON d_stats.id_date = e_stats.id_date
+            WHERE e_stats.EC_Montant IS NOT NULL
+            AND e_stats.grain = 1
+            {stats_filt_sql}
         )
         SELECT
             SUM(CASE WHEN e.grain IN (1, 2) THEN 1 ELSE 0 END) AS nb_ecritures,
@@ -1678,6 +1684,7 @@ def get_fiscalite_kpis(
             SUM(CASE WHEN e.grain = 2 AND j.JO_Type = 1 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS tva_deductible,
             SUM(CASE
                 WHEN e.grain = 1
+                AND COALESCE(stats.stdev_montant, 0) > 0
                 AND ABS(COALESCE(e.EC_Montant, 0)) >= stats.avg_montant + 2 * stats.stdev_montant
                 THEN 1 ELSE 0
             END) AS anomalies
@@ -1776,31 +1783,52 @@ def get_fiscalite_anomalies(
         year=year, quarter=quarter, month=month
     )
     sql = f"""
-        WITH stats AS (
-            SELECT 
-                AVG(ABS(EC_Montant))  AS avg_montant,
-                STDEV(ABS(EC_Montant)) AS stdev_montant
-            FROM FAIT_ECRITURES
-            WHERE EC_Montant IS NOT NULL
+        WITH scoped AS (
+            SELECT
+                d.date_val,
+                COALESCE(CONVERT(VARCHAR(30), j.JO_Num_code), 'Journal') AS journal,
+                ABS(COALESCE(e.EC_Montant, 0)) AS montant
+            FROM FAIT_ECRITURES e
+            LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
+            LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
+            WHERE e.EC_Montant IS NOT NULL
+            AND e.grain = 1
+            {filt_sql}
+        ),
+        stats AS (
+            SELECT
+                AVG(montant) AS avg_montant,
+                STDEV(montant) AS stdev_montant
+            FROM scoped
+        ),
+        scored AS (
+            SELECT
+                scoped.date_val,
+                scoped.journal,
+                scoped.montant,
+                CASE
+                    WHEN COALESCE(stats.stdev_montant, 0) = 0 THEN 0.25
+                    WHEN (scoped.montant - stats.avg_montant) / stats.stdev_montant >= 3 THEN 0.95
+                    WHEN (scoped.montant - stats.avg_montant) / stats.stdev_montant >= 2 THEN 0.85
+                    WHEN (scoped.montant - stats.avg_montant) / stats.stdev_montant >= 1.5 THEN 0.70
+                    WHEN (scoped.montant - stats.avg_montant) / stats.stdev_montant >= 1 THEN 0.55
+                    ELSE 0.25
+                END AS score,
+                CASE
+                    WHEN COALESCE(stats.stdev_montant, 0) = 0 THEN NULL
+                    ELSE (scoped.montant - stats.avg_montant) / stats.stdev_montant
+                END AS z_score
+            FROM scoped
+            CROSS JOIN stats
         )
-        SELECT 
+        SELECT TOP 300
             d.date_val,
-            COALESCE(CONVERT(VARCHAR(30), j.JO_Num_code), 'Journal') AS journal,
-            ABS(COALESCE(e.EC_Montant, 0)) AS montant,
-            CASE
-                WHEN ABS(e.EC_Montant) >= stats.avg_montant + 3 * stats.stdev_montant THEN 0.95
-                WHEN ABS(e.EC_Montant) >= stats.avg_montant + 2 * stats.stdev_montant THEN 0.85
-                WHEN ABS(e.EC_Montant) >= stats.avg_montant + 1 * stats.stdev_montant THEN 0.70
-                ELSE 0.25
-            END AS score
-        FROM FAIT_ECRITURES e
-        LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
-        LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
-        CROSS JOIN stats
-        WHERE e.EC_Montant IS NOT NULL
-        AND e.grain IN (1, 2)
-        {filt_sql}
-        ORDER BY montant DESC
+            d.journal,
+            d.montant,
+            d.score,
+            d.z_score
+        FROM scored d
+        ORDER BY d.score DESC, d.montant DESC, d.date_val DESC
     """
     return [
         {
@@ -1808,6 +1836,7 @@ def get_fiscalite_anomalies(
             "score": _num(r.score),
             "montant": _num(r.montant),
             "journal": r.journal,
+            "zScore": None if r.z_score is None else round(_num(r.z_score), 2),
             "anomalie": _num(r.score) >= 0.8,
         }
         for r in _rows(sql, filt_params)

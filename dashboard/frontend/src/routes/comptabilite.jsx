@@ -357,12 +357,8 @@ function ComptabilitePage() {
           <p className="text-[10px] text-text-dim mt-1 text-right">
             <span className="inline-flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
-              {
-                (Array.isArray(anomalyData) ? anomalyData : []).filter(
-                  (d) => d?.anomalie,
-                ).length
-              }{" "}
-              anomalies (score &gt; {BUSINESS_THRESHOLDS.anomalyScore})
+              {(fiscKpis?.anomalies ?? 0).toLocaleString("fr-TN")} anomalies
+              (score &gt;= {BUSINESS_THRESHOLDS.anomalyScore})
             </span>
           </p>
         </ChartCard>
