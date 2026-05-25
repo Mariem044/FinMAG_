@@ -496,6 +496,9 @@ def run_pipeline():
             "RT_Montant01": pd.to_numeric(df_tva["RT_Montant01"], errors="coerce"),
             "RT_Base01":    pd.to_numeric(df_tva["RT_Base01"], errors="coerce"),
             "EC_No":        df_tva["EC_No"],
+            "CG_Num":       df_tva["CG_Num"],
+            "EC_Sens":      df_tva["EC_Sens"],
+            "EC_Montant":   pd.to_numeric(df_tva["EC_Montant"], errors="coerce"),
             "date_extraction": today,
         })
 

@@ -135,15 +135,17 @@ function FinancePage() {
     );
   }, [depot, caissesData]);
 
-  const totalEspeces = useMemo(
-    () => filteredCaisses.reduce((s, c) => s + c.especes, 0),
+  const soldeTotal = useMemo(
+    () =>
+      filteredCaisses.reduce((s, c) => {
+        if (c.solde !== undefined && c.solde !== null) {
+          const solde = Number(c.solde);
+          return s + (Number.isFinite(solde) ? solde : 0);
+        }
+        return s + (c.especes || 0) + (c.cheques || 0);
+      }, 0),
     [filteredCaisses],
   );
-  const totalCheques = useMemo(
-    () => filteredCaisses.reduce((s, c) => s + c.cheques, 0),
-    [filteredCaisses],
-  );
-  const soldeTotal = totalEspeces + totalCheques;
 
   const alignedFlux = useMemo(() => {
     if (fluxData.length === 0) return [];

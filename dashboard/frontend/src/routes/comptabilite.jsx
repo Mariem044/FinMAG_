@@ -164,7 +164,7 @@ function ComptabilitePage() {
             />
             <KPICard
               label="Taux Équilibre D/C"
-              value={`${(fiscKpis?.equilibre_pct ?? 100).toFixed(2)}%`}
+              value={`${(fiscKpis?.equilibre_pct ?? 0).toFixed(2)}%`}
               subtitle="Intégrité des écritures"
               icon={Activity}
             />

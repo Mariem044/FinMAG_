@@ -171,7 +171,7 @@ def extract_fait_ecriturec():
 
 def extract_fait_regtaxe():
     sql = """
-        SELECT rt.EC_No, rt.TA_Taux01, rt.RT_Base01, rt.RT_Montant01, ec.JO_Num, ec.EC_Date, ec.CT_Num, j.JO_Type
+        SELECT rt.EC_No, rt.TA_Taux01, rt.RT_Base01, rt.RT_Montant01, ec.JO_Num, ec.EC_Date, ec.CT_Num, ec.CG_Num, ec.EC_Sens, ec.EC_Montant, j.JO_Type
         FROM F_REGTAXE rt
         INNER JOIN F_ECRITUREC ec ON ec.EC_No = rt.EC_No
         INNER JOIN F_JOURNAUX  j  ON j.JO_Num = ec.JO_Num

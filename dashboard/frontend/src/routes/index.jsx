@@ -89,19 +89,24 @@ function OverviewPage() {
     [articles],
   );
 
-  const dsiScatter = useMemo(
+  const rotationScatter = useMemo(
     () =>
       articles.slice(0, BUSINESS_THRESHOLDS.stockScatterLimit).map((a) => ({
+        rotation: Number((a.rotation || 0).toFixed(2)),
         dsi: Math.round(a.dsi || 0),
         ca: a.ca,
         stockVal: Math.round((a.stock || 0) * (a.prixMoyen || 0)),
         name: a.designation,
+        qteVendue: Math.round(a.qteVendue || 0),
       })),
     [articles],
   );
 
-  const dsiMoyen = Math.round(
-    dsiScatter.reduce((s, d) => s + d.dsi, 0) / Math.max(dsiScatter.length, 1),
+  const rotationMoyenne = Number(
+    (
+      rotationScatter.reduce((s, d) => s + d.rotation, 0) /
+      Math.max(rotationScatter.length, 1)
+    ).toFixed(2),
   );
 
   const topFamillesClean = useMemo(
@@ -271,19 +276,19 @@ function OverviewPage() {
         <ChartCard
           loading={chartsLoading}
           skeleton="scatter"
-          key={`rotation-${year}`}
+          key={`rotation-${year}-${quarter}-${segment}-${depot}`}
           title="Rotation des stocks par article"
         >
           <ResponsiveContainer width="100%" height={chartH}>
             <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
               <CartesianGrid stroke={CHART_THEME.grid} strokeDasharray="3 3" />
               <XAxis
-                dataKey="dsi"
-                name="Jours de stock"
+                dataKey="rotation"
+                name="Rotation annualisée"
                 tick={{ fill: CHART_THEME.axis, fontSize: 10 }}
                 axisLine={false}
                 label={{
-                  value: "Jours de stock",
+                  value: "Rotation annualisée",
                   position: "insideBottom",
                   offset: -10,
                   fill: CHART_THEME.axis,
@@ -307,7 +312,7 @@ function OverviewPage() {
               />
               <Tooltip content={<CustomTooltip />} />
               <ReferenceLine
-                x={dsiMoyen}
+                x={rotationMoyenne}
                 stroke={CHART_THEME.reference}
                 strokeDasharray="4 4"
                 label={{
@@ -318,7 +323,7 @@ function OverviewPage() {
                 }}
               />
               <Scatter
-                data={dsiScatter}
+                data={rotationScatter}
                 fill={CHART_THEME.primary}
                 opacity={0.7}
                 shape={(props) => {
@@ -326,8 +331,11 @@ function OverviewPage() {
                   const avgCa =
                     articles.reduce((s, a) => s + a.ca, 0) /
                     Math.max(articles.length, 1);
-                  const isStar = payload.dsi < dsiMoyen && payload.ca > avgCa;
-                  const isSlow = payload.dsi > 60 && payload.ca <= avgCa;
+                  const isStar =
+                    payload.rotation > rotationMoyenne && payload.ca > avgCa;
+                  const isSlow =
+                    payload.rotation < rotationMoyenne / 2 &&
+                    payload.ca <= avgCa;
                   return (
                     <circle
                       cx={cx}

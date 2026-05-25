@@ -1205,6 +1205,11 @@ def get_articles(
                 THEN COALESCE(stock.stock, 0) / (sales.qte_vendue / :p_days_in_period)
                 ELSE NULL 
             END AS dsi_jours,
+            CASE
+                WHEN COALESCE(stock.stock, 0) > 0
+                THEN (COALESCE(sales.qte_vendue, 0) / stock.stock) * (365.0 / :p_days_in_period)
+                ELSE NULL
+            END AS rotation_stock,
             stock.ratio_tension
         FROM DIM_ARTICLE a
         LEFT JOIN DIM_FAMILLE fa ON fa.id_famille = a.id_famille
@@ -1227,6 +1232,7 @@ def get_articles(
             ) if _num(r.ca) > 0 and _num(r.prix_moyen) > 0 else None,
             "stock": _num(r.stock),
             "dsi": _num(r.dsi_jours),
+            "rotation": _num(r.rotation_stock),
         }
         for r in _rows(sql, filt_params)
     ]
@@ -1393,9 +1399,17 @@ def get_banque_rapprochement_breakdown(
             "client": r.banque,
         })
 
+    sorted_banques = sorted(
+        bank_data.values(),
+        key=lambda row: sum(
+            _num(value) for key, value in row.items() if key != "banque"
+        ),
+        reverse=True,
+    )
+
     return {
         "totals": totals,
-        "banques": list(bank_data.values()),
+        "banques": sorted_banques,
         "transactions": transactions,
     }
 
@@ -1498,20 +1512,57 @@ def get_caisses(
             FROM FAIT_ECRITURES
             WHERE CA_SoldeEspece IS NOT NULL
             AND CA_SoldeEspece > 0
+        ),
+        filtered_period AS (
+            SELECT MAX(d.date_val) AS period_end
+            FROM FAIT_ECRITURES e
+            JOIN DIM_DATE d ON d.id_date = e.id_date
+            WHERE e.grain = 3
+            {filt_sql}
+        ),
+        latest_balance AS (
+            SELECT
+                e.id_caisse,
+                e.CA_SoldeEspece,
+                e.CA_SoldeCheque,
+                ROW_NUMBER() OVER (
+                    PARTITION BY e.id_caisse
+                    ORDER BY d.date_val DESC, e.id_ecriture DESC
+                ) AS rn
+            FROM FAIT_ECRITURES e
+            LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
+            WHERE e.grain = 3
+            AND (e.CA_SoldeEspece IS NOT NULL OR e.CA_SoldeCheque IS NOT NULL)
+        ),
+        movements_after_period AS (
+            SELECT
+                e.id_caisse,
+                SUM(COALESCE(e.MC_Credit, 0) - COALESCE(e.MC_Debit, 0)) AS net_after
+            FROM FAIT_ECRITURES e
+            JOIN DIM_DATE d ON d.id_date = e.id_date
+            CROSS JOIN filtered_period p
+            WHERE e.grain = 3
+            AND p.period_end IS NOT NULL
+            AND d.date_val > p.period_end
+            GROUP BY e.id_caisse
         )
-        SELECT 
+        SELECT
             c.CA_Numero_code,
-            MAX(e.CA_SoldeEspece) AS especes,
-            MAX(e.CA_SoldeCheque) AS cheques,
-            MAX(s.seuil_min)      AS seuil_min
+            COALESCE(lb.CA_SoldeEspece, 0) AS especes,
+            COALESCE(lb.CA_SoldeCheque, 0) AS cheques,
+            COALESCE(lb.CA_SoldeEspece, 0)
+                + COALESCE(lb.CA_SoldeCheque, 0)
+                - COALESCE(ma.net_after, 0) AS solde_periode,
+            MAX(s.seuil_min) AS seuil_min
         FROM DIM_CAISSE c
-        LEFT JOIN FAIT_ECRITURES e ON e.id_caisse = c.id_caisse
-        LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
+        LEFT JOIN latest_balance lb ON lb.id_caisse = c.id_caisse AND lb.rn = 1
+        LEFT JOIN movements_after_period ma ON ma.id_caisse = c.id_caisse
+        CROSS JOIN filtered_period p
         CROSS JOIN seuil s
         WHERE 1=1
+        AND p.period_end IS NOT NULL
         {depot_clause}
-        {filt_sql}
-        GROUP BY c.CA_Numero_code
+        GROUP BY c.CA_Numero_code, lb.CA_SoldeEspece, lb.CA_SoldeCheque, ma.net_after
         ORDER BY c.CA_Numero_code
     """
     params = {}
@@ -1524,6 +1575,7 @@ def get_caisses(
             "nom": f"Caisse {depot_map.get(r.CA_Numero_code, 'Dépôt Central')}",
             "especes": abs(_num(r.especes)),
             "cheques": abs(_num(r.cheques)),
+            "solde": _num(r.solde_periode),
             "seuilMin": _num(r.seuil_min),  
             "depot": depot_map.get(r.CA_Numero_code, "Dépôt Central"),
         }
@@ -1680,8 +1732,40 @@ def get_fiscalite_kpis(
         )
         SELECT
             SUM(CASE WHEN e.grain IN (1, 2) THEN 1 ELSE 0 END) AS nb_ecritures,
-            SUM(CASE WHEN e.grain = 2 AND j.JO_Type = 0 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS tva_collectee,
-            SUM(CASE WHEN e.grain = 2 AND j.JO_Type = 1 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS tva_deductible,
+            SUM(CASE
+                WHEN e.grain = 2
+                AND (
+                    LEFT(COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), ''), 3) = '411'
+                    OR LEFT(COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), ''), 4) = '4367'
+                    OR (
+                        COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), '') = ''
+                        AND COALESCE(e.EC_Sens, e_ref.EC_Sens) = 0
+                    )
+                    OR (
+                        COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), '') = ''
+                        AND COALESCE(e.EC_Sens, e_ref.EC_Sens) IS NULL
+                        AND j.JO_Type = 1
+                    )
+                )
+                THEN COALESCE(e.RT_Montant01, 0) ELSE 0
+            END) AS tva_collectee,
+            SUM(CASE
+                WHEN e.grain = 2
+                AND (
+                    LEFT(COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), ''), 3) = '401'
+                    OR LEFT(COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), ''), 4) IN ('4365', '4366')
+                    OR (
+                        COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), '') = ''
+                        AND COALESCE(e.EC_Sens, e_ref.EC_Sens) = 1
+                    )
+                    OR (
+                        COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), '') = ''
+                        AND COALESCE(e.EC_Sens, e_ref.EC_Sens) IS NULL
+                        AND j.JO_Type = 0
+                    )
+                )
+                THEN COALESCE(e.RT_Montant01, 0) ELSE 0
+            END) AS tva_deductible,
             SUM(CASE
                 WHEN e.grain = 1
                 AND COALESCE(stats.stdev_montant, 0) > 0
@@ -1689,6 +1773,7 @@ def get_fiscalite_kpis(
                 THEN 1 ELSE 0
             END) AS anomalies
         FROM FAIT_ECRITURES e
+        LEFT JOIN FAIT_ECRITURES e_ref ON e_ref.EC_No = e.EC_No AND e_ref.grain = 1
         LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
         LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
         CROSS JOIN stats
@@ -1698,13 +1783,25 @@ def get_fiscalite_kpis(
     row = _row(sql_kpis, filt_params)
 
     sql_dc = f"""
+        WITH groupes AS (
+            SELECT
+                e.id_date,
+                e.id_journal,
+                SUM(CASE WHEN e.EC_Sens = 0 THEN ABS(e.EC_Montant) ELSE 0 END) AS debit,
+                SUM(CASE WHEN e.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END) AS credit
+            FROM FAIT_ECRITURES e
+            LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
+            WHERE e.grain = 1
+            {filt_sql}
+            GROUP BY e.id_date, e.id_journal
+        )
         SELECT
-            SUM(CASE WHEN e.EC_Sens = 0 THEN ABS(e.EC_Montant) ELSE 0 END) AS debit,
-            SUM(CASE WHEN e.EC_Sens = 1 THEN ABS(e.EC_Montant) ELSE 0 END) AS credit
-        FROM FAIT_ECRITURES e
-        LEFT JOIN DIM_DATE d ON d.id_date = e.id_date
-        WHERE e.grain IN (1, 2)
-        {filt_sql}
+            COUNT(*) AS groupes_controles,
+            SUM(CASE WHEN ABS(COALESCE(debit, 0) - COALESCE(credit, 0)) <= 0.01 THEN 1 ELSE 0 END) AS groupes_equilibres,
+            SUM(ABS(COALESCE(debit, 0) - COALESCE(credit, 0))) AS ecart_total,
+            SUM(COALESCE(debit, 0)) AS debit,
+            SUM(COALESCE(credit, 0)) AS credit
+        FROM groupes
     """
     debit_credit = _row(sql_dc, filt_params)
 
@@ -1714,18 +1811,23 @@ def get_fiscalite_kpis(
             "tva_collectee": 0.0,
             "tva_deductible": 0.0,
             "anomalies": 0,
-            "equilibre_pct": 100.0,
+            "equilibre_pct": 0.0,
+            "groupes_controles": 0,
+            "groupes_equilibres": 0,
+            "ecart_dc": 0.0,
         }
 
-    debit = _num(debit_credit.debit)
-    credit = _num(debit_credit.credit)
-    total = max(debit, credit)
+    groupes_controles = _int(debit_credit.groupes_controles)
+    groupes_equilibres = _int(debit_credit.groupes_equilibres)
     return {
         "nb_ecritures": _int(row.nb_ecritures),
         "tva_collectee": _num(row.tva_collectee),
         "tva_deductible": _num(row.tva_deductible),
         "anomalies": _int(row.anomalies),
-        "equilibre_pct": (min(debit, credit) / total * 100) if total else 100,
+        "equilibre_pct": (groupes_equilibres / groupes_controles * 100) if groupes_controles else 0,
+        "groupes_controles": groupes_controles,
+        "groupes_equilibres": groupes_equilibres,
+        "ecart_dc": _num(debit_credit.ecart_total),
     }
 
 
@@ -1746,10 +1848,41 @@ def get_fiscalite_tva_by_month(
     sql = f"""
         SELECT
             d.mois AS month_num,
-            SUM(CASE WHEN e.grain = 2 AND j.JO_Type = 0 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS collectee,
-            SUM(CASE WHEN e.grain = 2 AND j.JO_Type = 1 THEN COALESCE(e.RT_Montant01, 0) ELSE 0 END) AS deductible
+            SUM(CASE
+                WHEN (
+                    LEFT(COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), ''), 3) = '411'
+                    OR LEFT(COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), ''), 4) = '4367'
+                    OR (
+                        COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), '') = ''
+                        AND COALESCE(e.EC_Sens, e_ref.EC_Sens) = 0
+                    )
+                    OR (
+                        COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), '') = ''
+                        AND COALESCE(e.EC_Sens, e_ref.EC_Sens) IS NULL
+                        AND j.JO_Type = 1
+                    )
+                )
+                THEN COALESCE(e.RT_Montant01, 0) ELSE 0
+            END) AS collectee,
+            SUM(CASE
+                WHEN (
+                    LEFT(COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), ''), 3) = '401'
+                    OR LEFT(COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), ''), 4) IN ('4365', '4366')
+                    OR (
+                        COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), '') = ''
+                        AND COALESCE(e.EC_Sens, e_ref.EC_Sens) = 1
+                    )
+                    OR (
+                        COALESCE(CONVERT(VARCHAR(30), e.CG_Num), CONVERT(VARCHAR(30), e_ref.CG_Num), '') = ''
+                        AND COALESCE(e.EC_Sens, e_ref.EC_Sens) IS NULL
+                        AND j.JO_Type = 0
+                    )
+                )
+                THEN COALESCE(e.RT_Montant01, 0) ELSE 0
+            END) AS deductible
         FROM FAIT_ECRITURES e
         JOIN DIM_DATE d ON d.id_date = e.id_date
+        LEFT JOIN FAIT_ECRITURES e_ref ON e_ref.EC_No = e.EC_No AND e_ref.grain = 1
         LEFT JOIN DIM_JOURNAL j ON j.id_journal = e.id_journal
         WHERE e.grain = 2
         AND e.RT_Montant01 IS NOT NULL
