@@ -44,6 +44,25 @@ const priorityColor = {
   Virement: CHART_THEME.positive,
 };
 
+const modeColor = {
+  cheque: CHART_THEME.primary,
+  traite: CHART_THEME.negative,
+  virement: CHART_THEME.positive,
+  espece: CHART_THEME.warning,
+};
+
+function getModeColor(mode, index) {
+  const key = String(mode || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return (
+    modeColor[key] ||
+    priorityColor[mode] ||
+    CHART_COLORS[index % CHART_COLORS.length]
+  );
+}
+
 function FinancePage() {
   const {
     year,
@@ -444,7 +463,7 @@ function FinancePage() {
                   key={m}
                   dataKey={m}
                   stackId="mode"
-                  fill={priorityColor[m]}
+                  fill={getModeColor(m, i)}
                   name={m}
                   radius={
                     i === activeModes.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]

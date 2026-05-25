@@ -248,7 +248,13 @@ def _build_filters_bordereaux(year=None, quarter=None, month=None, banque=None):
         params["month"] = m
 
     if banque and not _is_no_filter(banque):
-        sql += " AND br.BQ_ABREGE = :banque"
+        sql += """
+            AND COALESCE(
+                NULLIF(br.BQ_ABREGE, ''),
+                NULLIF(eb.EB_Abrege, ''),
+                NULLIF(br.BR_IntituleBanque, '')
+            ) = :banque
+        """
         params["banque"] = banque
 
     return sql, params
@@ -370,6 +376,12 @@ def _mode_reg_key(mode_label, mode_code=None):
 
     if low in reglement_modes:
         return reglement_modes[low]
+
+    # Fallback: use the raw label or code when the mode is not known.
+    if label:
+        return label
+    if mode_code is not None:
+        return str(mode_code).strip()
 
     return None
 
@@ -1314,13 +1326,11 @@ def get_banque_rapprochement_breakdown(
             COALESCE(NULLIF(br.BQ_ABREGE, ''), NULLIF(eb.EB_Abrege, ''), 'Non spécifiée') AS banque,
             br.BR_ModeReg AS mode_reg,
             COALESCE(
-                NULLIF(pr.R_Intitule, ''),
                 NULLIF(mr.MR_Designation, ''),
                 CONCAT('Mode ', br.BR_ModeReg)
             ) AS libelle_mode_reg,
             SUM(COALESCE(NULLIF(br.BR_TotalReglement, 0), NULLIF(br.BR_Montant, 0), 0)) AS total_montant
         FROM F_BordereauRemise br WITH (NOLOCK)
-        LEFT JOIN P_REGLEMENT pr WITH (NOLOCK) ON pr.R_Code = br.BR_ModeReg
         LEFT JOIN P_ModeReglements mr WITH (NOLOCK) ON mr.MR_Code = br.BR_ModeReg
         LEFT JOIN F_EBANQUE eb WITH (NOLOCK)
             ON REPLACE(COALESCE(br.BR_CompteBanque, ''), ' ', '') =
@@ -1355,14 +1365,12 @@ def get_banque_rapprochement_breakdown(
             br.BR_Num,
             br.BR_ModeReg AS mode_reg,
             COALESCE(
-                NULLIF(pr.R_Intitule, ''),
                 NULLIF(mr.MR_Designation, ''),
                 CONCAT('Mode ', br.BR_ModeReg)
             ) AS libelle_mode_reg,
             COALESCE(NULLIF(br.BR_TotalReglement, 0), NULLIF(br.BR_Montant, 0), 0) AS montant,
             COALESCE(NULLIF(br.BQ_ABREGE, ''), NULLIF(eb.EB_Abrege, ''), NULLIF(br.BR_IntituleBanque, ''), 'Banque') AS banque
         FROM F_BordereauRemise br WITH (NOLOCK)
-        LEFT JOIN P_REGLEMENT pr WITH (NOLOCK) ON pr.R_Code = br.BR_ModeReg
         LEFT JOIN P_ModeReglements mr WITH (NOLOCK) ON mr.MR_Code = br.BR_ModeReg
         LEFT JOIN F_EBANQUE eb WITH (NOLOCK)
             ON REPLACE(COALESCE(br.BR_CompteBanque, ''), ' ', '') =
