@@ -47,66 +47,37 @@ function formatMetric(value, formatter) {
   return Number.isFinite(value) && value > 0 ? formatter(value) : "-";
 }
 
-function SimpleGauge({ pct, color, label, value, subtext }) {
-  const r = 52;
-  const cx = 75;
-  const cy = 68;
-  const startA = Math.PI;
-  const endA = 0;
-  const valA = startA + (endA - startA) * Math.max(0, Math.min(pct, 1));
-  const arc = (a, rr) => ({
-    x: cx + rr * Math.cos(a),
-    y: cy + rr * Math.sin(a),
-  });
-  const bg = `M ${arc(startA, r).x} ${arc(startA, r).y} A ${r} ${r} 0 0 1 ${arc(endA, r).x} ${arc(endA, r).y}`;
-  const fill = `M ${arc(startA, r).x} ${arc(startA, r).y} A ${r} ${r} 0 ${pct > 0.5 ? 1 : 0} 1 ${arc(valA, r).x} ${arc(valA, r).y}`;
+function getMapeStatus(mape) {
+  if (!Number.isFinite(mape) || mape <= 0) return { label: "—", className: "text-text-dim bg-surface", color: "#888", pct: 0 };
+  if (mape < 20) return { label: "Bonne", className: "text-emerald-700 bg-emerald-100", color: "#1D9E75", pct: Math.min(mape / 20, 1) * 40 };
+  if (mape < 50) return { label: "Moyen", className: "text-amber-700 bg-amber-100", color: "#BA7517", pct: 60 };
+  return { label: "Élevée", className: "text-red-700 bg-red-100", color: "#E24B4A", pct: 100 };
+}
 
+function MetricCard({ label, value, badge, badgeClass, progressPct, progressColor, threshold, thresholdLabel, source }) {
   return (
-    <div className="flex flex-col items-center justify-center p-4 bg-surface/10 rounded-2xl border border-border/30 shadow-inner">
-      <svg width={150} height={80} className="overflow-visible">
-        <path
-          d={bg}
-          fill="none"
-          stroke={CHART_THEME.grid}
-          strokeWidth={8}
-          strokeLinecap="round"
+    <div className="bg-surface/10 border border-border/30 rounded-2xl p-4 shadow-sm space-y-2">
+      <div className="flex justify-between items-start">
+        <div>
+          <p className="text-[11px] text-text-dim mb-0.5">{label}</p>
+          <p className="text-[16px] font-semibold text-foreground leading-tight">{value}</p>
+        </div>
+        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-lg ${badgeClass}`}>
+          {badge}
+        </span>
+      </div>
+      <div className="h-1 rounded-full bg-surface/40 overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-700"
+          style={{ width: `${progressPct}%`, background: progressColor }}
         />
-        <path
-          d={fill}
-          fill="none"
-          stroke={color}
-          strokeWidth={8}
-          strokeLinecap="round"
-          className="transition-all duration-1000 ease-out"
-        />
-        <text
-          x={cx}
-          y={cy - 10}
-          textAnchor="middle"
-          fill="currentColor"
-          fontSize={18}
-          fontWeight="700"
-          className="text-foreground font-sans"
-        >
-          {value}
-        </text>
-        <text
-          x={cx}
-          y={cy + 6}
-          textAnchor="middle"
-          fill="currentColor"
-          fontSize={8}
-          fontWeight="bold"
-          className="text-text-dim uppercase tracking-wider"
-        >
-          {label}
-        </text>
-      </svg>
-      {subtext && (
-        <p className="text-[10px] text-text-dim mt-1.5 text-center leading-relaxed">
-          {subtext}
-        </p>
-      )}
+      </div>
+      <div className="flex justify-between text-[10px] text-text-dim">
+        <span>{threshold}</span>
+        <span style={{ color: progressColor }} className="font-semibold">{thresholdLabel}</span>
+      </div>
+      <hr className="border-border/20" />
+      <p className="text-[10px] text-text-dim">{source}</p>
     </div>
   );
 }
@@ -297,7 +268,7 @@ function PredictionsStudioPage() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4">
         <div className="bg-surface/20 border border-border/30 rounded-2xl p-5 flex flex-col justify-between">
           <div className="space-y-3">
             <h4 className="text-[13px] font-semibold text-foreground tracking-wide flex items-center gap-1.5">
@@ -341,52 +312,7 @@ function PredictionsStudioPage() {
           </button>
         </div>
 
-        <div className="md:col-span-2 bg-background border border-border/40 rounded-2xl p-4 flex flex-col h-[200px] shadow-inner">
-          <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-2">
-            <div className="flex items-center gap-1.5">
-              <Terminal size={12} className="text-text-dim" />
-              <span className="text-[9px] uppercase font-bold tracking-wider text-text-dim font-mono">
-                Journal d'execution
-              </span>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto space-y-1 font-mono text-[10px] text-text-dim pr-1 custom-scrollbar">
-            {apiLogs.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center space-y-1">
-                <Terminal size={18} className="opacity-30 text-indigo-400" />
-                <p className="text-[9px] uppercase tracking-wider font-bold">
-                  Aucun journal retourne par l'API
-                </p>
-                {mlStatus?.lastError && (
-                  <p className="text-[8.5px] max-w-[360px] text-red-400">
-                    {mlStatus.lastError}
-                  </p>
-                )}
-              </div>
-            ) : (
-              apiLogs.map((log, index) => (
-                <div
-                  key={`${log.time}-${index}`}
-                  className="flex gap-2 items-start py-0.5"
-                >
-                  {log.time && (
-                    <span className="text-text-dim/40 select-none">
-                      {log.time}
-                    </span>
-                  )}
-                  <span
-                    className={
-                      log.type === "error" ? "text-red-400" : "text-foreground"
-                    }
-                  >
-                    {log.message}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        
       </div>
 
       {modelSummaries.length > 0 && (
@@ -420,20 +346,36 @@ function PredictionsStudioPage() {
                 Mesures de validation
               </h4>
               <div className="grid grid-cols-2 gap-3">
-                <SimpleGauge
-                  pct={activeMetrics.pctMape}
-                  color={activeColor}
-                  label="Erreur MAPE"
-                  value={activeMetrics.mape}
-                  subtext="Depuis ML_KPI05_CA_FORECAST"
-                />
-                <SimpleGauge
-                  pct={activeMetrics.pctMae}
-                  color={CHART_THEME.secondary}
-                  label="MAE absolue"
-                  value={activeMetrics.mae}
-                  subtext="Depuis ML_KPI05_CA_FORECAST"
-                />
+                {(() => {
+                  const mapeStatus = getMapeStatus(activeModel?.mape);
+                  const maePct = modelSummaries.length <= 1
+    ? 50
+    : Number.isFinite(activeModel?.mae) ? Math.max(0, Math.min(1, 1 - activeModel.mae / maxMae)) * 100 : 0;
+                  return (
+                    <>
+                      <MetricCard
+                        label="Erreur MAPE"
+                        value={activeMetrics.mape}
+                        badge={mapeStatus.label}
+                        badgeClass={mapeStatus.className}
+                        progressPct={mapeStatus.pct}
+                        progressColor={mapeStatus.color}
+                        threshold="Seuil acceptable : < 20%"
+                        thresholdLabel={Number.isFinite(activeModel?.mape) && activeModel.mape > 20 ? `${(activeModel.mape / 20).toFixed(1)}× au-dessus` : "OK"}
+                      />
+                      <MetricCard
+                        label="MAE absolue"
+                        value={activeMetrics.mae}
+                        badge={maePct < 40 ? "Bonne" : maePct < 70 ? "Moyen" : "Élevée"}
+                        badgeClass={maePct < 40 ? "text-emerald-700 bg-emerald-100" : maePct < 70 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-100"}
+                        progressPct={maePct}
+                        progressColor={maePct < 40 ? "#1D9E75" : maePct < 70 ? "#BA7517" : "#E24B4A"}
+                        threshold="Relatif aux modèles actifs"
+                        thresholdLabel={`${maePct.toFixed(0)}% du max`}
+                      />
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>

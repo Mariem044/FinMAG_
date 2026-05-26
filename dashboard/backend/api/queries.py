@@ -636,7 +636,7 @@ def run_ml_models(horizon: Optional[int] = 12, models: Optional[str] = None):
 def get_ml_forecast_ca():
     try:
         rows = _rows("""
-            SELECT TOP 200
+            SELECT TOP 500
                 CONVERT(VARCHAR(10), ds, 23) AS ds,
                 model_name,
                 yhat, yhat_lower, yhat_upper, is_historical,

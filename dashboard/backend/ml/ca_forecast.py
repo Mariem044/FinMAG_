@@ -305,11 +305,12 @@ def _forecast_arima(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
         future_dates = pd.date_range(start=y.index[-1] + pd.DateOffset(months=1), periods=horizon, freq="MS")
         
         # Préparer les dataframes historique et futur
+        hist_ci = res.get_prediction(start=y.index[0]).conf_int(alpha=0.20)
         hist_df = pd.DataFrame({
             "ds": y.index,
             "yhat": hist_pred.values,
-            "yhat_lower": hist_pred.values * 0.95,
-            "yhat_upper": hist_pred.values * 1.05,
+            "yhat_lower": hist_ci.iloc[:, 0].values,
+            "yhat_upper": hist_ci.iloc[:, 1].values,
             "is_historical": 1
         })
         
@@ -381,11 +382,12 @@ def _forecast_sarima(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
         
         future_dates = pd.date_range(start=y.index[-1] + pd.DateOffset(months=1), periods=horizon, freq="MS")
         
+        hist_ci = res.get_prediction(start=y.index[0]).conf_int(alpha=0.20)
         hist_df = pd.DataFrame({
             "ds": y.index,
             "yhat": hist_pred.values,
-            "yhat_lower": hist_pred.values * 0.95,
-            "yhat_upper": hist_pred.values * 1.05,
+            "yhat_lower": hist_ci.iloc[:, 0].values,
+            "yhat_upper": hist_ci.iloc[:, 1].values,
             "is_historical": 1
         })
         
@@ -549,8 +551,8 @@ def _evaluate(df_hist: pd.DataFrame, forecast: pd.DataFrame) -> tuple[float, flo
     if merged.empty:
         return 0.0, 0.0
     
-    # Valider uniquement sur les 3 derniers mois (plus réaliste)
-    merged = merged.tail(3)
+    # Valider sur les 6 derniers mois (plus robuste statistiquement)
+    merged = merged.tail(6)
     
     # Calculer MAE (erreur moyenne absolue)
     mae  = float((merged["y"] - merged["yhat"]).abs().mean())
