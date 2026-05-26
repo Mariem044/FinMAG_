@@ -70,7 +70,9 @@ function ExtendedNatureList({ chartData, rawData }) {
   const top4 = chartData.filter((n) => !n.name.startsWith("Autres"));
 
   // all "Autres" items — the ones grouped out of the chart
-  const others = rawData.filter((item) => Number(item.value) < 5);
+const others = [...rawData]
+    .sort((a, b) => Number(b.value) - Number(a.value))
+    .slice(8);
   const totalOthers = others.length;
 
   return (
@@ -288,8 +290,9 @@ function FinancePage() {
     [availableModes, modeBanque],
   );
   const natureChartData = useMemo(() => {
-    const main = natureMvt.filter((item) => Number(item.value) >= 2);
-    const others = natureMvt.filter((item) => Number(item.value) < 2);
+    const sorted = [...natureMvt].sort((a, b) => Number(b.value) - Number(a.value));
+    const main = sorted.slice(0, 8);
+    const others = sorted.slice(8);
     const othersAmount = others.reduce((s, i) => s + (i.amount || 0), 0);
     const othersValue = others.reduce((s, i) => s + Number(i.value || 0), 0);
     const merged = others.length > 0
@@ -443,7 +446,7 @@ function FinancePage() {
             skeleton="line"
             title="Courbe des mouvements de caisse par nature"
           >
-          <div className="h-[460px]">
+          <div className="h-[280px]">
             {natureChartData.length === 0 ? (
               <div className="h-full flex items-center justify-center text-text-dim italic text-xs">
                 Aucune donnée disponible
@@ -470,7 +473,7 @@ function FinancePage() {
                   />
                   <YAxis
                     yAxisId="left"
-                    domain={[CHART_LIMITS.percentMin, CHART_LIMITS.percentMax]}
+                    domain={[0, (dataMax) => Math.min(100, Math.ceil(dataMax * 1.2))]}
                     tick={{ fill: CHART_THEME.axis, fontSize: 10 }}
                     axisLine={false}
                     tickFormatter={(v) => `${v}%`}
@@ -478,7 +481,7 @@ function FinancePage() {
                   <YAxis
                     yAxisId="right"
                     orientation="right"
-                    domain={[CHART_LIMITS.percentMin, CHART_LIMITS.percentMax]}
+                    domain={[0, 100]}
                     tick={{ fill: CHART_THEME.muted, fontSize: 10 }}
                     axisLine={false}
                     tickFormatter={(v) => `${v}%`}
