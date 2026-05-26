@@ -37,6 +37,12 @@ import {
   formatTND,
 } from "@/lib/dashboardConstants";
 import { useFilters } from "@/store/useFilters";
+
+function formatCompact(value) {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)} M TND`;
+  if (value >= 1_000)     return `${(value / 1_000).toFixed(1)} K TND`;
+  return `${value.toFixed(0)} TND`;
+}
 import { useMemo, useState } from "react";import { api } from "@/lib/api";
 import { useApiResource } from "@/hooks/useApiResource";
 
@@ -170,6 +176,65 @@ function AgingChart({ chartsLoading, chartH, paretoData, restAgingData }) {
   );
 }
 
+function AnomalyBarChart({ anomalyData, fiscKpis, chartH }) {
+  const bucketData = useMemo(() => {
+    if (!Array.isArray(anomalyData) || anomalyData.length === 0) return [];
+    const counts = {};
+    anomalyData.forEach(({ date, anomalie, score }) => {
+      if (!date) return;
+      const month = date.slice(0, 7); // "2025-06"
+      if (!counts[month]) counts[month] = { month, anomalies: 0, normales: 0 };
+      if (anomalie || score >= BUSINESS_THRESHOLDS.anomalyScore) {
+        counts[month].anomalies += 1;
+      } else {
+        counts[month].normales += 1;
+      }
+    });
+    return Object.values(counts).sort((a, b) => a.month.localeCompare(b.month));
+  }, [anomalyData]);
+
+  if (bucketData.length === 0) {
+    return (
+      <div style={{ height: chartH, display: "flex", alignItems: "center", justifyContent: "center", color: CHART_THEME.muted, fontSize: 13 }}>
+        Aucune donnée d'anomalie
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <ResponsiveContainer width="100%" height={chartH - 28}>
+        <BarChart data={bucketData} margin={{ top: 10, right: 16, left: 0, bottom: 20 }}>
+          <CartesianGrid stroke={CHART_THEME.grid} strokeDasharray="3 3" />
+          <XAxis
+            dataKey="month"
+            tick={{ fill: CHART_THEME.axis, fontSize: 10 }}
+            axisLine={false}
+            angle={-30}
+            textAnchor="end"
+            height={44}
+          />
+          <YAxis
+            tick={{ fill: CHART_THEME.axis, fontSize: 10 }}
+            axisLine={false}
+            allowDecimals={false}
+          />
+          <Tooltip content={<CustomTooltip />} />
+          <Bar dataKey="normales" stackId="a" fill={CHART_THEME.primary} opacity={0.35} name="Écritures normales" radius={[0, 0, 0, 0]} />
+          <Bar dataKey="anomalies" stackId="a" fill={CHART_THEME.negative} name="Anomalies" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+      <p className="text-[10px] text-text-dim mt-1 text-right">
+        <span className="inline-flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
+          {(fiscKpis?.anomalies ?? 0).toLocaleString("fr-TN")} anomalies
+          (score &gt;= {BUSINESS_THRESHOLDS.anomalyScore})
+        </span>
+      </p>
+    </>
+  );
+}
+
 function ComptabilitePage() {
   const { year, quarter } = useFilters();
   const chartH = useChartHeight();
@@ -261,20 +326,20 @@ const restAgingData = useMemo(() => sortedAgingData.slice(AGING_LIMIT), [sortedA
           <>
             <KPICard
               label="Encaissements Clients"
-              value={formatTND(summary.encaissements)}
+              value={formatCompact(summary.encaissements)}
               subtitle={`Taux Recov. : ${Math.round(summary.taux_recouvrement || 0)}% | DSO : ${summary.delai_moyen}j`}
               icon={Banknote}
             />
             <KPICard
               label="Créances Impayées"
-              value={formatTND(Math.round(summary.impayes))}
-              subtitle={`dont ${formatTND(gt90)} de plus de 90 jours`}
+              value={formatCompact(summary.impayes)}
+              subtitle={`dont ${formatCompact(gt90)} de plus de 90 jours`}
               icon={AlertCircle}
             />
             <KPICard
               label="TVA collectée depuis janvier"
-              value={formatTND(fiscKpis?.tva_collectee || 0)}
-              subtitle={`${formatTND(fiscKpis?.tva_deductible || 0)} déductible`}
+              value={formatCompact(fiscKpis?.tva_collectee || 0)}
+              subtitle={`${formatCompact(fiscKpis?.tva_deductible || 0)} déductible`}
               icon={Receipt}
             />
             <KPICard
@@ -372,66 +437,14 @@ const restAgingData = useMemo(() => sortedAgingData.slice(AGING_LIMIT), [sortedA
 
         <ChartCard
           loading={chartsLoading}
-          skeleton="scatter"
+          skeleton="bar"
           title="Détection anomalies comptables"
         >
-          <ResponsiveContainer width="100%" height={chartH}>
-            <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
-              <CartesianGrid stroke={CHART_THEME.grid} strokeDasharray="3 3" />
-              <XAxis
-                dataKey="date"
-                name="Date"
-                type="category"
-                tick={{ fill: CHART_THEME.axis, fontSize: 9 }}
-                axisLine={false}
-                angle={-30}
-                textAnchor="end"
-                height={40}
-              />
-              <YAxis
-                dataKey="score"
-                name="Score anomalie"
-                tick={{ fill: CHART_THEME.axis, fontSize: 11 }}
-                axisLine={false}
-                domain={[CHART_LIMITS.scoreMin, CHART_LIMITS.scoreMax]}
-                label={{
-                  value: "Score (0-1)",
-                  angle: -90,
-                  position: "insideLeft",
-                  fill: CHART_THEME.axis,
-                  fontSize: 10,
-                }}
-              />
-              <ZAxis
-                dataKey="montant"
-                range={[
-                  CHART_LIMITS.anomalyBubbleMin,
-                  CHART_LIMITS.anomalyBubbleMax,
-                ]}
-                name="Montant"
-              />
-              <Tooltip content={<CustomTooltip />} />
-              <ReferenceLine
-                y={BUSINESS_THRESHOLDS.anomalyScore}
-                stroke={CHART_THEME.negative}
-                strokeDasharray="4 4"
-                label={{
-                  value: `Seuil ${BUSINESS_THRESHOLDS.anomalyScore}`,
-                  fill: CHART_THEME.negative,
-                  fontSize: 10,
-                  position: "right",
-                }}
-              />
-              <Scatter data={anomalyData} shape={AnomalyDot} name="Écriture" />
-            </ScatterChart>
-          </ResponsiveContainer>
-          <p className="text-[10px] text-text-dim mt-1 text-right">
-            <span className="inline-flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
-              {(fiscKpis?.anomalies ?? 0).toLocaleString("fr-TN")} anomalies
-              (score &gt;= {BUSINESS_THRESHOLDS.anomalyScore})
-            </span>
-          </p>
+          <AnomalyBarChart
+            anomalyData={anomalyData}
+            fiscKpis={fiscKpis}
+            chartH={chartH}
+          />
         </ChartCard>
       </div>
     </div>

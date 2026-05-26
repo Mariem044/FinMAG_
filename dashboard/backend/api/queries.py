@@ -1098,7 +1098,7 @@ def get_aging(
         LEFT JOIN DIM_CLIENT c ON c.id_client = r.id_client
         LEFT JOIN DIM_DATE d ON d.id_date = COALESCE(r.id_date_paiement, r.id_date_echeance)
         LEFT JOIN DIM_SEGMENT s ON s.id_segment = c.id_segment
-       WHERE r.id_client IS NOT NULL
+        WHERE r.id_client IS NOT NULL
         AND r.DR_Regle = 0
         AND (r.bucket_impaye = 3 OR r.bucket_impaye IS NOT NULL)
         {filt_sql}
