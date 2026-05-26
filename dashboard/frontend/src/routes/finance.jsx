@@ -30,7 +30,7 @@ import {
   formatTND,
 } from "@/lib/dashboardConstants";
 import { useFilters } from "@/store/useFilters";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useApiResource } from "@/hooks/useApiResource";
 
@@ -60,6 +60,110 @@ function getModeColor(mode, index) {
     modeColor[key] ||
     priorityColor[mode] ||
     CHART_COLORS[index % CHART_COLORS.length]
+  );
+}
+
+function ExtendedNatureList({ chartData, rawData }) {
+  const [open, setOpen] = useState(false);
+
+  // top 4 visible items (main categories from chart)
+  const top4 = chartData.filter((n) => !n.name.startsWith("Autres"));
+
+  // all "Autres" items — the ones grouped out of the chart
+  const others = rawData.filter((item) => Number(item.value) < 5);
+  const totalOthers = others.length;
+
+  return (
+    <div className="mt-3">
+      {/* ── Top 4 cards ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {top4.slice(0, 4).map((n) => (
+          <div
+            key={n.name}
+            className="flex items-center justify-between gap-2 rounded-lg bg-background/40 border border-border/20 px-3 py-2"
+          >
+            <span className="flex items-center gap-2 min-w-0">
+              <span
+                className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{ background: n.fill }}
+              />
+              <span className="text-[10.5px] text-foreground" title={n.name}>
+                {n.name.length > 30 ? `${n.name.slice(0, 30)}…` : n.name}
+              </span>
+            </span>
+            <span className="text-[10.5px] text-text-dim tabular-nums whitespace-nowrap">
+              {n.value}% · {formatTND(n.amount)}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Toggle button ── */}
+      {totalOthers > 0 && (
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="mt-3 w-full flex items-center justify-between px-3 py-2 rounded-lg border border-border/20 bg-background/30 hover:bg-background/50 transition-colors text-[10.5px] text-text-dim hover:text-foreground"
+        >
+          <span className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-border/40" />
+            Autres — {totalOthers} catégories
+          </span>
+          <span className="text-[10px] font-medium">
+            {open ? "▲ Réduire" : "▼ Voir tout"}
+          </span>
+        </button>
+      )}
+
+      {/* ── Extended list ── */}
+      {open && totalOthers > 0 && (
+        <div className="mt-2 border border-border/20 rounded-lg overflow-hidden">
+          {/* Header */}
+          <div className="grid grid-cols-12 px-3 py-1.5 bg-background/60 border-b border-border/10 text-[9px] font-medium text-text-dim uppercase tracking-wide">
+            <span className="col-span-1">#</span>
+            <span className="col-span-6">Nature</span>
+            <span className="col-span-2 text-right">Part</span>
+            <span className="col-span-3 text-right">Montant</span>
+          </div>
+          {/* Rows */}
+          <div className="divide-y divide-border/10 max-h-[320px] overflow-y-auto">
+            {others
+              .sort((a, b) => Number(b.value) - Number(a.value))
+              .map((item, i) => (
+                <div
+                  key={item.name}
+                  className="grid grid-cols-12 items-center px-3 py-2 hover:bg-background/40 transition-colors"
+                >
+                  <span className="col-span-1 text-[9px] text-text-dim tabular-nums">
+                    {i + 1}
+                  </span>
+                  <span
+                    className="col-span-6 text-[10.5px] text-foreground truncate"
+                    title={item.name}
+                  >
+                    {item.name}
+                  </span>
+                  <span className="col-span-2 text-right text-[10px] tabular-nums text-text-dim">
+                    {Number(item.value).toFixed(1)}%
+                  </span>
+                  <span className="col-span-3 text-right text-[10px] tabular-nums text-text-dim">
+                    {formatTND(item.amount)}
+                  </span>
+                </div>
+              ))}
+          </div>
+          {/* Footer total */}
+          <div className="grid grid-cols-12 px-3 py-2 border-t border-border/20 bg-background/60">
+            <span className="col-span-7 text-[10px] font-medium text-foreground">Total autres</span>
+            <span className="col-span-2 text-right text-[10px] font-medium tabular-nums text-foreground">
+              {others.reduce((s, i) => s + Number(i.value || 0), 0).toFixed(1)}%
+            </span>
+            <span className="col-span-3 text-right text-[10px] font-medium tabular-nums text-foreground">
+              {formatTND(others.reduce((s, i) => s + (i.amount || 0), 0))}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -184,14 +288,21 @@ function FinancePage() {
     [availableModes, modeBanque],
   );
   const natureChartData = useMemo(() => {
+    const main = natureMvt.filter((item) => Number(item.value) >= 2);
+    const others = natureMvt.filter((item) => Number(item.value) < 2);
+    const othersAmount = others.reduce((s, i) => s + (i.amount || 0), 0);
+    const othersValue = others.reduce((s, i) => s + Number(i.value || 0), 0);
+    const merged = others.length > 0
+      ? [...main, { name: `Autres (${others.length})`, value: Number(othersValue.toFixed(1)), amount: othersAmount }]
+      : main;
     let cumul = 0;
-    return natureMvt.map((item, index) => {
+    return merged.map((item, index) => {
       cumul += Number(item.value) || 0;
       return {
         ...item,
         label:
-          (item.name || "").length > 14
-            ? `${(item.name || "").slice(0, 14)}...`
+          (item.name || "").length > 16
+            ? `${(item.name || "").slice(0, 16)}...`
             : item.name,
         cumul: Math.min(100, Number(cumul.toFixed(1))),
         fill: CHART_COLORS[index % CHART_COLORS.length],
@@ -332,7 +443,7 @@ function FinancePage() {
             skeleton="line"
             title="Courbe des mouvements de caisse par nature"
           >
-          <div className="h-[280px]">
+          <div className="h-[460px]">
             {natureChartData.length === 0 ? (
               <div className="h-full flex items-center justify-center text-text-dim italic text-xs">
                 Aucune donnée disponible
@@ -342,6 +453,7 @@ function FinancePage() {
                 <ComposedChart
                   data={natureChartData}
                   margin={{ top: 8, right: 12, bottom: 10, left: 0 }}
+                  barCategoryGap="8%"
                 >
                   <CartesianGrid
                     stroke={CHART_THEME.grid}
@@ -352,9 +464,9 @@ function FinancePage() {
                     tick={{ fill: CHART_THEME.axis, fontSize: 9 }}
                     axisLine={false}
                     interval={0}
-                    angle={-20}
+                    angle={-35}
                     textAnchor="end"
-                    height={50}
+                    height={70}
                   />
                   <YAxis
                     yAxisId="left"
@@ -371,7 +483,20 @@ function FinancePage() {
                     axisLine={false}
                     tickFormatter={(v) => `${v}%`}
                   />
-                  <Tooltip content={<CustomTooltip />} />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0]?.payload;
+                      return (
+                        <div className="rounded-lg border border-border/20 bg-background px-3 py-2 shadow-md text-xs">
+                          <p className="font-medium text-foreground mb-1">{d?.name}</p>
+                          <p className="text-text-dim">Part : <span className="font-medium text-foreground">{d?.value}%</span></p>
+                          <p className="text-text-dim">Montant : <span className="font-medium text-foreground">{formatTND(d?.amount)}</span></p>
+                          <p className="text-text-dim">Cumulé : <span className="font-medium text-foreground">{d?.cumul}%</span></p>
+                        </div>
+                      );
+                    }}
+                  />
                   <Legend
                     wrapperStyle={{ fontSize: 11, color: CHART_THEME.muted }}
                   />
@@ -380,7 +505,7 @@ function FinancePage() {
                     dataKey="value"
                     name="Part par nature"
                     radius={[4, 4, 0, 0]}
-                    barSize={22}
+                    barSize={80}
                   >
                     {natureChartData.map((item) => (
                       <Cell key={item.name} fill={item.fill} />
@@ -400,27 +525,10 @@ function FinancePage() {
             )}
           </div>
           {natureChartData.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-              {natureChartData.slice(0, 4).map((n) => (
-                <div
-                  key={n.name}
-                  className="flex items-center justify-between gap-2 rounded-lg bg-background/40 border border-border/20 px-3 py-2"
-                >
-                  <span className="flex items-center gap-2 min-w-0">
-                    <span
-                      className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ background: n.fill }}
-                    />
-                    <span className="text-[10.5px] text-foreground truncate">
-                      {n.name}
-                    </span>
-                  </span>
-                  <span className="text-[10.5px] text-text-dim tabular-nums whitespace-nowrap">
-                    {n.value}% · {formatTND(n.amount)}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <ExtendedNatureList
+              chartData={natureChartData}
+              rawData={natureMvt}
+            />
           )}
           </ChartCard>
         </div>
