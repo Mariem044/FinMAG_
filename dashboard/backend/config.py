@@ -16,28 +16,36 @@ Principaux points :
 - `hash_key(value)` : génère une clé entière stable à partir d'une valeur
     (utilisée pour créer des surrogate keys déterministes dans l'ETL).
 """
-
+#pour generer des hash-256
 import hashlib
 import logging
 import math
+#pour les variables d'environnement et les chemins de fichiers
 import os
 from datetime import date, datetime
 from pathlib import Path
+#pour manipuler les url de connexion SQL Server
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
 
 from dotenv import load_dotenv
+#pour créer les moteurs de bds avec sqlalchemy
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import QueuePool
 
+
+#reduit les logs de pyodbc , garde les warnings et erreurs
 logging.getLogger("pyodbc").setLevel(logging.WARNING)
 
-# load environment variables from .env
+
+#remonte 2 niveaux depuis ce fichier pour trouver le .env 
 DEFAULT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+#prend un chemin sinon elle utilise le chemin dessus 
 DOTENV_PATH = Path(os.environ.get("DOTENV_PATH", DEFAULT_ENV_PATH))
+#apres le chargement du .env
 load_dotenv(DOTENV_PATH if DOTENV_PATH.exists() else DEFAULT_ENV_PATH)
 
-
+#fonction pour récupérer une variable d'environnement obligatoire, sinon elle lève une erreur claire    
 def get_required_env(name: str) -> str:
     """Return a required environment variable or raise a clear error."""
     value = os.environ.get(name)
