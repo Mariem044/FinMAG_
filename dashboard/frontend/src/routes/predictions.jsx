@@ -348,9 +348,9 @@ function PredictionsStudioPage() {
               <div className="grid grid-cols-2 gap-3">
                 {(() => {
                   const mapeStatus = getMapeStatus(activeModel?.mape);
-                  const maePct = modelSummaries.length <= 1
-    ? 50
-    : Number.isFinite(activeModel?.mae) ? Math.max(0, Math.min(1, 1 - activeModel.mae / maxMae)) * 100 : 0;
+                  const maePct = Number.isFinite(activeModel?.mae) && maxMae > 0
+                    ? Math.max(0, Math.min(1, 1 - activeModel.mae / maxMae)) * 100
+                    : 0;
                   return (
                     <>
                       <MetricCard
@@ -362,16 +362,18 @@ function PredictionsStudioPage() {
                         progressColor={mapeStatus.color}
                         threshold="Seuil acceptable : < 20%"
                         thresholdLabel={Number.isFinite(activeModel?.mape) && activeModel.mape > 20 ? `${(activeModel.mape / 20).toFixed(1)}× au-dessus` : "OK"}
+                        source="Validation sur 6 derniers mois"
                       />
                       <MetricCard
                         label="MAE absolue"
                         value={activeMetrics.mae}
-                        badge={maePct < 40 ? "Bonne" : maePct < 70 ? "Moyen" : "Élevée"}
-                        badgeClass={maePct < 40 ? "text-emerald-700 bg-emerald-100" : maePct < 70 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-100"}
+                        badge={maePct > 60 ? "Bonne" : maePct > 30 ? "Moyen" : "Élevée"}
+                        badgeClass={maePct > 60 ? "text-emerald-700 bg-emerald-100" : maePct > 30 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-100"}
                         progressPct={maePct}
-                        progressColor={maePct < 40 ? "#1D9E75" : maePct < 70 ? "#BA7517" : "#E24B4A"}
+                        progressColor={maePct > 60 ? "#1D9E75" : maePct > 30 ? "#BA7517" : "#E24B4A"}
                         threshold="Relatif aux modèles actifs"
-                        thresholdLabel={`${maePct.toFixed(0)}% du max`}
+                        thresholdLabel={`${(100 - maePct).toFixed(0)}% du max`}
+                        source="Comparaison inter-modèles"
                       />
                     </>
                   );
@@ -431,6 +433,7 @@ function PredictionsStudioPage() {
                     <YAxis
                       tick={{ fill: CHART_THEME.axis, fontSize: 9 }}
                       axisLine={false}
+                      domain={[0, "auto"]}
                       tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
                     />
                     <Tooltip content={<CustomTooltip />} />
