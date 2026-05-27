@@ -6,6 +6,7 @@ from etl.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+
 ALLOW_TABLE_DELETE = os.environ.get("ETL_ALLOW_TABLE_DELETE", "true").strip().lower() in ("1", "true", "yes")
 
 

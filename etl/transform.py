@@ -7,10 +7,12 @@ effectuer d'opérations côté base de données.
 
 import pandas as pd
 
-
+#quels sont les transform pandas? 
+#ce sont les transformations spécifiques à notre domaine métier 
 def transform_dim_date(df):
     """Ajoute les colonnes calendrier à un DataFrame de dates."""
     df = df.copy()
+    #what is int16 ? c'est un type de données entier sur 16 bits, utilisé pour économiser de la mémoire lorsque les valeurs sont dans une plage limitée (ex: jours, mois, années)
     df["date_val"]    = pd.to_datetime(df["date_val"])
     df["jour"]        = df["date_val"].dt.day.astype("int16")
     df["mois"]        = df["date_val"].dt.month.astype("int16")
@@ -23,6 +25,7 @@ def transform_dim_date(df):
     df["est_ferie"]   = 0
     df["exercice"]    = df["annee"]
     return df
+
 
 
 def add_fact_reglements_calcs(df):

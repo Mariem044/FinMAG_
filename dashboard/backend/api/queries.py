@@ -6,7 +6,7 @@ Il pilote l'ETL et le ML
 """
 
 import os
-import logging
+import logging 
 import threading
 from pathlib import Path
 from typing import Optional

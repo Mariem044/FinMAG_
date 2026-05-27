@@ -1,4 +1,5 @@
 import logging
+#pandas pour la manipulation de données
 import pandas as pd
 
 from sqlalchemy import text
@@ -11,9 +12,11 @@ logger = logging.getLogger(__name__)
 def _read(engine, sql):
     """Lire un SQL et renvoyer un DataFrame pandas."""
     with engine.connect() as conn:
+        #text() est utilisé pour exécuter des requetes sql brutes avec sqlalchemy
         return pd.read_sql(text(sql), conn)
 
-
+#parfois il existe des différences de schéma entre les bases source 
+#par exemple une colonne peut être présente dans une base et absente dans l'autre
 def _table_columns(engine, table_name):
     """Récupérer les noms de colonnes d'une table dans la base source."""
     sql = """
@@ -25,7 +28,7 @@ def _table_columns(engine, table_name):
         rows = conn.execute(text(sql), {"table_name": table_name}).fetchall()
     return {str(row.COLUMN_NAME).lower() for row in rows}
 
-
+#lire les données depuis les bases #transformées en datafranmes
 def _select_column(existing_columns, column_name, alias=None, default="NULL"):
     """Sélectionner une colonne si elle existe, sinon renvoyer une valeur par défaut."""
     output_name = alias or column_name
@@ -33,13 +36,15 @@ def _select_column(existing_columns, column_name, alias=None, default="NULL"):
         return f"[{column_name}] AS [{output_name}]"
     return f"{default} AS [{output_name}]"
 
-
 def _select_first_column(existing_columns, column_names, alias, default="NULL"):
     """Rechercher le premier nom de colonne existant parmi plusieurs options."""
     for column_name in column_names:
         if column_name.lower() in existing_columns:
             return f"[{column_name}] AS [{alias}]"
     return f"{default} AS [{alias}]"
+
+
+
 
 
 def extract_dim_segment():
@@ -126,7 +131,7 @@ def extract_dim_caisse_mag():
             return df
     except SQLAlchemyError as exc:
         logger.warning(f"Could not read MAG caisse data; falling back to GRT: {exc}")
-
+    
     sql_grt = """
         SELECT 
             CA_Numero AS CA_No, 

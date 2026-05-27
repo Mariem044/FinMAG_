@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+﻿from __future__ import annotations 
 
 """Configuration partagée pour le backend FinMAG.
 
@@ -32,7 +32,7 @@ from sqlalchemy.pool import QueuePool
 
 logging.getLogger("pyodbc").setLevel(logging.WARNING)
 
-# Load environment variables from .env, unless DOTENV_PATH points to another file.
+# load environment variables from .env
 DEFAULT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 DOTENV_PATH = Path(os.environ.get("DOTENV_PATH", DEFAULT_ENV_PATH))
 load_dotenv(DOTENV_PATH if DOTENV_PATH.exists() else DEFAULT_ENV_PATH)
@@ -101,7 +101,8 @@ def _parse_date(name: str, default: str) -> date:
     value = os.environ.get(name, default)
     return datetime.strptime(value, "%Y-%m-%d").date()
 
-
+#moteurs sqlalchemy pour les connexions aux bases de données 
+#pool c'est pour limiter le nombre de connexions simultanées et éviter les surcharges
 DW_ENGINE = _make_engine(get_required_env("DW_CONN"), pool_size=5)
 MAG_ENGINE = _make_engine(get_required_env("MAG_CONN"), pool_size=3)
 GRT_ENGINE = _make_engine(get_required_env("GRT_CONN"), pool_size=3)
